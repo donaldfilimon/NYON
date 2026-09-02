@@ -1,11 +1,11 @@
-use intergalactic_warfare::game::model::{DEFAULT_SEED, Faction, RulesV1, Tick};
-use intergalactic_warfare::game::simulation::Simulation;
-use intergalactic_warfare::scenario::codec::{self, CodecError};
-use intergalactic_warfare::scenario::store::{
+use nyon::game::model::{DEFAULT_SEED, Faction, RulesV1, Tick};
+use nyon::game::simulation::Simulation;
+use nyon::scenario::codec::{self, CodecError};
+use nyon::scenario::store::{
     MemoryScenarioStore, NativePathEnvironment, NativePlatform, NativeScenarioStore, ScenarioStore,
-    StoreError, native_scenario_path,
+    StoreError, legacy_native_scenario_path, native_scenario_path,
 };
-use intergalactic_warfare::scenario::{IssueSeverity, ScenarioDraft, ScenarioIssueCode};
+use nyon::scenario::{IssueSeverity, ScenarioDraft, ScenarioIssueCode};
 
 #[test]
 fn factory_scenario_preserves_the_default_campaign_contract() {
@@ -361,34 +361,45 @@ fn native_paths_are_derived_from_injected_environment_without_mutation() {
     assert!(
         native_scenario_path(NativePlatform::MacOs, &environment)
             .unwrap()
-            .ends_with("Library/Application Support/Intergalactic Warfare/scenario-v1.json")
+            .ends_with("Library/Application Support/NYON/scenario-v1.json")
     );
     assert!(
         native_scenario_path(NativePlatform::Windows, &environment)
             .unwrap()
-            .ends_with("Intergalactic Warfare/scenario-v1.json")
+            .ends_with("NYON/scenario-v1.json")
     );
     assert_eq!(
         native_scenario_path(NativePlatform::Linux, &environment).unwrap(),
-        std::path::PathBuf::from("/xdg/data/intergalactic-warfare/scenario-v1.json")
+        std::path::PathBuf::from("/xdg/data/nyon/scenario-v1.json")
     );
     let fallback = NativePathEnvironment {
         xdg_data_home: None,
-        ..environment
+        ..environment.clone()
     };
     assert_eq!(
         native_scenario_path(NativePlatform::Linux, &fallback).unwrap(),
-        std::path::PathBuf::from(
-            "/users/example/.local/share/intergalactic-warfare/scenario-v1.json"
-        )
+        std::path::PathBuf::from("/users/example/.local/share/nyon/scenario-v1.json")
+    );
+
+    assert!(
+        legacy_native_scenario_path(NativePlatform::MacOs, &fallback)
+            .unwrap()
+            .ends_with("Library/Application Support/Intergalactic Warfare/scenario-v1.json")
+    );
+    assert!(
+        legacy_native_scenario_path(NativePlatform::Windows, &environment)
+            .unwrap()
+            .ends_with("Intergalactic Warfare/scenario-v1.json")
+    );
+    assert_eq!(
+        legacy_native_scenario_path(NativePlatform::Linux, &environment).unwrap(),
+        std::path::PathBuf::from("/xdg/data/intergalactic-warfare/scenario-v1.json")
     );
 }
 
 #[test]
 fn linux_empty_or_relative_xdg_uses_the_absolute_home_fallback() {
-    let expected = std::path::PathBuf::from(
-        "/users/example/.local/share/intergalactic-warfare/scenario-v1.json",
-    );
+    let expected = std::path::PathBuf::from("/users/example/.local/share/nyon/scenario-v1.json");
 
     for xdg_data_home in [std::path::PathBuf::new(), "relative/data".into()] {
         let environment = NativePathEnvironment {
@@ -402,6 +413,65 @@ fn linux_empty_or_relative_xdg_uses_the_absolute_home_fallback() {
             expected
         );
     }
+}
+
+#[test]
+fn native_store_imports_legacy_only_when_the_nyon_slot_is_absent() {
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("nyon/scenario-v1.json");
+    let legacy = directory.path().join("legacy/scenario-v1.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "legacy payload").unwrap();
+    let store = NativeScenarioStore::at_paths(&primary, &legacy);
+
+    assert_eq!(store.load().unwrap().as_deref(), Some("legacy payload"));
+
+    std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    std::fs::write(&primary, "invalid primary payload").unwrap();
+    assert_eq!(
+        store.load().unwrap().as_deref(),
+        Some("invalid primary payload")
+    );
+}
+
+#[test]
+fn native_store_propagates_corrupt_nyon_slot_errors_without_legacy_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("nyon/scenario-v1.json");
+    let legacy = directory.path().join("legacy/scenario-v1.json");
+    std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "valid legacy payload").unwrap();
+    let store = NativeScenarioStore::at_paths(&primary, &legacy);
+
+    std::fs::write(&primary, [0xFF]).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(StoreError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData
+    ));
+
+    std::fs::write(&primary, vec![b'X'; codec::MAX_JSON_BYTES + 1]).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(StoreError::OversizedSlot {
+            max_bytes: codec::MAX_JSON_BYTES
+        })
+    ));
+}
+
+#[test]
+fn native_store_saves_only_to_nyon_and_leaves_legacy_unchanged() {
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("nyon/scenario-v1.json");
+    let legacy = directory.path().join("legacy/scenario-v1.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "legacy sentinel").unwrap();
+    let mut store = NativeScenarioStore::at_paths(&primary, &legacy);
+
+    store.save("nyon payload").unwrap();
+
+    assert_eq!(std::fs::read_to_string(primary).unwrap(), "nyon payload");
+    assert_eq!(std::fs::read_to_string(legacy).unwrap(), "legacy sentinel");
 }
 
 #[test]

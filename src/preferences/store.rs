@@ -5,9 +5,11 @@ use std::{
 };
 
 use super::MAX_JSON_BYTES;
+use crate::scenario::store::load_primary_or_legacy;
 
 pub const PREFERENCES_FILE_NAME: &str = "preferences-v1.json";
-pub const LOCAL_STORAGE_KEY: &str = "intergalactic-warfare.preferences.v1";
+pub const LOCAL_STORAGE_KEY: &str = "nyon.preferences.v1";
+pub const LEGACY_LOCAL_STORAGE_KEY: &str = "intergalactic-warfare.preferences.v1";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesStoreError {
@@ -98,15 +100,36 @@ pub fn native_preferences_path(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn legacy_native_preferences_path(
+    platform: NativePlatform,
+    environment: &NativePathEnvironment,
+) -> Result<PathBuf, PreferencesStoreError> {
+    let scenario_path = crate::scenario::store::legacy_native_scenario_path(platform, environment)
+        .map_err(|error| PreferencesStoreError::UnavailablePath(error.to_string()))?;
+    Ok(scenario_path.with_file_name(PREFERENCES_FILE_NAME))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub struct NativePreferencesStore {
     path: PathBuf,
+    legacy_path: Option<PathBuf>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl NativePreferencesStore {
     pub fn at_path(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            legacy_path: None,
+        }
+    }
+
+    pub fn at_paths(path: impl Into<PathBuf>, legacy_path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            legacy_path: Some(legacy_path.into()),
+        }
     }
 
     pub fn for_current_platform() -> Result<Self, PreferencesStoreError> {
@@ -121,14 +144,34 @@ impl NativePreferencesStore {
         let platform = NativePlatform::Windows;
         #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
         let platform = NativePlatform::Linux;
-        Ok(Self::at_path(native_preferences_path(
-            platform,
-            &environment,
-        )?))
+        Ok(Self::at_paths(
+            native_preferences_path(platform, &environment)?,
+            legacy_native_preferences_path(platform, &environment)?,
+        ))
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn load_path(path: &Path) -> Result<Option<String>, PreferencesStoreError> {
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(PreferencesStoreError::Io(error)),
+        };
+        let mut bytes = Vec::with_capacity(MAX_JSON_BYTES + 1);
+        file.take((MAX_JSON_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_JSON_BYTES {
+            return Err(PreferencesStoreError::OversizedSlot {
+                max_bytes: MAX_JSON_BYTES,
+            });
+        }
+        let payload = String::from_utf8(bytes).map_err(|error| {
+            PreferencesStoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        })?;
+        Ok(Some(payload))
     }
 
     pub fn save_with_before_persist<F>(
@@ -166,23 +209,13 @@ impl NativePreferencesStore {
 #[cfg(not(target_arch = "wasm32"))]
 impl PreferencesStore for NativePreferencesStore {
     fn load(&self) -> Result<Option<String>, PreferencesStoreError> {
-        let file = match std::fs::File::open(&self.path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(PreferencesStoreError::Io(error)),
-        };
-        let mut bytes = Vec::with_capacity(MAX_JSON_BYTES + 1);
-        file.take((MAX_JSON_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_JSON_BYTES {
-            return Err(PreferencesStoreError::OversizedSlot {
-                max_bytes: MAX_JSON_BYTES,
-            });
-        }
-        let payload = String::from_utf8(bytes).map_err(|error| {
-            PreferencesStoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-        })?;
-        Ok(Some(payload))
+        load_primary_or_legacy(
+            || Self::load_path(&self.path),
+            || match self.legacy_path.as_deref() {
+                Some(path) => Self::load_path(path),
+                None => Ok(None),
+            },
+        )
     }
 
     fn save(&mut self, payload: &str) -> Result<(), PreferencesStoreError> {
@@ -212,11 +245,21 @@ impl WebPreferencesStore {
 #[cfg(target_arch = "wasm32")]
 impl PreferencesStore for WebPreferencesStore {
     fn load(&self) -> Result<Option<String>, PreferencesStoreError> {
-        let payload = Self::storage()?
-            .get_item(LOCAL_STORAGE_KEY)
-            .map_err(|error| {
-                PreferencesStoreError::Browser(format!("localStorage load failed: {error:?}"))
-            })?;
+        let storage = Self::storage()?;
+        let payload = load_primary_or_legacy(
+            || {
+                storage.get_item(LOCAL_STORAGE_KEY).map_err(|error| {
+                    PreferencesStoreError::Browser(format!("localStorage load failed: {error:?}"))
+                })
+            },
+            || {
+                storage.get_item(LEGACY_LOCAL_STORAGE_KEY).map_err(|error| {
+                    PreferencesStoreError::Browser(format!(
+                        "legacy localStorage load failed: {error:?}"
+                    ))
+                })
+            },
+        )?;
         if payload
             .as_ref()
             .is_some_and(|value| value.len() > MAX_JSON_BYTES)

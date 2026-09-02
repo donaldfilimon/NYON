@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs};
 
-use intergalactic_warfare::{
+use nyon::{
     engine::shader::validate_wgsl,
     ui::{
         AtlasMetrics, AtlasValidationError, EntryKind, FontWeight, MAX_UI_GLYPHS, MAX_UI_PANELS,

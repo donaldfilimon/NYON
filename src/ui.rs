@@ -18,7 +18,7 @@ const UI_ATLAS_ORDERING: &str =
 /// these values directly; tests validate this same production surface instead
 /// of maintaining a parallel literal list.
 pub mod text {
-    pub const TITLE: &str = "INTERGALACTIC WARFARE";
+    pub const TITLE: &str = "NYON";
     pub const NEURAL_ADVISORY: &str = "NEURAL ADVISORY";
     pub const ADVISORY_ONLY: &str = "ADVISORY ONLY";
     pub const CPU_FALLBACK: &str = "CPU FALLBACK";

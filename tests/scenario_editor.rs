@@ -1,12 +1,12 @@
 use glam::Vec2;
-use intergalactic_warfare::editor::{
+use nyon::editor::{
     ConfirmationAction, ConfirmedEditorAction, EditorAction, EditorLayoutKind, EditorSection,
     EditorState, WidgetKind, build_frame,
 };
-use intergalactic_warfare::engine::input::NavigationAction;
-use intergalactic_warfare::engine::primitives::PrimitiveBatch;
-use intergalactic_warfare::scenario::ScenarioDraft;
-use intergalactic_warfare::scenario::store::{MemoryScenarioStore, ScenarioStore};
+use nyon::engine::input::NavigationAction;
+use nyon::engine::primitives::PrimitiveBatch;
+use nyon::scenario::ScenarioDraft;
+use nyon::scenario::store::{MemoryScenarioStore, ScenarioStore};
 
 fn edit_first_world_name(editor: &mut EditorState, value: &str) {
     editor.select_world(0);

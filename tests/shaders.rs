@@ -1,4 +1,4 @@
-use intergalactic_warfare::{
+use nyon::{
     advisory::gpu::ADVISORY_WGSL,
     engine::shader::{
         POSTPROCESS_WGSL, PRIMITIVES_WGSL, ROUTES_WGSL, SPACE_WGSL, ShaderError, WORLDS_WGSL,

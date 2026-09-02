@@ -1,10 +1,10 @@
-use intergalactic_warfare::advisory::gpu::GpuAdvisoryError;
-use intergalactic_warfare::advisory::{
+use nyon::advisory::gpu::GpuAdvisoryError;
+use nyon::advisory::{
     AdvisoryBackend, AdvisoryController, AdvisoryMetadata, AdvisoryTrigger, CompletionDisposition,
     MODEL_VERSION, cpu_scores, evaluate_features, features_for_world, packed_features,
     packed_weights, parity_matches, priority_world,
 };
-use intergalactic_warfare::game::model::{
+use nyon::game::model::{
     ActiveHazard, Campaign, DEFAULT_SEED, Energy, Faction, FieldKind, Fleet, FleetId, HazardKind,
     RulesV1, Strength, Tick, WorldId,
 };

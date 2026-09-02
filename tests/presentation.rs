@@ -1,5 +1,5 @@
 use glam::{Vec2, Vec3, Vec4};
-use intergalactic_warfare::{
+use nyon::{
     game::{
         model::{Campaign, DEFAULT_SEED, FieldKind, RulesV1, WORLD_COUNT, WorldId},
         simulation::Simulation,

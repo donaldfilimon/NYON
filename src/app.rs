@@ -634,8 +634,7 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
         self.core.on_resume();
         self.last_frame = None;
         if self.window.is_none() {
-            let attributes =
-                Window::default_attributes().with_title("Intergalactic Warfare // Sector Command");
+            let attributes = Window::default_attributes().with_title("NYON // Sector Command");
             #[cfg(not(target_arch = "wasm32"))]
             let attributes = attributes
                 .with_inner_size(LogicalSize::new(1440.0, 900.0))

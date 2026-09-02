@@ -1,4 +1,4 @@
-use intergalactic_warfare::game::{model::*, simulation::*};
+use nyon::game::{model::*, simulation::*};
 
 fn arriving_fleet(id: u64, faction: Faction, destination: WorldId, strength: u64) -> Fleet {
     Fleet {

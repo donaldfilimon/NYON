@@ -1,11 +1,11 @@
-use intergalactic_warfare::{
+use nyon::{
     preferences::{
         MAX_JSON_BYTES, PreferencesCodecError, PreferencesFailure, UiScale, UserPreferencesV1,
         decode, encode, load_or_default, save_or_default,
         store::{
-            LOCAL_STORAGE_KEY, MemoryPreferencesStore, NativePathEnvironment, NativePlatform,
-            NativePreferencesStore, PreferencesStore, PreferencesStoreError,
-            native_preferences_path,
+            LEGACY_LOCAL_STORAGE_KEY, LOCAL_STORAGE_KEY, MemoryPreferencesStore,
+            NativePathEnvironment, NativePlatform, NativePreferencesStore, PreferencesStore,
+            PreferencesStoreError, legacy_native_preferences_path, native_preferences_path,
         },
     },
     presentation::{GraphicsQuality, MotionPreference, PresentationPreferences},
@@ -247,13 +247,113 @@ fn preference_failures_cannot_read_or_overwrite_the_scenario_slot() {
 }
 
 #[test]
-fn browser_store_source_uses_only_the_frozen_preference_key() {
+fn browser_store_uses_nyon_primary_and_read_only_legacy_preference_keys() {
     let source = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/preferences/store.rs"),
     )
     .unwrap();
-    assert_eq!(LOCAL_STORAGE_KEY, "intergalactic-warfare.preferences.v1");
+    assert_eq!(LOCAL_STORAGE_KEY, "nyon.preferences.v1");
+    assert_eq!(
+        LEGACY_LOCAL_STORAGE_KEY,
+        "intergalactic-warfare.preferences.v1"
+    );
+    assert!(source.contains("load_primary_or_legacy("));
     assert!(source.contains("get_item(LOCAL_STORAGE_KEY)"));
+    assert!(source.contains("get_item(LEGACY_LOCAL_STORAGE_KEY)"));
     assert!(source.contains("set_item(LOCAL_STORAGE_KEY, payload)"));
+    assert!(!source.contains("set_item(LEGACY_LOCAL_STORAGE_KEY"));
     assert!(!source.contains("intergalactic-warfare.scenario.v1"));
+}
+
+#[test]
+fn native_preference_paths_keep_nyon_and_legacy_namespaces_distinct() {
+    let environment = NativePathEnvironment {
+        home: Some("/users/example".into()),
+        appdata: Some("C:/Users/example/AppData/Roaming".into()),
+        xdg_data_home: Some("/xdg/data".into()),
+    };
+
+    for (platform, primary_suffix, legacy_suffix) in [
+        (
+            NativePlatform::MacOs,
+            "Library/Application Support/NYON/preferences-v1.json",
+            "Library/Application Support/Intergalactic Warfare/preferences-v1.json",
+        ),
+        (
+            NativePlatform::Windows,
+            "NYON/preferences-v1.json",
+            "Intergalactic Warfare/preferences-v1.json",
+        ),
+        (
+            NativePlatform::Linux,
+            "nyon/preferences-v1.json",
+            "intergalactic-warfare/preferences-v1.json",
+        ),
+    ] {
+        assert!(
+            native_preferences_path(platform, &environment)
+                .unwrap()
+                .ends_with(primary_suffix)
+        );
+        assert!(
+            legacy_native_preferences_path(platform, &environment)
+                .unwrap()
+                .ends_with(legacy_suffix)
+        );
+    }
+}
+
+#[test]
+fn native_preferences_import_legacy_only_when_nyon_is_absent_and_save_nyon_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("nyon/preferences-v1.json");
+    let legacy = directory.path().join("legacy/preferences-v1.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "legacy preferences").unwrap();
+    let mut store = NativePreferencesStore::at_paths(&primary, &legacy);
+
+    assert_eq!(store.load().unwrap().as_deref(), Some("legacy preferences"));
+
+    std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    std::fs::write(&primary, "invalid primary preferences").unwrap();
+    assert_eq!(
+        store.load().unwrap().as_deref(),
+        Some("invalid primary preferences")
+    );
+
+    store.save("nyon preferences").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(primary).unwrap(),
+        "nyon preferences"
+    );
+    assert_eq!(
+        std::fs::read_to_string(legacy).unwrap(),
+        "legacy preferences"
+    );
+}
+
+#[test]
+fn native_preferences_propagate_corrupt_nyon_slot_errors_without_legacy_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("nyon/preferences-v1.json");
+    let legacy = directory.path().join("legacy/preferences-v1.json");
+    std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "valid legacy preferences").unwrap();
+    let store = NativePreferencesStore::at_paths(&primary, &legacy);
+
+    std::fs::write(&primary, [0xFF]).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(PreferencesStoreError::Io(error))
+            if error.kind() == std::io::ErrorKind::InvalidData
+    ));
+
+    std::fs::write(&primary, vec![b'X'; MAX_JSON_BYTES + 1]).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(PreferencesStoreError::OversizedSlot {
+            max_bytes: MAX_JSON_BYTES
+        })
+    ));
 }

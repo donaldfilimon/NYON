@@ -31,11 +31,15 @@ fn browser_gpu_startup_is_local_and_marker_only() {
 fn browser_store_and_static_loader_use_the_frozen_contract() {
     let platform = project_file("src/platform/web.rs");
     let html = project_file("web/index.html");
+    assert!(platform.contains("nyon.scenario.v1"));
     assert!(platform.contains("intergalactic-warfare.scenario.v1"));
     assert!(platform.contains("local_storage()"));
+    assert!(platform.contains("load_primary_or_legacy("));
     assert!(platform.contains("get_item(LOCAL_STORAGE_KEY)"));
+    assert!(platform.contains("get_item(LEGACY_LOCAL_STORAGE_KEY)"));
     assert!(platform.contains("set_item(LOCAL_STORAGE_KEY, payload)"));
-    assert!(html.contains("../dist/intergalactic_warfare.js"));
+    assert!(!platform.contains("set_item(LEGACY_LOCAL_STORAGE_KEY"));
+    assert!(html.contains("../dist/nyon.js"));
     assert!(html.contains("type=\"module\""));
 }
 

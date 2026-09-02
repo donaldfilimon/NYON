@@ -25,5 +25,5 @@ mkdir -p dist
 "${WASM_BINDGEN}" \
   --target web \
   --out-dir dist \
-  --out-name intergalactic_warfare \
-  "target/${TARGET}/release/intergalactic_warfare.wasm"
+  --out-name nyon \
+  "target/${TARGET}/release/nyon.wasm"

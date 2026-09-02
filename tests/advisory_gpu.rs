@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use intergalactic_warfare::{
+use nyon::{
     advisory::gpu::{FEATURES_BUFFER_SIZE, GpuAdvisory, SCORES_BUFFER_SIZE, WEIGHTS_BUFFER_SIZE},
     advisory::{AdvisoryController, AdvisoryTrigger, CompletionDisposition},
     game::model::{Campaign, DEFAULT_SEED, RulesV1},
@@ -59,7 +59,7 @@ fn gpu_scores_match_cpu_or_reports_a_real_adapter_skip() {
         assert!(gpu.has_in_flight_request());
         assert!(matches!(
             gpu.submit(&request),
-            Err(intergalactic_warfare::advisory::gpu::GpuAdvisoryError::Busy)
+            Err(nyon::advisory::gpu::GpuAdvisoryError::Busy)
         ));
 
         let deadline = Instant::now() + Duration::from_secs(10);

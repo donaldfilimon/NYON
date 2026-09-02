@@ -1,6 +1,6 @@
-# Intergalactic Warfare
+# NYON
 
-Intergalactic Warfare is a deterministic, single-player seven-world strategy game written in Rust with winit and wgpu. The campaign simulation uses integer fixed-tick state. Rendering, the detached scenario editor, and the optional WebGPU neural advisory do not control simulation commands, AI, or outcomes.
+NYON is a deterministic, single-player seven-world strategy game written in Rust with winit and wgpu. The campaign simulation uses integer fixed-tick state. Rendering, the detached scenario editor, and the optional WebGPU neural advisory do not control simulation commands, AI, or outcomes.
 
 ## Run natively
 
@@ -42,10 +42,12 @@ First-run guidance pauses without accumulating catch-up time and walks through s
 
 Scenario JSON is versioned, limited to 65,536 UTF-8 bytes, rejects unknown fields, uses exactly 16 uppercase hexadecimal seed digits, and encodes every `u64` as a canonical decimal string. Loading does not apply automatically; failed load, save, validation, or apply preserves the active campaign.
 
-- macOS: `~/Library/Application Support/Intergalactic Warfare/scenario-v1.json`
-- Windows: `%APPDATA%\Intergalactic Warfare\scenario-v1.json`
-- Linux: `$XDG_DATA_HOME/intergalactic-warfare/scenario-v1.json`, falling back to `~/.local/share/intergalactic-warfare/scenario-v1.json`
-- Browser: origin-scoped `localStorage` key `intergalactic-warfare.scenario.v1`
+- macOS: `~/Library/Application Support/NYON/scenario-v1.json`
+- Windows: `%APPDATA%\NYON\scenario-v1.json`
+- Linux: `$XDG_DATA_HOME/nyon/scenario-v1.json`, falling back to `~/.local/share/nyon/scenario-v1.json`
+- Browser: origin-scoped `localStorage` key `nyon.scenario.v1`
+
+When the NYON scenario slot is absent, loading may consult the corresponding legacy Intergalactic Warfare path or `intergalactic-warfare.scenario.v1` browser key as a read-only fallback. A present NYON slot always wins, including when its payload is invalid. Saving writes only to the NYON slot and never changes legacy storage.
 
 Browser storage can be denied or unavailable and is not confidential. Store failures are recoverable editor errors.
 
@@ -54,7 +56,9 @@ Browser storage can be denied or unavailable and is not confidential. Store fail
 UI scale, motion, contrast, graphics quality, and onboarding completion use a separate versioned record limited to 16 KiB. Malformed, oversized, unsupported-version, denied, or quota-failed preference data falls back to defaults with one recoverable message and cannot read, overwrite, or apply scenario data.
 
 - Native: `preferences-v1.json` beside the platform-specific scenario slot above
-- Browser: origin-scoped `localStorage` key `intergalactic-warfare.preferences.v1`
+- Browser: origin-scoped `localStorage` key `nyon.preferences.v1`
+
+Preference loading follows the same read-only legacy fallback rule using the old `preferences-v1.json` location or `intergalactic-warfare.preferences.v1` browser key. Preference saving writes only to NYON storage.
 
 Reduced motion removes camera easing, parallax, pulsing halos, and nonessential particles while preserving static selection, ownership, field, fleet, and hazard cues. High contrast keeps faction hues and adds persistent non-color patterns. These are presentation preferences only; they never enter scenario JSON, campaign truth, command ordering, or the canonical state digest.
 

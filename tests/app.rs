@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use glam::Vec2;
-use intergalactic_warfare::{
+use nyon::{
     app::{
         AppCore, AppMode, PointerIntent, SurfaceDecision, SurfaceState, game_command_for_action,
         pointer_command, surface_decision,
@@ -194,7 +194,7 @@ fn scene_picking_camera_and_preview_remain_session_only() {
     assert_eq!(
         core.preview_contextual_launch(),
         Some(Err(
-            intergalactic_warfare::game::simulation::CommandRejection::SameSourceAndTarget
+            nyon::game::simulation::CommandRejection::SameSourceAndTarget
         ))
     );
 

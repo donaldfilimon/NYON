@@ -10,11 +10,12 @@ use crate::{
     scenario::{
         ScenarioDraft, ValidationReport,
         codec::MAX_JSON_BYTES,
-        store::{ScenarioStore, StoreError},
+        store::{ScenarioStore, StoreError, load_primary_or_legacy},
     },
 };
 
-pub const LOCAL_STORAGE_KEY: &str = "intergalactic-warfare.scenario.v1";
+pub const LOCAL_STORAGE_KEY: &str = "nyon.scenario.v1";
+pub const LEGACY_LOCAL_STORAGE_KEY: &str = "intergalactic-warfare.scenario.v1";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WebScenarioStore;
@@ -34,9 +35,19 @@ impl WebScenarioStore {
 
 impl ScenarioStore for WebScenarioStore {
     fn load(&self) -> Result<Option<String>, StoreError> {
-        let payload = Self::storage()?
-            .get_item(LOCAL_STORAGE_KEY)
-            .map_err(|error| StoreError::Browser(format!("localStorage load failed: {error:?}")))?;
+        let storage = Self::storage()?;
+        let payload = load_primary_or_legacy(
+            || {
+                storage.get_item(LOCAL_STORAGE_KEY).map_err(|error| {
+                    StoreError::Browser(format!("localStorage load failed: {error:?}"))
+                })
+            },
+            || {
+                storage.get_item(LEGACY_LOCAL_STORAGE_KEY).map_err(|error| {
+                    StoreError::Browser(format!("legacy localStorage load failed: {error:?}"))
+                })
+            },
+        )?;
         if payload
             .as_ref()
             .is_some_and(|value| value.len() > MAX_JSON_BYTES)

@@ -19,6 +19,16 @@ pub enum StoreError {
     Browser(String),
 }
 
+pub(crate) fn load_primary_or_legacy<T, E>(
+    primary: impl FnOnce() -> Result<Option<T>, E>,
+    legacy: impl FnOnce() -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+    match primary()? {
+        Some(value) => Ok(Some(value)),
+        None => legacy(),
+    }
+}
+
 pub trait ScenarioStore {
     fn load(&self) -> Result<Option<String>, StoreError>;
     fn save(&mut self, payload: &str) -> Result<(), StoreError>;
@@ -78,6 +88,29 @@ pub fn native_scenario_path(
     platform: NativePlatform,
     environment: &NativePathEnvironment,
 ) -> Result<PathBuf, StoreError> {
+    native_scenario_path_for_namespace(platform, environment, "NYON", "nyon")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn legacy_native_scenario_path(
+    platform: NativePlatform,
+    environment: &NativePathEnvironment,
+) -> Result<PathBuf, StoreError> {
+    native_scenario_path_for_namespace(
+        platform,
+        environment,
+        "Intergalactic Warfare",
+        "intergalactic-warfare",
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_scenario_path_for_namespace(
+    platform: NativePlatform,
+    environment: &NativePathEnvironment,
+    native_directory: &str,
+    linux_directory: &str,
+) -> Result<PathBuf, StoreError> {
     let missing = || {
         StoreError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -89,12 +122,15 @@ pub fn native_scenario_path(
             .home
             .as_ref()
             .ok_or_else(missing)?
-            .join("Library/Application Support/Intergalactic Warfare/scenario-v1.json")),
+            .join("Library/Application Support")
+            .join(native_directory)
+            .join("scenario-v1.json")),
         NativePlatform::Windows => Ok(environment
             .appdata
             .as_ref()
             .ok_or_else(missing)?
-            .join("Intergalactic Warfare/scenario-v1.json")),
+            .join(native_directory)
+            .join("scenario-v1.json")),
         NativePlatform::Linux => {
             let root = if let Some(xdg) = environment
                 .xdg_data_home
@@ -110,7 +146,7 @@ pub fn native_scenario_path(
                     .ok_or_else(missing)?
                     .join(".local/share")
             };
-            Ok(root.join("intergalactic-warfare/scenario-v1.json"))
+            Ok(root.join(linux_directory).join("scenario-v1.json"))
         }
     }
 }
@@ -119,12 +155,23 @@ pub fn native_scenario_path(
 #[derive(Clone, Debug)]
 pub struct NativeScenarioStore {
     path: PathBuf,
+    legacy_path: Option<PathBuf>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl NativeScenarioStore {
     pub fn at_path(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            legacy_path: None,
+        }
+    }
+
+    pub fn at_paths(path: impl Into<PathBuf>, legacy_path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            legacy_path: Some(legacy_path.into()),
+        }
     }
 
     pub fn for_current_platform() -> Result<Self, StoreError> {
@@ -139,11 +186,34 @@ impl NativeScenarioStore {
         let platform = NativePlatform::Windows;
         #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
         let platform = NativePlatform::Linux;
-        Ok(Self::at_path(native_scenario_path(platform, &environment)?))
+        Ok(Self::at_paths(
+            native_scenario_path(platform, &environment)?,
+            legacy_native_scenario_path(platform, &environment)?,
+        ))
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn load_path(path: &Path) -> Result<Option<String>, StoreError> {
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(StoreError::Io(error)),
+        };
+        let mut bytes = Vec::with_capacity(MAX_JSON_BYTES + 1);
+        file.take((MAX_JSON_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_JSON_BYTES {
+            return Err(StoreError::OversizedSlot {
+                max_bytes: MAX_JSON_BYTES,
+            });
+        }
+        let payload = String::from_utf8(bytes).map_err(|error| {
+            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        })?;
+        Ok(Some(payload))
     }
 
     pub fn save_with_before_persist<F>(
@@ -176,26 +246,87 @@ impl NativeScenarioStore {
 #[cfg(not(target_arch = "wasm32"))]
 impl ScenarioStore for NativeScenarioStore {
     fn load(&self) -> Result<Option<String>, StoreError> {
-        let file = match std::fs::File::open(&self.path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(StoreError::Io(error)),
-        };
-        let mut bytes = Vec::with_capacity(MAX_JSON_BYTES + 1);
-        file.take((MAX_JSON_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_JSON_BYTES {
-            return Err(StoreError::OversizedSlot {
-                max_bytes: MAX_JSON_BYTES,
-            });
-        }
-        let payload = String::from_utf8(bytes).map_err(|error| {
-            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-        })?;
-        Ok(Some(payload))
+        load_primary_or_legacy(
+            || Self::load_path(&self.path),
+            || match self.legacy_path.as_deref() {
+                Some(path) => Self::load_path(path),
+                None => Ok(None),
+            },
+        )
     }
 
     fn save(&mut self, payload: &str) -> Result<(), StoreError> {
         self.save_with_before_persist(payload, || Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod resolution_tests {
+    use std::cell::Cell;
+
+    use super::load_primary_or_legacy;
+
+    #[test]
+    fn primary_value_wins_without_consulting_legacy() {
+        let legacy_calls = Cell::new(0);
+
+        let result: Result<Option<&str>, &str> = load_primary_or_legacy(
+            || Ok(Some("")),
+            || {
+                legacy_calls.set(legacy_calls.get() + 1);
+                Ok(Some("legacy"))
+            },
+        );
+
+        assert_eq!(result, Ok(Some("")));
+        assert_eq!(legacy_calls.get(), 0);
+    }
+
+    #[test]
+    fn primary_absence_consults_legacy_exactly_once() {
+        let legacy_calls = Cell::new(0);
+
+        let result: Result<Option<&str>, &str> = load_primary_or_legacy(
+            || Ok(None),
+            || {
+                legacy_calls.set(legacy_calls.get() + 1);
+                Ok(Some("legacy"))
+            },
+        );
+
+        assert_eq!(result, Ok(Some("legacy")));
+        assert_eq!(legacy_calls.get(), 1);
+    }
+
+    #[test]
+    fn primary_error_propagates_without_consulting_legacy() {
+        let legacy_calls = Cell::new(0);
+
+        let result: Result<Option<&str>, &str> = load_primary_or_legacy(
+            || Err("primary error"),
+            || {
+                legacy_calls.set(legacy_calls.get() + 1);
+                Ok(Some("legacy"))
+            },
+        );
+
+        assert_eq!(result, Err("primary error"));
+        assert_eq!(legacy_calls.get(), 0);
+    }
+
+    #[test]
+    fn legacy_error_propagates_only_after_primary_absence() {
+        let legacy_calls = Cell::new(0);
+
+        let result: Result<Option<&str>, &str> = load_primary_or_legacy(
+            || Ok(None),
+            || {
+                legacy_calls.set(legacy_calls.get() + 1);
+                Err("legacy error")
+            },
+        );
+
+        assert_eq!(result, Err("legacy error"));
+        assert_eq!(legacy_calls.get(), 1);
     }
 }

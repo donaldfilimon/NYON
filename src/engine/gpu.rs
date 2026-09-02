@@ -125,7 +125,7 @@ impl PreparedGpuContext {
             .await?;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("Intergalactic Warfare device"),
+                label: Some("NYON device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 ..Default::default()

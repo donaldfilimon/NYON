@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use glam::Vec2;
-use intergalactic_warfare::{
+use nyon::{
     app::{AppCore, AppMode, GameSpeed, onboarding::OnboardingStep, settings::SettingsAction},
     engine::input::Action,
     game::{
@@ -335,8 +335,8 @@ fn compact_chrome_consumes_pointer_gaps_and_tiny_layouts_remain_bounded() {
         preferences: UserPreferencesV1::default(),
         command_tray: &CommandTrayState::default(),
     });
-    let mut batch = intergalactic_warfare::ui::UiBatch::default();
-    let metrics = intergalactic_warfare::ui::AtlasMetrics::embedded().unwrap();
+    let mut batch = nyon::ui::UiBatch::default();
+    let metrics = nyon::ui::AtlasMetrics::embedded().unwrap();
     build_ui_batch(&tiny, &metrics, &mut batch).unwrap();
     assert!(batch.glyphs().iter().all(|glyph| {
         glyph.rect[0].is_finite()
@@ -536,7 +536,7 @@ fn editor_and_ui_preview_remain_command_isolated() {
     assert!(!core.queue_game_command(GameCommand::TuneField {
         world: WorldId(0),
         field: FieldKind::Atmosphere,
-        adjustment: intergalactic_warfare::game::model::FieldAdjustment::Increase,
+        adjustment: nyon::game::model::FieldAdjustment::Increase,
     }));
     assert_eq!(core.simulation().canonical_fingerprint(), before);
     assert_eq!(core.simulation().pending_command_count(), 0);

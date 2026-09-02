@@ -5,7 +5,7 @@ use naga::{
     VectorSize,
 };
 
-use intergalactic_warfare::{
+use nyon::{
     engine::{
         primitives::{PrimitiveBatch, Vertex},
         quality::resolve_quality,
