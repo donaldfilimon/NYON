@@ -1,0 +1,125 @@
+{
+  "format_version": 1,
+  "algorithm": "sha256",
+  "archives": [
+    {
+      "name": "Inter 4.1 release archive",
+      "url": "https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip",
+      "sha256": "9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e",
+      "committed": false
+    },
+    {
+      "name": "Lucide pinned source archive",
+      "url": "https://github.com/lucide-icons/lucide/archive/4aec3f892fd6c23063bc2fead83c899b5d412b1c.tar.gz",
+      "sha256": "d8033570e13ff1e4a4efa9e1432e09a8fc007aab14bebe887dbde44858b7290e",
+      "committed": false
+    }
+  ],
+  "files": [
+    {
+      "path": "assets/ui/fonts/Inter-Regular.ttf",
+      "sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+      "role": "source font"
+    },
+    {
+      "path": "assets/ui/fonts/Inter-SemiBold.ttf",
+      "sha256": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
+      "role": "source font"
+    },
+    {
+      "path": "assets/ui/icons/check.svg",
+      "sha256": "7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/circle-question-mark.svg",
+      "sha256": "975db087da041530dbf59ba1e61a7b99c3519fad43dae6375e42ccc74ba63924",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/crosshair.svg",
+      "sha256": "ae9ed8583286ea03bffae85bb69aee5227540e588b0370cf185f2141ebe25e8d",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/droplets.svg",
+      "sha256": "7cc0e91aa44f42f9c39e566f87dd0affd621cf4c103ad5fdbc69a475170917ae",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/folder-open.svg",
+      "sha256": "ee57452b40e71df310214091dd9da1941a397c83197b8ff8d7ae66dd4242578b",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/gauge.svg",
+      "sha256": "d7710543a5085c5a61d0bbac1da8b89ef28e541b38ed739357991dff33d475b5",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/mountain.svg",
+      "sha256": "fced3dd3ffb1472e62a13d92e72633e9c68a4655da3d8aa801bc65a041fe64be",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/pause.svg",
+      "sha256": "f122ec4ea7f5693a0b1baafa9c708b53980dc87b4aacb297c6e6f71c1a4c115c",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/play.svg",
+      "sha256": "d7c34786135922a92b6896f6c2384ceeb0346afbf6041dc79982011411409833",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/rotate-ccw.svg",
+      "sha256": "622685386ab4017eabfde01cd74550a20b1924df233b353f73b6b155371f2afd",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/save.svg",
+      "sha256": "ee9d56a7fec4b20dd6689546d41f68219ea8cbd67f99bd17a1bdaff5be6edb53",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/settings.svg",
+      "sha256": "0ae27fd0f81999229e3127ac96c5b32edfea448e291d509e76212b917551d66b",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/wind.svg",
+      "sha256": "eb35f6f00125b779a993c21ee761432faf8fc3210272c94448f63e2196d419b7",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/x.svg",
+      "sha256": "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/icons/zoom-in.svg",
+      "sha256": "91206ae20013e2c84f2f5d09db5a7200f11698a84fc4e857b06fab2ce7c933f1",
+      "role": "source icon"
+    },
+    {
+      "path": "assets/ui/licenses/Inter-OFL.txt",
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+      "role": "source license"
+    },
+    {
+      "path": "assets/ui/licenses/Lucide-ISC.txt",
+      "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+      "role": "source license"
+    },
+    {
+      "path": "assets/ui/atlas-metrics.json",
+      "sha256": "e18f5b93a7e4e968afb028a3f7b27c92e1fe8667d2ae440c5fda41799e9416bb",
+      "role": "generated metrics"
+    },
+    {
+      "path": "assets/ui/atlas.r8",
+      "sha256": "23d4d4f1e7429024957dc17c40c84f8ac89c81f0c5ed7254a88014fe7b102c80",
+      "role": "generated atlas"
+    }
+  ]
+}

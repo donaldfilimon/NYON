@@ -1,0 +1,2670 @@
+{
+  "format_version": 1,
+  "atlas": {
+    "width": 1024,
+    "height": 1024,
+    "format": "r8_unorm"
+  },
+  "generator": {
+    "cell_size": 64,
+    "font_px": 40.0,
+    "font_origin_x": 8,
+    "font_baseline_y": 48,
+    "icon_size": 40,
+    "edge_threshold": 96,
+    "sdf_spread": 8,
+    "ordering": "regular ASCII U+0020..U+007E; semibold ASCII U+0020..U+007E; frozen icons in source order"
+  },
+  "entries": [
+    {
+      "key": "regular:U+0020",
+      "kind": "glyph",
+      "codepoint": 32,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.25
+    },
+    {
+      "key": "regular:U+0021",
+      "kind": "glyph",
+      "codepoint": 33,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.503906
+    },
+    {
+      "key": "regular:U+0022",
+      "kind": "glyph",
+      "codepoint": 34,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.632812
+    },
+    {
+      "key": "regular:U+0023",
+      "kind": "glyph",
+      "codepoint": 35,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.332031
+    },
+    {
+      "key": "regular:U+0024",
+      "kind": "glyph",
+      "codepoint": 36,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.664062
+    },
+    {
+      "key": "regular:U+0025",
+      "kind": "glyph",
+      "codepoint": 37,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 39.277344
+    },
+    {
+      "key": "regular:U+0026",
+      "kind": "glyph",
+      "codepoint": 38,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.761719
+    },
+    {
+      "key": "regular:U+0027",
+      "kind": "glyph",
+      "codepoint": 39,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.9921875
+    },
+    {
+      "key": "regular:U+0028",
+      "kind": "glyph",
+      "codepoint": 40,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.589844
+    },
+    {
+      "key": "regular:U+0029",
+      "kind": "glyph",
+      "codepoint": 41,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.589844
+    },
+    {
+      "key": "regular:U+002A",
+      "kind": "glyph",
+      "codepoint": 42,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 20.039062
+    },
+    {
+      "key": "regular:U+002B",
+      "kind": "glyph",
+      "codepoint": 43,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.464844
+    },
+    {
+      "key": "regular:U+002C",
+      "kind": "glyph",
+      "codepoint": 44,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.5234375
+    },
+    {
+      "key": "regular:U+002D",
+      "kind": "glyph",
+      "codepoint": 45,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.398438
+    },
+    {
+      "key": "regular:U+002E",
+      "kind": "glyph",
+      "codepoint": 46,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.5234375
+    },
+    {
+      "key": "regular:U+002F",
+      "kind": "glyph",
+      "codepoint": 47,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.4140625
+    },
+    {
+      "key": "regular:U+0030",
+      "kind": "glyph",
+      "codepoint": 48,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.234375
+    },
+    {
+      "key": "regular:U+0031",
+      "kind": "glyph",
+      "codepoint": 49,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 16.269531
+    },
+    {
+      "key": "regular:U+0032",
+      "kind": "glyph",
+      "codepoint": 50,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.394531
+    },
+    {
+      "key": "regular:U+0033",
+      "kind": "glyph",
+      "codepoint": 51,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.707031
+    },
+    {
+      "key": "regular:U+0034",
+      "kind": "glyph",
+      "codepoint": 52,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.839844
+    },
+    {
+      "key": "regular:U+0035",
+      "kind": "glyph",
+      "codepoint": 53,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.730469
+    },
+    {
+      "key": "regular:U+0036",
+      "kind": "glyph",
+      "codepoint": 54,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.804688
+    },
+    {
+      "key": "regular:U+0037",
+      "kind": "glyph",
+      "codepoint": 55,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.636719
+    },
+    {
+      "key": "regular:U+0038",
+      "kind": "glyph",
+      "codepoint": 56,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.746094
+    },
+    {
+      "key": "regular:U+0039",
+      "kind": "glyph",
+      "codepoint": 57,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.804688
+    },
+    {
+      "key": "regular:U+003A",
+      "kind": "glyph",
+      "codepoint": 58,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.5234375
+    },
+    {
+      "key": "regular:U+003B",
+      "kind": "glyph",
+      "codepoint": 59,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.0703125
+    },
+    {
+      "key": "regular:U+003C",
+      "kind": "glyph",
+      "codepoint": 60,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.464844
+    },
+    {
+      "key": "regular:U+003D",
+      "kind": "glyph",
+      "codepoint": 61,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.464844
+    },
+    {
+      "key": "regular:U+003E",
+      "kind": "glyph",
+      "codepoint": 62,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.464844
+    },
+    {
+      "key": "regular:U+003F",
+      "kind": "glyph",
+      "codepoint": 63,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 20.449219
+    },
+    {
+      "key": "regular:U+0040",
+      "kind": "glyph",
+      "codepoint": 64,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 38.632812
+    },
+    {
+      "key": "regular:U+0041",
+      "kind": "glyph",
+      "codepoint": 65,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 27.597656
+    },
+    {
+      "key": "regular:U+0042",
+      "kind": "glyph",
+      "codepoint": 66,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.171875
+    },
+    {
+      "key": "regular:U+0043",
+      "kind": "glyph",
+      "codepoint": 67,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.21875
+    },
+    {
+      "key": "regular:U+0044",
+      "kind": "glyph",
+      "codepoint": 68,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 28.867188
+    },
+    {
+      "key": "regular:U+0045",
+      "kind": "glyph",
+      "codepoint": 69,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.042969
+    },
+    {
+      "key": "regular:U+0046",
+      "kind": "glyph",
+      "codepoint": 70,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.613281
+    },
+    {
+      "key": "regular:U+0047",
+      "kind": "glyph",
+      "codepoint": 71,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.84375
+    },
+    {
+      "key": "regular:U+0048",
+      "kind": "glyph",
+      "codepoint": 72,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.726562
+    },
+    {
+      "key": "regular:U+0049",
+      "kind": "glyph",
+      "codepoint": 73,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 10.7421875
+    },
+    {
+      "key": "regular:U+004A",
+      "kind": "glyph",
+      "codepoint": 74,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.832031
+    },
+    {
+      "key": "regular:U+004B",
+      "kind": "glyph",
+      "codepoint": 75,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.875
+    },
+    {
+      "key": "regular:U+004C",
+      "kind": "glyph",
+      "codepoint": 76,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.617188
+    },
+    {
+      "key": "regular:U+004D",
+      "kind": "glyph",
+      "codepoint": 77,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 36.132812
+    },
+    {
+      "key": "regular:U+004E",
+      "kind": "glyph",
+      "codepoint": 78,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.136719
+    },
+    {
+      "key": "regular:U+004F",
+      "kind": "glyph",
+      "codepoint": 79,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.585938
+    },
+    {
+      "key": "regular:U+0050",
+      "kind": "glyph",
+      "codepoint": 80,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.546875
+    },
+    {
+      "key": "regular:U+0051",
+      "kind": "glyph",
+      "codepoint": 81,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.585938
+    },
+    {
+      "key": "regular:U+0052",
+      "kind": "glyph",
+      "codepoint": 82,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.742188
+    },
+    {
+      "key": "regular:U+0053",
+      "kind": "glyph",
+      "codepoint": 83,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.664062
+    },
+    {
+      "key": "regular:U+0054",
+      "kind": "glyph",
+      "codepoint": 84,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.820312
+    },
+    {
+      "key": "regular:U+0055",
+      "kind": "glyph",
+      "codepoint": 85,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.765625
+    },
+    {
+      "key": "regular:U+0056",
+      "kind": "glyph",
+      "codepoint": 86,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 27.597656
+    },
+    {
+      "key": "regular:U+0057",
+      "kind": "glyph",
+      "codepoint": 87,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 39.414062
+    },
+    {
+      "key": "regular:U+0058",
+      "kind": "glyph",
+      "codepoint": 88,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 27.285156
+    },
+    {
+      "key": "regular:U+0059",
+      "kind": "glyph",
+      "codepoint": 89,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 27.148438
+    },
+    {
+      "key": "regular:U+005A",
+      "kind": "glyph",
+      "codepoint": 90,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.15625
+    },
+    {
+      "key": "regular:U+005B",
+      "kind": "glyph",
+      "codepoint": 91,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.589844
+    },
+    {
+      "key": "regular:U+005C",
+      "kind": "glyph",
+      "codepoint": 92,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.4140625
+    },
+    {
+      "key": "regular:U+005D",
+      "kind": "glyph",
+      "codepoint": 93,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.589844
+    },
+    {
+      "key": "regular:U+005E",
+      "kind": "glyph",
+      "codepoint": 94,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.847656
+    },
+    {
+      "key": "regular:U+005F",
+      "kind": "glyph",
+      "codepoint": 95,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.242188
+    },
+    {
+      "key": "regular:U+0060",
+      "kind": "glyph",
+      "codepoint": 96,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.910156
+    },
+    {
+      "key": "regular:U+0061",
+      "kind": "glyph",
+      "codepoint": 97,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.460938
+    },
+    {
+      "key": "regular:U+0062",
+      "kind": "glyph",
+      "codepoint": 98,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "regular:U+0063",
+      "kind": "glyph",
+      "codepoint": 99,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.851562
+    },
+    {
+      "key": "regular:U+0064",
+      "kind": "glyph",
+      "codepoint": 100,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "regular:U+0065",
+      "kind": "glyph",
+      "codepoint": 101,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.320312
+    },
+    {
+      "key": "regular:U+0066",
+      "kind": "glyph",
+      "codepoint": 102,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.8046875
+    },
+    {
+      "key": "regular:U+0067",
+      "kind": "glyph",
+      "codepoint": 103,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.53125
+    },
+    {
+      "key": "regular:U+0068",
+      "kind": "glyph",
+      "codepoint": 104,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.652344
+    },
+    {
+      "key": "regular:U+0069",
+      "kind": "glyph",
+      "codepoint": 105,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 9.6875
+    },
+    {
+      "key": "regular:U+006A",
+      "kind": "glyph",
+      "codepoint": 106,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 9.6875
+    },
+    {
+      "key": "regular:U+006B",
+      "kind": "glyph",
+      "codepoint": 107,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.953125
+    },
+    {
+      "key": "regular:U+006C",
+      "kind": "glyph",
+      "codepoint": 108,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 9.6875
+    },
+    {
+      "key": "regular:U+006D",
+      "kind": "glyph",
+      "codepoint": 109,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 35.039062
+    },
+    {
+      "key": "regular:U+006E",
+      "kind": "glyph",
+      "codepoint": 110,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.632812
+    },
+    {
+      "key": "regular:U+006F",
+      "kind": "glyph",
+      "codepoint": 111,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.984375
+    },
+    {
+      "key": "regular:U+0070",
+      "kind": "glyph",
+      "codepoint": 112,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "regular:U+0071",
+      "kind": "glyph",
+      "codepoint": 113,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "regular:U+0072",
+      "kind": "glyph",
+      "codepoint": 114,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 15.058594
+    },
+    {
+      "key": "regular:U+0073",
+      "kind": "glyph",
+      "codepoint": 115,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.113281
+    },
+    {
+      "key": "regular:U+0074",
+      "kind": "glyph",
+      "codepoint": 116,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 13.0859375
+    },
+    {
+      "key": "regular:U+0075",
+      "kind": "glyph",
+      "codepoint": 117,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.652344
+    },
+    {
+      "key": "regular:U+0076",
+      "kind": "glyph",
+      "codepoint": 118,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.480469
+    },
+    {
+      "key": "regular:U+0077",
+      "kind": "glyph",
+      "codepoint": 119,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 32.734375
+    },
+    {
+      "key": "regular:U+0078",
+      "kind": "glyph",
+      "codepoint": 120,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.835938
+    },
+    {
+      "key": "regular:U+0079",
+      "kind": "glyph",
+      "codepoint": 121,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.480469
+    },
+    {
+      "key": "regular:U+007A",
+      "kind": "glyph",
+      "codepoint": 122,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.089844
+    },
+    {
+      "key": "regular:U+007B",
+      "kind": "glyph",
+      "codepoint": 123,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 17.050781
+    },
+    {
+      "key": "regular:U+007C",
+      "kind": "glyph",
+      "codepoint": 124,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 13.300781
+    },
+    {
+      "key": "regular:U+007D",
+      "kind": "glyph",
+      "codepoint": 125,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 17.050781
+    },
+    {
+      "key": "regular:U+007E",
+      "kind": "glyph",
+      "codepoint": 126,
+      "font_weight": "regular",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.464844
+    },
+    {
+      "key": "semibold:U+0020",
+      "kind": "glyph",
+      "codepoint": 32,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 320,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 10.078125
+    },
+    {
+      "key": "semibold:U+0021",
+      "kind": "glyph",
+      "codepoint": 33,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.8515625
+    },
+    {
+      "key": "semibold:U+0022",
+      "kind": "glyph",
+      "codepoint": 34,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 20.917969
+    },
+    {
+      "key": "semibold:U+0023",
+      "kind": "glyph",
+      "codepoint": 35,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.742188
+    },
+    {
+      "key": "semibold:U+0024",
+      "kind": "glyph",
+      "codepoint": 36,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.015625
+    },
+    {
+      "key": "semibold:U+0025",
+      "kind": "glyph",
+      "codepoint": 37,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.17578
+    },
+    {
+      "key": "semibold:U+0026",
+      "kind": "glyph",
+      "codepoint": 38,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.503906
+    },
+    {
+      "key": "semibold:U+0027",
+      "kind": "glyph",
+      "codepoint": 39,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 13.027344
+    },
+    {
+      "key": "semibold:U+0028",
+      "kind": "glyph",
+      "codepoint": 40,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.921875
+    },
+    {
+      "key": "semibold:U+0029",
+      "kind": "glyph",
+      "codepoint": 41,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.921875
+    },
+    {
+      "key": "semibold:U+002A",
+      "kind": "glyph",
+      "codepoint": 42,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.582031
+    },
+    {
+      "key": "semibold:U+002B",
+      "kind": "glyph",
+      "codepoint": 43,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.914062
+    },
+    {
+      "key": "semibold:U+002C",
+      "kind": "glyph",
+      "codepoint": 44,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.753906
+    },
+    {
+      "key": "semibold:U+002D",
+      "kind": "glyph",
+      "codepoint": 45,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.613281
+    },
+    {
+      "key": "semibold:U+002E",
+      "kind": "glyph",
+      "codepoint": 46,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.753906
+    },
+    {
+      "key": "semibold:U+002F",
+      "kind": "glyph",
+      "codepoint": 47,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 15.15625
+    },
+    {
+      "key": "semibold:U+0030",
+      "kind": "glyph",
+      "codepoint": 48,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 384,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.386719
+    },
+    {
+      "key": "semibold:U+0031",
+      "kind": "glyph",
+      "codepoint": 49,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 16.914062
+    },
+    {
+      "key": "semibold:U+0032",
+      "kind": "glyph",
+      "codepoint": 50,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.921875
+    },
+    {
+      "key": "semibold:U+0033",
+      "kind": "glyph",
+      "codepoint": 51,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.449219
+    },
+    {
+      "key": "semibold:U+0034",
+      "kind": "glyph",
+      "codepoint": 52,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.640625
+    },
+    {
+      "key": "semibold:U+0035",
+      "kind": "glyph",
+      "codepoint": 53,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "semibold:U+0036",
+      "kind": "glyph",
+      "codepoint": 54,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.585938
+    },
+    {
+      "key": "semibold:U+0037",
+      "kind": "glyph",
+      "codepoint": 55,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.046875
+    },
+    {
+      "key": "semibold:U+0038",
+      "kind": "glyph",
+      "codepoint": 56,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.605469
+    },
+    {
+      "key": "semibold:U+0039",
+      "kind": "glyph",
+      "codepoint": 57,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.585938
+    },
+    {
+      "key": "semibold:U+003A",
+      "kind": "glyph",
+      "codepoint": 58,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 12.753906
+    },
+    {
+      "key": "semibold:U+003B",
+      "kind": "glyph",
+      "codepoint": 59,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 13.1640625
+    },
+    {
+      "key": "semibold:U+003C",
+      "kind": "glyph",
+      "codepoint": 60,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.914062
+    },
+    {
+      "key": "semibold:U+003D",
+      "kind": "glyph",
+      "codepoint": 61,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.914062
+    },
+    {
+      "key": "semibold:U+003E",
+      "kind": "glyph",
+      "codepoint": 62,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.914062
+    },
+    {
+      "key": "semibold:U+003F",
+      "kind": "glyph",
+      "codepoint": 63,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.738281
+    },
+    {
+      "key": "semibold:U+0040",
+      "kind": "glyph",
+      "codepoint": 64,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 448,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 39.960938
+    },
+    {
+      "key": "semibold:U+0041",
+      "kind": "glyph",
+      "codepoint": 65,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.101562
+    },
+    {
+      "key": "semibold:U+0042",
+      "kind": "glyph",
+      "codepoint": 66,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.367188
+    },
+    {
+      "key": "semibold:U+0043",
+      "kind": "glyph",
+      "codepoint": 67,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.472656
+    },
+    {
+      "key": "semibold:U+0044",
+      "kind": "glyph",
+      "codepoint": 68,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 28.886719
+    },
+    {
+      "key": "semibold:U+0045",
+      "kind": "glyph",
+      "codepoint": 69,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.21875
+    },
+    {
+      "key": "semibold:U+0046",
+      "kind": "glyph",
+      "codepoint": 70,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.515625
+    },
+    {
+      "key": "semibold:U+0047",
+      "kind": "glyph",
+      "codepoint": 71,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.960938
+    },
+    {
+      "key": "semibold:U+0048",
+      "kind": "glyph",
+      "codepoint": 72,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.824219
+    },
+    {
+      "key": "semibold:U+0049",
+      "kind": "glyph",
+      "codepoint": 73,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 11.074219
+    },
+    {
+      "key": "semibold:U+004A",
+      "kind": "glyph",
+      "codepoint": 74,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.183594
+    },
+    {
+      "key": "semibold:U+004B",
+      "kind": "glyph",
+      "codepoint": 75,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 28.125
+    },
+    {
+      "key": "semibold:U+004C",
+      "kind": "glyph",
+      "codepoint": 76,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.617188
+    },
+    {
+      "key": "semibold:U+004D",
+      "kind": "glyph",
+      "codepoint": 77,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 36.89453
+    },
+    {
+      "key": "semibold:U+004E",
+      "kind": "glyph",
+      "codepoint": 78,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.371094
+    },
+    {
+      "key": "semibold:U+004F",
+      "kind": "glyph",
+      "codepoint": 79,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.742188
+    },
+    {
+      "key": "semibold:U+0050",
+      "kind": "glyph",
+      "codepoint": 80,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 512,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.800781
+    },
+    {
+      "key": "semibold:U+0051",
+      "kind": "glyph",
+      "codepoint": 81,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 30.917969
+    },
+    {
+      "key": "semibold:U+0052",
+      "kind": "glyph",
+      "codepoint": 82,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.09375
+    },
+    {
+      "key": "semibold:U+0053",
+      "kind": "glyph",
+      "codepoint": 83,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.015625
+    },
+    {
+      "key": "semibold:U+0054",
+      "kind": "glyph",
+      "codepoint": 84,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.40625
+    },
+    {
+      "key": "semibold:U+0055",
+      "kind": "glyph",
+      "codepoint": 85,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.433594
+    },
+    {
+      "key": "semibold:U+0056",
+      "kind": "glyph",
+      "codepoint": 86,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 29.101562
+    },
+    {
+      "key": "semibold:U+0057",
+      "kind": "glyph",
+      "codepoint": 87,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.80078
+    },
+    {
+      "key": "semibold:U+0058",
+      "kind": "glyph",
+      "codepoint": 88,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 28.789062
+    },
+    {
+      "key": "semibold:U+0059",
+      "kind": "glyph",
+      "codepoint": 89,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 28.535156
+    },
+    {
+      "key": "semibold:U+005A",
+      "kind": "glyph",
+      "codepoint": 90,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.09375
+    },
+    {
+      "key": "semibold:U+005B",
+      "kind": "glyph",
+      "codepoint": 91,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.921875
+    },
+    {
+      "key": "semibold:U+005C",
+      "kind": "glyph",
+      "codepoint": 92,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 15.15625
+    },
+    {
+      "key": "semibold:U+005D",
+      "kind": "glyph",
+      "codepoint": 93,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.921875
+    },
+    {
+      "key": "semibold:U+005E",
+      "kind": "glyph",
+      "codepoint": 94,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 19.257812
+    },
+    {
+      "key": "semibold:U+005F",
+      "kind": "glyph",
+      "codepoint": 95,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.769531
+    },
+    {
+      "key": "semibold:U+0060",
+      "kind": "glyph",
+      "codepoint": 96,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 576,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.042969
+    },
+    {
+      "key": "semibold:U+0061",
+      "kind": "glyph",
+      "codepoint": 97,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.96875
+    },
+    {
+      "key": "semibold:U+0062",
+      "kind": "glyph",
+      "codepoint": 98,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.960938
+    },
+    {
+      "key": "semibold:U+0063",
+      "kind": "glyph",
+      "codepoint": 99,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.300781
+    },
+    {
+      "key": "semibold:U+0064",
+      "kind": "glyph",
+      "codepoint": 100,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.960938
+    },
+    {
+      "key": "semibold:U+0065",
+      "kind": "glyph",
+      "codepoint": 101,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.652344
+    },
+    {
+      "key": "semibold:U+0066",
+      "kind": "glyph",
+      "codepoint": 102,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 15.546875
+    },
+    {
+      "key": "semibold:U+0067",
+      "kind": "glyph",
+      "codepoint": 103,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 25.019531
+    },
+    {
+      "key": "semibold:U+0068",
+      "kind": "glyph",
+      "codepoint": 104,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "semibold:U+0069",
+      "kind": "glyph",
+      "codepoint": 105,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 10.46875
+    },
+    {
+      "key": "semibold:U+006A",
+      "kind": "glyph",
+      "codepoint": 106,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 10.46875
+    },
+    {
+      "key": "semibold:U+006B",
+      "kind": "glyph",
+      "codepoint": 107,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.773438
+    },
+    {
+      "key": "semibold:U+006C",
+      "kind": "glyph",
+      "codepoint": 108,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 10.46875
+    },
+    {
+      "key": "semibold:U+006D",
+      "kind": "glyph",
+      "codepoint": 109,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 36.015625
+    },
+    {
+      "key": "semibold:U+006E",
+      "kind": "glyph",
+      "codepoint": 110,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.472656
+    },
+    {
+      "key": "semibold:U+006F",
+      "kind": "glyph",
+      "codepoint": 111,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.355469
+    },
+    {
+      "key": "semibold:U+0070",
+      "kind": "glyph",
+      "codepoint": 112,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 640,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.960938
+    },
+    {
+      "key": "semibold:U+0071",
+      "kind": "glyph",
+      "codepoint": 113,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.960938
+    },
+    {
+      "key": "semibold:U+0072",
+      "kind": "glyph",
+      "codepoint": 114,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 15.878906
+    },
+    {
+      "key": "semibold:U+0073",
+      "kind": "glyph",
+      "codepoint": 115,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 21.972656
+    },
+    {
+      "key": "semibold:U+0074",
+      "kind": "glyph",
+      "codepoint": 116,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.121094
+    },
+    {
+      "key": "semibold:U+0075",
+      "kind": "glyph",
+      "codepoint": 117,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 24.492188
+    },
+    {
+      "key": "semibold:U+0076",
+      "kind": "glyph",
+      "codepoint": 118,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.476562
+    },
+    {
+      "key": "semibold:U+0077",
+      "kind": "glyph",
+      "codepoint": 119,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 33.57422
+    },
+    {
+      "key": "semibold:U+0078",
+      "kind": "glyph",
+      "codepoint": 120,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.753906
+    },
+    {
+      "key": "semibold:U+0079",
+      "kind": "glyph",
+      "codepoint": 121,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 23.535156
+    },
+    {
+      "key": "semibold:U+007A",
+      "kind": "glyph",
+      "codepoint": 122,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 22.636719
+    },
+    {
+      "key": "semibold:U+007B",
+      "kind": "glyph",
+      "codepoint": 123,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.183594
+    },
+    {
+      "key": "semibold:U+007C",
+      "kind": "glyph",
+      "codepoint": 124,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 14.355469
+    },
+    {
+      "key": "semibold:U+007D",
+      "kind": "glyph",
+      "codepoint": 125,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 18.183594
+    },
+    {
+      "key": "semibold:U+007E",
+      "kind": "glyph",
+      "codepoint": 126,
+      "font_weight": "semibold",
+      "atlas_bounds": {
+        "x": 832,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 26.914062
+    },
+    {
+      "key": "icon:play",
+      "kind": "icon",
+      "icon": "play",
+      "atlas_bounds": {
+        "x": 896,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:pause",
+      "kind": "icon",
+      "icon": "pause",
+      "atlas_bounds": {
+        "x": 960,
+        "y": 704,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:speed",
+      "kind": "icon",
+      "icon": "speed",
+      "atlas_bounds": {
+        "x": 0,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:reset",
+      "kind": "icon",
+      "icon": "reset",
+      "atlas_bounds": {
+        "x": 64,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:settings",
+      "kind": "icon",
+      "icon": "settings",
+      "atlas_bounds": {
+        "x": 128,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:help",
+      "kind": "icon",
+      "icon": "help",
+      "atlas_bounds": {
+        "x": 192,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:crosshair",
+      "kind": "icon",
+      "icon": "crosshair",
+      "atlas_bounds": {
+        "x": 256,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:save",
+      "kind": "icon",
+      "icon": "save",
+      "atlas_bounds": {
+        "x": 320,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:load",
+      "kind": "icon",
+      "icon": "load",
+      "atlas_bounds": {
+        "x": 384,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:check",
+      "kind": "icon",
+      "icon": "check",
+      "atlas_bounds": {
+        "x": 448,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:close",
+      "kind": "icon",
+      "icon": "close",
+      "atlas_bounds": {
+        "x": 512,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:zoom",
+      "kind": "icon",
+      "icon": "zoom",
+      "atlas_bounds": {
+        "x": 576,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:field-atmosphere",
+      "kind": "icon",
+      "icon": "field-atmosphere",
+      "atlas_bounds": {
+        "x": 640,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:field-hydrosphere",
+      "kind": "icon",
+      "icon": "field-hydrosphere",
+      "atlas_bounds": {
+        "x": 704,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    },
+    {
+      "key": "icon:field-topology",
+      "kind": "icon",
+      "icon": "field-topology",
+      "atlas_bounds": {
+        "x": 768,
+        "y": 768,
+        "width": 64,
+        "height": 64
+      },
+      "advance": 40.0
+    }
+  ]
+}

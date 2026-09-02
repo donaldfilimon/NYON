@@ -1,0 +1,5 @@
+/target/
+/tools/ui-atlas/target/
+/dist/
+/.DS_Store
+*.swp
