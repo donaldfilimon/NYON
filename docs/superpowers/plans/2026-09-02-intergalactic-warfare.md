@@ -1,5 +1,8 @@
 # Intergalactic Warfare WebGPU Implementation Plan
 
+> [!IMPORTANT]
+> **Historical implementation record only. Do not execute this task sequence.** The active roadmap is [`2026-09-02-nyon-v2.md`](2026-09-02-nyon-v2.md). In particular, do not rerun repository foundation, relocation, identity migration, or legacy-data operations from this file. The reviewed RulesV1 behavior remains a frozen compatibility island while NYON Galaxy Workshop is built beside it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the complete deterministic seven-world strategy game on macOS, Windows, Linux, and browser WebGPU, with a detached scenario editor and a transparent CPU/WebGPU neural advisory that never controls gameplay.

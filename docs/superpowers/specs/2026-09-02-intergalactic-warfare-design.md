@@ -1,5 +1,8 @@
 # Intergalactic Warfare WebGPU Design
 
+> [!IMPORTANT]
+> **Historical RulesV1 reference only.** This document is superseded as active program authority by [`2026-09-02-nyon-v2-design.md`](2026-09-02-nyon-v2-design.md). Preserve the implemented RulesV1 contracts described here, but do not restart its foundation, relocation, rebrand, legacy-migration, or platform-expansion work. NYON Galaxy Workshop additions must be implemented beside RulesV1 under the current design.
+
 | Metadata | Value |
 | --- | --- |
 | Author | Donald J. Filimon and implementation contributors |
