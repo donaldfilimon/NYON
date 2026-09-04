@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Status: Proposed acceptance contract; no implementation or runtime pass implied
+Status: Approved acceptance contract on 2026-09-04; no implementation or runtime pass implied
 
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 

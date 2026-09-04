@@ -17,6 +17,16 @@
 
 ## Program Invariants
 
+### Completion-plan approval and resumption, 2026-09-04
+
+The user explicitly approved implementation of the Full Living Galaxy Completion Plan. Its order is: establish the reviewed Workshop baseline; finish inspector/SDF/forms/navigation; complete safe Workshop Library and transfer; implement Living authority/civilizations; integrate versioned persistence/session lifecycle; deliver content, Chronicle, comparison, audio, and whole-product qualification. The existing child plans remain the detailed contracts. This approval is not implementation or qualification evidence.
+
+Current source repairs must be re-reviewed rather than repeated from stale plan descriptions. In particular, the inspector now has partial short-height and stable-identity repairs; SDF and Library remain unfinished. Correct Classic guide/manual energy-versus-defense launch teaching without changing RulesV1. Read the program's execution ledger before resuming a task.
+
+Implementation uses one source owner at a time in canonical `main`, with independent read-only review. The user explicitly selected this default; isolation is an exception requiring a concrete need and reconciliation with machine policy. Preserve existing untracked source and stage only an independently reviewed baseline allowlist. The repository currently has no remote; publication and provider configuration are not part of this authorization.
+
+### Shared constraints
+
 - Preserve unrelated user work. Never reset, clean, stash, or broadly stage the canonical checkout.
 - The current dirty Workshop V1 tree is an identified program artifact, not disposable noise. Review and gate it before committing; do not create Living work from `b043a15` alone because that omits Workshop V1.
 - Keep Classic, WorkshopV1, LivingV2, Library coordinator, presentation, audio, and platform adapters as separate authorities/evidence layers.
@@ -73,7 +83,7 @@ W0  Workshop V1 baseline review, fresh gates, commit
 
 ### Program Task 2: Execute authority schema tasks A1-A4
 
-- [ ] Create an isolated worktree from the reviewed Workshop baseline using the required worktree procedure and a project-specific branch.
+- [ ] Confirm the reviewed Workshop baseline on canonical `main`; use one implementation owner. Create an isolated worktree only if a concrete isolation need is established, and record its merge-back/cleanup boundary before starting.
 - [ ] Create the Superpowers task ledger from the authority plan.
 - [ ] For each task A1-A4: fresh implementer, RED evidence, minimal GREEN, requirements review, code-quality review, controller gate, exact commit, ledger update.
 - [ ] Do not begin civilization code until the frozen public types, operation variants, event ordinals, and vector registry are reviewed together.
@@ -117,7 +127,7 @@ W0  Workshop V1 baseline review, fresh gates, commit
 - [ ] Record exact source revision, scoped dirty diff hash, artifact hash, catalog/seed/fixture, backend, OS/browser/GPU, digest, evidence paths, and actual outcomes.
 - [ ] Update player documentation only from observed qualified behavior.
 - [ ] Request one final program reviewer to inspect the full branch diff against all four specs and all open ledgers.
-- [ ] Repair all P0-P2, rerun affected gates, merge the implementation branch into canonical `main`, remove its worktree/branch, and verify canonical `main` at the merged commit.
+- [ ] Repair all P0-P2, rerun affected gates, and verify the reviewed implementation on canonical `main`. If an isolation branch/worktree was created, merge its reviewed work back and remove only that owned branch/worktree after confirming no unique or active work remains.
 - [ ] Report separately: source gates, builds/artifacts, native runtime, browser rows, persistence, accessibility, performance/endurance, cross-host rows, and any pending release evidence.
 
 ## Completion Definition

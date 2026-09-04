@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Status: Proposed; not an implemented-feature list
+Status: Approved implementation contract on 2026-09-04; not an implemented-feature list
 
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 

@@ -2,9 +2,9 @@
 
 Date: 2026-09-04
 
-Status: Proposed detailed design; awaiting written-spec review
+Status: Approved for implementation by the user's explicit NYON Living Galaxy Completion Plan request on 2026-09-04; implementation and qualification remain pending
 
-Product direction: Approved in conversation; implementation is not approved by this document
+Product direction: Full Living Galaxy approved in conversation; execute through the dependency-ordered program plan and its independent review gates
 
 Canonical checkout: `/Users/donaldfilimon/Public/NYON`
 
@@ -166,6 +166,6 @@ The initial UI slice is necessary but not a substitute for steps 2-6. No placeho
 
 Before implementation, inventory exact dirty paths and ask the owner of overlapping active work to establish a stable baseline. Preserve untracked files. Do not reset, clean, relocate, or package unrelated work. Stay on canonical `main` unless isolation is explicitly needed and agreed.
 
-This proposed design package may be committed independently using only its exact new paths. It does not authorize staging the existing mixed code diff, changing the old accepted design's status, updating RulesV1 goldens, or claiming the current program is complete.
+This design package may be committed independently using only its exact paths. It does not authorize staging the existing mixed code diff, changing the old accepted design's status, updating RulesV1 goldens, or claiming the current program is complete.
 
-The next design gate is review of this package. After approval, create dependency-ordered implementation plans using the writing-plans skill, with concrete tests before code changes. The active goal remains the verified whole Living Galaxy product.
+The user approved implementation of this package through the NYON Living Galaxy Completion Plan on 2026-09-04. The dependency-ordered child plans already exist; reconcile them against the current baseline and execute with concrete tests before code changes. Approval does not turn historical observations into current evidence. The requested outcome remains the verified whole Living Galaxy product.

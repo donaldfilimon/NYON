@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Status: Proposed numerical defaults, not implemented or balance-tested
+Status: Approved implementation contract on 2026-09-04; not yet implemented or balance-tested
 
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 
