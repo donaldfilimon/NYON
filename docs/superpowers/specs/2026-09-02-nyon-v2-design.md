@@ -8,6 +8,8 @@
 | Product | NYON Galaxy Workshop V1 |
 | Active roadmap | `docs/superpowers/plans/2026-09-02-nyon-v2.md` |
 
+The accepted [Workshop V1 Library and Portable Transfer Addendum](2026-09-04-nyon-workshop-library-addendum.md) supplies implementation authority for the multi-slot Library, reversible archive lifecycle, exact-generation Continue selection, and portable native/browser transfer boundaries. It supersedes only earlier notes that those surfaces required a further design decision.
+
 ## Authority and Current State
 
 This design replaces the prior mega-platform roadmap with one executable product program: an offline creative galaxy sandbox. The historical [Intergalactic Warfare design](2026-09-02-intergalactic-warfare-design.md) remains the source of the frozen RulesV1 contracts, but it is not current execution authority.
