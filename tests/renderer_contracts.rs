@@ -1,5 +1,436 @@
 use std::mem::{offset_of, size_of};
 
+fn installed_shell(
+    screen: nyon::app::client_runtime::ClientScreen,
+) -> nyon::ui::platform::PlatformUiFrame {
+    use nyon::ui::platform::*;
+    build_shell_platform_frame(ShellPlatformInput {
+        screen,
+        capabilities: &[],
+        credits_visible: false,
+        recovery_message: None,
+        continue_available: false,
+        backend: None,
+        preferences: Default::default(),
+        viewport: glam::Vec2::new(1280.0, 720.0),
+        focused: None,
+    })
+}
+
+#[test]
+fn guide_composition_keeps_only_bounded_fallback_when_chrome_installation_fails() {
+    use nyon::{
+        app::client_runtime::ClientScreen,
+        ui::{AtlasMetrics, guide::*, platform::*},
+    };
+    let guide = build_guide_frame(
+        GuideLocation::for_screen(ClientScreen::GalaxyWorkshop),
+        glam::Vec2::new(1280.0, 720.0),
+        false,
+        None,
+    );
+    let frame_before = guide.platform.clone();
+    let mut metrics = AtlasMetrics::embedded().unwrap();
+    let mut ui = UiBatch::default();
+    let mut overlay = PrimitiveBatch::default();
+    install_guide_batches(&guide, &metrics, &mut ui, &mut overlay).unwrap();
+    assert!(!ui.glyphs().is_empty() && !ui.panels().is_empty());
+    assert!(!overlay.vertices().is_empty());
+    metrics.entries.clear();
+    let result = install_guide_batches(&guide, &metrics, &mut ui, &mut overlay);
+    assert!(result.is_err());
+    assert!(ui.glyphs().is_empty() && ui.panels().is_empty());
+    let mut fallback = PrimitiveBatch::default();
+    fallback.text(
+        glam::Vec2::splat(8.0),
+        1.0,
+        [1.0; 4],
+        PlatformFallbackCode::Atlas.text(),
+    );
+    assert!(
+        overlay.vertices() == fallback.vertices(),
+        "Guide failure overlay must contain only {} fallback vertices, got {} (body appended)",
+        fallback.vertices().len(),
+        overlay.vertices().len()
+    );
+    assert_eq!(guide.platform, frame_before);
+    assert!(!guide.platform.focus_order().is_empty());
+    for action in guide.platform.focus_order() {
+        assert!(guide.platform.action(&action).is_some());
+    }
+}
+
+#[test]
+fn actual_platform_installation_replaces_layers_and_preserves_semantics_on_both_failures() {
+    use nyon::{
+        app::client_runtime::ClientScreen,
+        ui::{AtlasMetrics, UiBatchError, platform::*},
+    };
+    let mut frame = installed_shell(ClientScreen::Settings);
+    let action = frame.focus_order()[0].clone();
+    frame.append_status_line("Waiting for Workshop save");
+    frame.reconcile_focused(Some(&action));
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut ui = UiBatch::default();
+    let mut overlay = PrimitiveBatch::default();
+    let witnesses = install_platform_batches(&frame, &metrics, &mut ui, &mut overlay).unwrap();
+    assert!(!ui.glyphs().is_empty() && !ui.panels().is_empty());
+    assert_eq!(witnesses.len(), 1);
+    assert_eq!(witnesses[0].kind, PlatformDecorationKind::Focus);
+    assert_eq!(witnesses[0].vertex_span, [0, 24]);
+    let sdf = nyon::ui::platform_sdf::build_platform_ui_batch(&frame, &metrics).unwrap();
+    assert!(
+        sdf.text_runs.iter().any(|run| run
+            .exact_text
+            .to_ascii_lowercase()
+            .contains("waiting for workshop save")),
+        "{:?}",
+        sdf.text_runs
+    );
+    let before = frame.clone();
+    let mut missing_metrics = metrics.clone();
+    missing_metrics.entries.clear();
+    assert!(install_platform_batches(&frame, &missing_metrics, &mut ui, &mut overlay).is_err());
+    assert!(ui.glyphs().is_empty() && ui.panels().is_empty());
+    let mut expected = PrimitiveBatch::default();
+    expected.text(
+        glam::Vec2::splat(8.0),
+        1.0,
+        [1.0; 4],
+        PlatformFallbackCode::Atlas.text(),
+    );
+    assert_eq!(overlay.vertices(), expected.vertices());
+    assert_eq!(frame, before);
+    assert!(frame.action(&action).is_some());
+    install_platform_batches(&frame, &metrics, &mut ui, &mut overlay).unwrap();
+    // SDF still succeeds, but an owner outside its accepted viewport fails overlay validation.
+    frame
+        .controls
+        .iter_mut()
+        .find(|control| control.action_id == action)
+        .unwrap()
+        .bounds
+        .min
+        .x = -1.0;
+    assert!(nyon::ui::platform_sdf::build_platform_ui_batch(&frame, &metrics).is_ok());
+    assert_eq!(
+        install_platform_batches(&frame, &metrics, &mut ui, &mut overlay),
+        Err(UiBatchError::NonFiniteGeometry)
+    );
+    assert!(ui.glyphs().is_empty() && ui.panels().is_empty());
+    expected.clear();
+    expected.text(
+        glam::Vec2::splat(8.0),
+        1.0,
+        [1.0; 4],
+        PlatformFallbackCode::Geometry.text(),
+    );
+    assert_eq!(overlay.vertices(), expected.vertices());
+    assert!(frame.action(&action).is_some());
+}
+
+#[test]
+fn actual_installer_capacity_failure_clears_both_previous_layers() {
+    use nyon::{
+        app::client_runtime::ClientScreen,
+        ui::{AtlasMetrics, UiBatchError, platform::*},
+    };
+    let mut frame = installed_shell(ClientScreen::Settings);
+    frame.reconcile_focused(Some(&frame.focus_order()[0].clone()));
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut ui = UiBatch::default();
+    let mut overlay = PrimitiveBatch::default();
+    install_platform_batches(&frame, &metrics, &mut ui, &mut overlay).unwrap();
+    assert!(!ui.glyphs().is_empty() && !overlay.vertices().is_empty());
+    frame.background = PlatformBackground::ChromeOnly;
+    frame.layout.chrome = vec![frame.layout.top_bar; 513];
+    let before = frame.clone();
+    assert!(matches!(
+        install_platform_batches(&frame, &metrics, &mut ui, &mut overlay),
+        Err(UiBatchError::PanelCapacity { .. })
+    ));
+    assert!(ui.glyphs().is_empty() && ui.panels().is_empty());
+    let mut expected = PrimitiveBatch::default();
+    expected.text(
+        glam::Vec2::splat(8.0),
+        1.0,
+        [1.0; 4],
+        PlatformFallbackCode::Capacity.text(),
+    );
+    assert_eq!(overlay.vertices(), expected.vertices());
+    assert_eq!(frame, before);
+    assert!(frame.action(&frame.focus_order()[0]).is_some());
+}
+
+#[test]
+fn actual_glyph_overflow_preserves_adapter_actions_and_replaces_installed_layers() {
+    use nyon::{
+        app::client_runtime::ClientScreen,
+        ui::{AtlasMetrics, UiBatchError, platform::*},
+    };
+    let mut frame = installed_shell(ClientScreen::Settings);
+    let focused = frame.focus_order()[0].clone();
+    frame.reconcile_focused(Some(&focused));
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut ui = UiBatch::default();
+    let mut overlay = PrimitiveBatch::default();
+    install_platform_batches(&frame, &metrics, &mut ui, &mut overlay).unwrap();
+    assert!(!ui.glyphs().is_empty() && !ui.panels().is_empty() && !overlay.vertices().is_empty());
+    // Fault injection at the immutable presentation boundary, not a legal Workshop capacity fixture.
+    let template = frame.visible_nodes[0].clone();
+    frame.visible_nodes.extend((0..8193).map(|_| {
+        let mut record = template.clone();
+        record.display_text = "X".to_owned();
+        record.icon = None;
+        record.prewrapped_lines = None;
+        record
+    }));
+    let before = frame.clone();
+    assert!(matches!(
+        install_platform_batches(&frame, &metrics, &mut ui, &mut overlay),
+        Err(UiBatchError::Capacity { requested: 8193 })
+    ));
+    assert!(ui.glyphs().is_empty() && ui.panels().is_empty());
+    let mut expected = PrimitiveBatch::default();
+    expected.text(
+        glam::Vec2::splat(8.0),
+        1.0,
+        [1.0; 4],
+        PlatformFallbackCode::Capacity.text(),
+    );
+    assert_eq!(overlay.vertices(), expected.vertices());
+    assert_eq!(frame, before);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut adapter = nyon::ui::platform_native::NativeSemanticAdapter::default();
+        adapter.sync(&frame.semantics, Some(&focused));
+        let update = adapter.full_tree_update();
+        assert_eq!(update.focus, adapter.action_node(&focused).unwrap());
+        for action in frame.focus_order() {
+            let node = adapter.action_node(&action).unwrap();
+            assert!(adapter.request_node_action(node));
+            assert!(frame.action(&action).is_some());
+        }
+        assert_eq!(
+            adapter.drain_actions().collect::<Vec<_>>(),
+            frame.focus_order()
+        );
+    }
+}
+
+#[test]
+fn typed_overlay_rejects_unowned_overlapping_out_of_range_and_forged_geometry() {
+    use nyon::{app::client_runtime::ClientScreen, ui::platform::*};
+    let mut frame = installed_shell(ClientScreen::Settings);
+    frame.reconcile_focused(Some(&frame.focus_order()[0].clone()));
+    let make = || {
+        let mut overlay = PlatformPrimitiveOverlay::default();
+        frame.append_primitive_overlay(&mut overlay).unwrap();
+        overlay
+    };
+    let mut overlay = make();
+    overlay.witnesses.clear();
+    assert!(overlay.validate(&frame).is_err());
+    let mut overlay = make();
+    overlay.witnesses.push(overlay.witnesses[0].clone());
+    assert!(overlay.validate(&frame).is_err());
+    let mut overlay = make();
+    overlay.witnesses[0].vertex_span[1] += 6;
+    assert!(overlay.validate(&frame).is_err());
+    let mut overlay = make();
+    overlay.batch.clear();
+    let bounds = overlay.witnesses[0].bounds;
+    for _ in 0..4 {
+        overlay
+            .batch
+            .quad(bounds.center(), (bounds.max - bounds.min) * 0.5, [1.0; 4]);
+    }
+    assert!(
+        overlay.validate(&frame).is_err(),
+        "ordinary control quads cannot masquerade as focus"
+    );
+    let mut overlay = make();
+    overlay.batch.clear();
+    for _ in 0..4 {
+        overlay
+            .batch
+            .quad(glam::Vec2::ZERO, glam::Vec2::splat(500.0), [1.0; 4]);
+    }
+    assert!(
+        overlay.validate(&frame).is_err(),
+        "declared bounds cannot conceal escaped vertices"
+    );
+    let mut overlay = make();
+    overlay.witnesses[0].bounds.max.x = f32::NAN;
+    assert!(overlay.validate(&frame).is_err());
+}
+
+#[test]
+fn shared_installer_converts_shell_guide_and_workshop_without_primitive_chrome() {
+    use nyon::{
+        app::client_runtime::ClientScreen,
+        ui::{AtlasMetrics, guide::*, platform::*, workshop::*},
+    };
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut frames = vec![
+        installed_shell(ClientScreen::MainMenu),
+        installed_shell(ClientScreen::Settings),
+        installed_shell(ClientScreen::RecoverableError),
+    ];
+    frames.push(build_shell_platform_frame(ShellPlatformInput {
+        screen: ClientScreen::MainMenu,
+        capabilities: &[],
+        credits_visible: true,
+        recovery_message: Some("Recovery available"),
+        continue_available: true,
+        backend: None,
+        preferences: Default::default(),
+        viewport: glam::Vec2::new(1280.0, 720.0),
+        focused: None,
+    }));
+    let guide = build_guide_frame(
+        GuideLocation::for_screen(ClientScreen::GalaxyWorkshop),
+        glam::Vec2::new(1280.0, 720.0),
+        false,
+        None,
+    );
+    frames.push(guide.platform.clone());
+    let mut scaled_shell = installed_shell(ClientScreen::Settings);
+    scaled_shell.layout.ui_scale = 1.3;
+    scaled_shell.reconcile_focused(None);
+    frames.push(scaled_shell);
+    let catalog = nyon_workshop_core::decode_catalog_pack(include_bytes!(
+        "../assets/workshop/core-pack-v1.json"
+    ))
+    .unwrap();
+    let session = nyon::workshop::session::WorkshopSession::new(
+        nyon::workshop::WorkshopHistory::from_seed_u64(catalog, 42),
+    );
+    let before = session.snapshot().clone();
+    let model = WorkshopUiModel::build(session.snapshot(), WorkshopUiContext::default());
+    for viewport in [
+        glam::Vec2::new(1280.0, 720.0),
+        glam::Vec2::new(723.0, 802.0),
+    ] {
+        let mut pending = build_workshop_platform_frame(&model, viewport, None);
+        pending.high_contrast = true;
+        let message =
+            "Waiting for Workshop save and Continue selection; press Escape to cancel exit";
+        pending.append_status_line(message);
+        pending.reconcile_focused(Some(&pending.focus_order()[0].clone()));
+        let mut ui = UiBatch::default();
+        let mut overlay = PrimitiveBatch::default();
+        let witnesses =
+            install_platform_batches(&pending, &metrics, &mut ui, &mut overlay).unwrap();
+        assert!(
+            witnesses
+                .iter()
+                .all(|w| w.kind == PlatformDecorationKind::Focus)
+        );
+        let sdf = nyon::ui::platform_sdf::build_platform_ui_batch(&pending, &metrics).unwrap();
+        let status: Vec<_> = sdf
+            .text_runs
+            .iter()
+            .filter(|run| run.semantic_id.as_str().starts_with("platform.status."))
+            .collect();
+        assert_eq!(
+            status
+                .iter()
+                .map(|run| run.exact_text.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            message
+        );
+        assert!(status.iter().all(|run| run.clip.contains_rect(run.bounds)
+            && run.emitted_glyph_range[1] > run.emitted_glyph_range[0]));
+        assert!(
+            sdf.panel_witnesses.iter().any(
+                |panel| panel.role == nyon::ui::platform_sdf::PlatformPanelRole::ContrastBorder
+            )
+        );
+    }
+    frames.push(build_workshop_platform_frame(
+        &model,
+        glam::Vec2::new(1280.0, 720.0),
+        None,
+    ));
+    for frame in frames {
+        let mut ui = UiBatch::default();
+        let mut overlay = PrimitiveBatch::default();
+        let semantics = frame.semantics.clone();
+        let witnesses = install_platform_batches(&frame, &metrics, &mut ui, &mut overlay).unwrap();
+        assert!(!ui.glyphs().is_empty() && !ui.panels().is_empty());
+        assert!(witnesses.is_empty() && overlay.vertices().is_empty());
+        assert_eq!(frame.semantics, semantics);
+        let sdf = nyon::ui::platform_sdf::build_platform_ui_batch(&frame, &metrics).unwrap();
+        for run in sdf.text_runs.iter().filter(|run| {
+            run.semantic_id.as_str() == "platform.title"
+                || run.semantic_id.as_str().starts_with("platform.status.")
+        }) {
+            assert!(
+                run.clip.contains_rect(run.bounds),
+                "title/status line must fit: {run:?}"
+            );
+            assert!(run.emitted_glyph_range[1] > run.emitted_glyph_range[0]);
+            assert!(
+                frame
+                    .controls
+                    .iter()
+                    .all(|control| !control.bounds.overlaps(run.bounds))
+            );
+        }
+        let underlay = PrimitiveBatch::default();
+        let render = RenderFrame {
+            logical_viewport: frame.viewport.to_array(),
+            physical_target: [1280, 720],
+            quality: GraphicsQuality::Auto,
+            scene: None,
+            ui: Some(&ui),
+            primitive_underlay: &underlay,
+            primitive_overlay: &overlay,
+        };
+        assert!(std::ptr::eq(render.ui.unwrap(), &ui));
+        assert!(std::ptr::eq(render.primitive_overlay, &overlay));
+    }
+    assert_eq!(session.snapshot(), &before);
+    let mut ui = UiBatch::default();
+    let mut overlay = PrimitiveBatch::default();
+    install_platform_batches(&guide.platform, &metrics, &mut ui, &mut overlay).unwrap();
+    guide.draw_body(&mut overlay);
+    assert!(!guide.lines.is_empty() && !overlay.vertices().is_empty());
+    for vertex in overlay.vertices() {
+        assert!(vertex.position[1] >= 134.0 && vertex.position[1] < 720.0);
+        assert!(guide.platform.controls.iter().all(|control| {
+            !control
+                .bounds
+                .contains(glam::Vec2::from_array(vertex.position))
+        }));
+    }
+}
+
+#[test]
+fn platform_primitive_slice_contains_no_ordinary_chrome() {
+    use glam::Vec2;
+    use nyon::{app::client_runtime::ClientScreen, ui::platform::*};
+    let frame = build_shell_platform_frame(ShellPlatformInput {
+        screen: ClientScreen::MainMenu,
+        capabilities: &[],
+        credits_visible: false,
+        recovery_message: None,
+        continue_available: false,
+        backend: None,
+        preferences: Default::default(),
+        viewport: Vec2::new(1280.0, 720.0),
+        focused: None,
+    });
+    let mut overlay = PrimitiveBatch::default();
+    frame.draw(&mut overlay);
+    assert!(
+        overlay.vertices().is_empty(),
+        "unfocused shell chrome must be SDF, with no ordinary primitive panels or text"
+    );
+}
+
 use naga::{
     AddressSpace, Binding, ImageClass, ImageDimension, ScalarKind, ShaderStage, TypeInner,
     VectorSize,
@@ -112,6 +543,13 @@ fn sdf_ui_is_composed_between_legacy_chrome_and_the_frozen_overlay() {
     assert!(scene < underlay);
     assert!(underlay < sdf);
     assert!(sdf < primitive);
+}
+
+#[test]
+fn classic_scene_abi_remains_the_only_scene_payload_during_layout_repair() {
+    let source = include_str!("../src/engine/render_frame.rs");
+    assert!(source.contains("pub scene: Option<&'a SceneFrame>"));
+    assert!(!source.contains("RenderScene"));
 }
 
 #[test]

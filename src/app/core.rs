@@ -495,6 +495,30 @@ impl<S: ScenarioStore, P: PreferencesStore> AppCore<S, P> {
             preferences: self.preferences,
             command_tray: &command_tray,
         });
+        if self.mode == AppMode::Playing
+            && let Some(marker) = crate::ui::start_marker::start_marker(
+                self.onboarding_step(),
+                self.simulation.state(),
+                &self.scene_frame(),
+                &frame,
+            )
+        {
+            frame.controls.push(crate::presentation::ui::UiControl {
+                action: UiAction::SelectGuidanceWorld(marker.world),
+                bounds: crate::presentation::ui::UiRect::from_xywh(
+                    marker.label_min.x,
+                    marker.label_min.y,
+                    180.0,
+                    54.0,
+                ),
+                label: "START HERE",
+                tooltip: "Select your Union world to begin the tutorial",
+                icon: None,
+                enabled: true,
+                focused: false,
+                selected: false,
+            });
+        }
         if frame.tooltip.is_none()
             && let Some(world) = self
                 .hovered_world

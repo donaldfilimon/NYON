@@ -61,6 +61,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         if ring_width_bits == 0u {
             coverage = 0.0;
         } else if ring_width_bits == 0x00ffffffu {
+            // Filled discs use this explicit full-width ring endpoint so
+            // Metal, WebGPU, and WebGL2 execute the same analytic shape path.
             coverage = outer_coverage;
         } else {
             coverage = outer_coverage * inner_coverage;

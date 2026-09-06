@@ -2,7 +2,6 @@ use glam::Vec2;
 
 const SHAPE_KIND_MASK: u32 = 0xff;
 const QUAD_SHAPE: u32 = 0;
-const DISC_SHAPE: u32 = 1;
 const RING_SHAPE: u32 = 2;
 const RING_WIDTH_MAX: u32 = (1 << 24) - 1;
 
@@ -54,7 +53,17 @@ impl PrimitiveBatch {
         if !radius.is_finite() {
             return;
         }
-        self.emit_rect(center, Vec2::splat(radius.max(0.0)), color, DISC_SHAPE);
+        let radius = radius.max(0.0);
+        // Metal does not reliably render the dedicated analytic-disc kind on
+        // every supported device, while the ring path is shared and stable.
+        // A ring whose thickness equals its radius is exactly a filled disc;
+        // the shader has an explicit maximum-width endpoint for this case.
+        self.emit_rect(
+            center,
+            Vec2::splat(radius),
+            color,
+            packed_ring_shape(radius, radius),
+        );
     }
 
     pub fn ring(&mut self, center: Vec2, radius: f32, thickness: f32, color: [f32; 4]) {
@@ -333,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn disc_ring_and_line_emit_masked_geometry() {
+    fn disc_uses_the_full_width_ring_path_and_line_remains_a_quad() {
         let mut batch = PrimitiveBatch::default();
         batch.disc(Vec2::ZERO, 5.0, [1.0; 4]);
         batch.ring(Vec2::ZERO, 8.0, 2.0, [1.0; 4]);
@@ -342,7 +351,7 @@ mod tests {
         assert!(
             batch.vertices()[..6]
                 .iter()
-                .all(|vertex| vertex.shape & 0xff == 1)
+                .all(|vertex| vertex.shape == 0xffff_ff02)
         );
         assert!(
             batch.vertices()[6..12]

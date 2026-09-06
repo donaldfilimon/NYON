@@ -1,5 +1,6 @@
 //! Shared application state and native/browser winit lifecycle.
 
+pub mod client_runtime;
 mod core;
 mod input_router;
 pub mod onboarding;
@@ -17,6 +18,8 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use accesskit::{Action as AccessibilityAction, ActionData as AccessibilityActionData};
 use glam::Vec2;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -37,7 +40,12 @@ use winit::{
 
 use crate::{
     advisory::gpu::GpuAdvisory,
+    app::client_runtime::{
+        ActiveSession, ClientDiagnosticCode, ClientRuntime, ClientRuntimeEffect, ClientScreen,
+        MainMenuRoute,
+    },
     engine::{
+        backend::BackendKind,
         gpu::{GpuContext, GpuError},
         input::{Action, InputState, NavigationAction},
         primitives::PrimitiveBatch,
@@ -51,10 +59,39 @@ use crate::{
     presentation::{
         InteractionController, PointerButton, PointerSource,
         ui::{append_ui_primitives, build_ui_batch},
+        workshop::build_workshop_scene_frame,
     },
     scenario::store::ScenarioStore,
-    ui::{AtlasMetrics, UiBatch},
+    ui::{
+        AtlasMetrics, UiBatch,
+        accessibility::{
+            AnnouncementKind, FocusManager, InputModality, SemanticActionId, SemanticAnnouncement,
+            SemanticNode, SemanticRole, SemanticTree,
+        },
+        creator::CreatorDraft,
+        guide::{GuideAction, GuideLocation, build_guide_frame},
+        platform::{
+            PlatformUiAction, PlatformUiFrame, ShellPlatformInput, ShellUiAction,
+            build_shell_platform_frame, build_workshop_platform_frame_for_view,
+            draw_workshop_scene,
+        },
+        workshop::{
+            CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel,
+            default_creator_batch,
+        },
+        workshop_layout::WorkshopLayout,
+        workshop_view::WorkshopViewState,
+    },
+    workshop::{
+        session::WorkshopAction,
+        store::{MemoryWorkshopStore, WorkshopStore},
+    },
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::platform_native::NativeSemanticAdapter;
+#[cfg(target_arch = "wasm32")]
+use crate::ui::platform_web::DomSemanticMirror;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceState {
@@ -88,9 +125,20 @@ pub const fn surface_decision(state: SurfaceState) -> SurfaceDecision {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum AppEvent {
-    GpuInitFinished { generation: u64 },
+    GpuInitFinished {
+        generation: u64,
+    },
+    #[cfg(not(target_arch = "wasm32"))]
+    Accessibility(accesskit_winit::Event),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<accesskit_winit::Event> for AppEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Accessibility(event)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -132,11 +180,99 @@ const fn should_start_gpu_initialization(gpu_ready: bool, task_pending: bool) ->
     !gpu_ready && !task_pending
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DurableExitState {
+    pending: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DurableExitAction {
+    ExitNow,
+    PrepareWorkshop,
+    Wait,
+}
+
+impl DurableExitState {
+    const fn is_pending(self) -> bool {
+        self.pending
+    }
+
+    fn request(&mut self, workshop_requires_save: bool) -> DurableExitAction {
+        if !workshop_requires_save {
+            return DurableExitAction::ExitNow;
+        }
+        if self.pending {
+            return DurableExitAction::Wait;
+        }
+        self.pending = true;
+        DurableExitAction::PrepareWorkshop
+    }
+
+    fn observe_workshop(&mut self, continue_ready: bool) -> DurableExitAction {
+        if !self.pending {
+            return DurableExitAction::Wait;
+        }
+        if continue_ready {
+            self.pending = false;
+            DurableExitAction::ExitNow
+        } else {
+            DurableExitAction::Wait
+        }
+    }
+
+    fn cancel(&mut self) -> bool {
+        std::mem::take(&mut self.pending)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActiveCreatorEditor {
+    tool: CreatorTool,
+    draft: Option<CreatorDraft>,
+    editing_field: Option<String>,
+}
+
+impl ActiveCreatorEditor {
+    fn modal_order(&self) -> Vec<SemanticActionId> {
+        self.draft
+            .iter()
+            .flat_map(|draft| draft.fields.iter())
+            .map(|field| SemanticActionId::new(format!("creator.field.{}", field.id)))
+            .chain([
+                SemanticActionId::new("creator.cancel"),
+                SemanticActionId::new("creator.submit"),
+            ])
+            .collect()
+    }
+}
+
+enum AppEventProxy {
+    Live(EventLoopProxy<AppEvent>),
+    #[cfg(test)]
+    Headless,
+}
+
+impl AppEventProxy {
+    fn live(&self) -> EventLoopProxy<AppEvent> {
+        match self {
+            Self::Live(proxy) => proxy.clone(),
+            #[cfg(test)]
+            Self::Headless => {
+                panic!("headless App tests cannot initialize platform event delivery")
+            }
+        }
+    }
+}
+
 /// Shared native/browser lifecycle owner. Platform entry points decide how the
 /// asynchronous GPU future is driven; campaign and editor transitions remain in
 /// `AppCore` and therefore stay testable without a window or adapter.
-pub struct App<S: ScenarioStore, P: PreferencesStore = MemoryPreferencesStore> {
-    core: AppCore<S, P>,
+pub struct App<
+    S: ScenarioStore,
+    P: PreferencesStore = MemoryPreferencesStore,
+    W: WorkshopStore = MemoryWorkshopStore,
+> {
+    runtime: ClientRuntime<S, P, W>,
     input: InputState,
     window: Option<Arc<Window>>,
     gpu: Option<GpuContext>,
@@ -153,7 +289,25 @@ pub struct App<S: ScenarioStore, P: PreferencesStore = MemoryPreferencesStore> {
     gpu_generation: u64,
     fatal_message: Option<String>,
     first_frame_presented: bool,
-    event_proxy: EventLoopProxy<AppEvent>,
+    backend_kind: Option<BackendKind>,
+    platform_ui: Option<PlatformUiFrame>,
+    workshop_ui: Option<WorkshopUiModel>,
+    ui_focus: FocusManager,
+    player_guide: Option<(GuideLocation, FocusManager)>,
+    selected_workshop_entity: Option<nyon_workshop_core::EntityId>,
+    pending_removal: Option<nyon_workshop_core::EntityId>,
+    active_creator: Option<ActiveCreatorEditor>,
+    workshop_view: WorkshopViewState,
+    continue_bootstrap_started: bool,
+    quit_requested: bool,
+    durable_exit: DurableExitState,
+    #[cfg(not(target_arch = "wasm32"))]
+    semantic_adapter: NativeSemanticAdapter,
+    #[cfg(not(target_arch = "wasm32"))]
+    accesskit_adapter: Option<accesskit_winit::Adapter>,
+    #[cfg(target_arch = "wasm32")]
+    semantic_adapter: Option<DomSemanticMirror>,
+    event_proxy: AppEventProxy,
     #[cfg(not(target_arch = "wasm32"))]
     gpu_init_sender: Sender<(u64, NativeGpuInitResult)>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -166,13 +320,31 @@ pub struct App<S: ScenarioStore, P: PreferencesStore = MemoryPreferencesStore> {
     gpu_init_pending: bool,
 }
 
-impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
+impl<S: ScenarioStore, P: PreferencesStore> App<S, P, MemoryWorkshopStore> {
     pub fn new(core: AppCore<S, P>, event_proxy: EventLoopProxy<AppEvent>) -> Self {
+        Self::with_workshop_store(core, MemoryWorkshopStore::default(), event_proxy)
+    }
+}
+
+impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
+    pub fn with_workshop_store(
+        core: AppCore<S, P>,
+        workshop_store: W,
+        event_proxy: EventLoopProxy<AppEvent>,
+    ) -> Self {
+        Self::with_event_proxy(core, workshop_store, AppEventProxy::Live(event_proxy))
+    }
+
+    fn with_event_proxy(
+        core: AppCore<S, P>,
+        workshop_store: W,
+        event_proxy: AppEventProxy,
+    ) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let (gpu_init_sender, gpu_init_receiver) = mpsc::channel();
 
         Self {
-            core,
+            runtime: ClientRuntime::new(core, workshop_store),
             input: InputState::default(),
             window: None,
             gpu: None,
@@ -189,6 +361,29 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
             gpu_generation: 0,
             fatal_message: None,
             first_frame_presented: false,
+            backend_kind: None,
+            platform_ui: None,
+            workshop_ui: None,
+            ui_focus: FocusManager::new(std::iter::empty()),
+            player_guide: None,
+            selected_workshop_entity: None,
+            pending_removal: None,
+            active_creator: None,
+            workshop_view: WorkshopViewState::default(),
+            continue_bootstrap_started: false,
+            quit_requested: false,
+            durable_exit: DurableExitState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            semantic_adapter: NativeSemanticAdapter::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            accesskit_adapter: None,
+            #[cfg(target_arch = "wasm32")]
+            semantic_adapter: DomSemanticMirror::new()
+                .map_err(|error| {
+                    log::warn!("browser semantic mirror unavailable: {error:?}");
+                    error
+                })
+                .ok(),
             event_proxy,
             #[cfg(not(target_arch = "wasm32"))]
             gpu_init_sender,
@@ -204,7 +399,15 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
     }
 
     pub fn core(&self) -> &AppCore<S, P> {
-        &self.core
+        self.runtime.classic()
+    }
+
+    pub fn runtime(&self) -> &ClientRuntime<S, P, W> {
+        &self.runtime
+    }
+
+    pub fn runtime_mut(&mut self) -> &mut ClientRuntime<S, P, W> {
+        &mut self.runtime
     }
 
     pub fn take_fatal_message(&mut self) -> Option<String> {
@@ -215,7 +418,10 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         if self.fatal_message.is_none() {
             let message = message.into();
             #[cfg(target_arch = "wasm32")]
-            log::error!("{message}");
+            {
+                log::error!("{message}");
+                crate::platform::web::report_graphics_failed(&message);
+            }
             self.fatal_message = Some(message);
         }
         event_loop.exit();
@@ -249,7 +455,7 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         self.gpu_generation = next_gpu_generation(self.gpu_generation);
         let generation = self.gpu_generation;
         let sender = self.gpu_init_sender.clone();
-        let event_proxy = self.event_proxy.clone();
+        let event_proxy = self.event_proxy.live();
         log::info!("GPU initialization scheduled, generation {generation}");
         self.gpu_init_task = Some(runtime.spawn(async move {
             let result = prepared.initialize().await;
@@ -294,7 +500,7 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         let mailbox = Rc::new(RefCell::new(None));
         self.gpu_init_mailbox = Rc::clone(&mailbox);
         self.gpu_init_pending = true;
-        let event_proxy = self.event_proxy.clone();
+        let event_proxy = self.event_proxy.live();
         log::info!("browser GPU initialization scheduled, generation {generation}");
         wasm_bindgen_futures::spawn_local(async move {
             let result = GpuContext::new(window).await;
@@ -357,15 +563,21 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         } else {
             None
         };
-        let gpu_advisory = match GpuAdvisory::new(&gpu.adapter, &gpu.device, &gpu.queue) {
-            Ok(advisory) => advisory,
-            Err(error) => {
-                log::warn!("GPU advisory unavailable: {error}");
-                None
+        let backend_kind = gpu.backend_kind();
+        let gpu_advisory = if backend_kind.is_some_and(BackendKind::is_low_capability) {
+            None
+        } else {
+            match GpuAdvisory::new(&gpu.adapter, &gpu.device, &gpu.queue) {
+                Ok(advisory) => advisory,
+                Err(error) => {
+                    log::warn!("GPU advisory unavailable: {error}");
+                    None
+                }
             }
         };
         self.device_epoch = self.device_epoch.wrapping_add(1);
-        self.core
+        self.runtime
+            .classic_mut()
             .set_gpu_epoch(self.device_epoch, gpu_advisory.is_some());
         let info = gpu.adapter.get_info();
         log::info!(
@@ -377,7 +589,12 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         );
         self.renderer = renderer;
         self.gpu_advisory = gpu_advisory;
+        self.backend_kind = backend_kind;
         self.gpu = Some(gpu);
+        #[cfg(target_arch = "wasm32")]
+        crate::platform::web::report_graphics_ready(
+            backend_kind.map_or("UNKNOWN", BackendKind::label),
+        );
         self.submit_pending_advisory();
     }
 
@@ -402,7 +619,8 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
             return;
         };
         let logical = window.inner_size().to_logical::<f32>(window.scale_factor());
-        self.core
+        self.runtime
+            .classic_mut()
             .set_viewport(Vec2::new(logical.width, logical.height));
     }
 
@@ -449,35 +667,75 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
     }
 
     fn build_frame(&mut self) {
-        match self.core.mode() {
+        if let Some((location, _)) = self.player_guide.as_ref() {
+            let guide = build_guide_frame(
+                *location,
+                self.runtime.classic().viewport(),
+                self.runtime.classic().preferences().high_contrast,
+                self.ui_focus.focused(),
+            );
+            self.ui_batch.clear();
+            self.underlay_batch.clear();
+            self.overlay_batch.clear();
+            // Draw body after the opaque guide background has been installed.
+            self.install_guide_frame(guide);
+            return;
+        }
+        match self.runtime.screen() {
+            ClientScreen::ClassicSector => self.build_classic_frame(),
+            ClientScreen::GalaxyWorkshop => self.build_workshop_frame(),
+            ClientScreen::MainMenu
+            | ClientScreen::Settings
+            | ClientScreen::Loading
+            | ClientScreen::RecoverableError => self.build_shell_frame(),
+        }
+    }
+
+    fn build_classic_frame(&mut self) {
+        self.platform_ui = None;
+        self.workshop_ui = None;
+        let mut guidance_nodes = Vec::new();
+        match self.runtime.classic().mode() {
             AppMode::Playing => {
                 let layout = GameLayout::with_user_scale(
-                    self.core.viewport(),
-                    self.core.preferences().ui_scale.factor(),
+                    self.runtime.classic().viewport(),
+                    self.runtime.classic().preferences().ui_scale.factor(),
                 );
                 build_command_deck_underlay(
-                    self.core.simulation().state(),
-                    self.core.view_state(),
+                    self.runtime.classic().simulation().state(),
+                    self.runtime.classic().view_state(),
                     &layout,
                     &mut self.underlay_batch,
                 );
                 draw_advisory(
-                    self.core.simulation().state(),
-                    self.core.advisory_snapshot(),
-                    self.core.advisory_updating(),
+                    self.runtime.classic().simulation().state(),
+                    self.runtime.classic().advisory_snapshot(),
+                    self.runtime.classic().advisory_updating(),
                     &layout,
                     &mut self.underlay_batch,
                 );
                 self.overlay_batch.clear();
-                if let Some(message) = self.core.recoverable_message() {
+                if let Some(message) = self.runtime.classic().recoverable_message() {
                     draw_recoverable_message(message, &layout, &mut self.overlay_batch);
                 }
-                let ui_frame = self.core.ui_frame();
+                let ui_frame = self.runtime.classic().ui_frame();
                 append_ui_primitives(&ui_frame, &mut self.overlay_batch);
+                if let Some(marker) = crate::ui::start_marker::start_marker(
+                    self.runtime.classic().onboarding_step(),
+                    self.runtime.classic().simulation().state(),
+                    &self.runtime.classic().scene_frame(),
+                    &ui_frame,
+                ) {
+                    marker.draw(&mut self.overlay_batch);
+                    guidance_nodes.push(SemanticNode::text("classic.start-here", SemanticRole::Text,
+                        format!("START HERE: {}", marker.world_name),
+                        "Tutorial paused. Click the marked Union world, or SKIP to play this same match now. F1 opens the player guide."));
+                }
                 if let Err(error) = build_ui_batch(&ui_frame, &self.ui_metrics, &mut self.ui_batch)
                 {
                     self.ui_batch.clear();
-                    self.core
+                    self.runtime
+                        .classic_mut()
                         .set_recoverable_message(format!("UI batch failed: {error}"));
                 }
             }
@@ -485,13 +743,13 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
                 self.ui_batch.clear();
                 self.underlay_batch.clear();
                 self.overlay_batch.clear();
-                if let Some(editor) = self.core.editor() {
+                if let Some(editor) = self.runtime.classic().editor() {
                     crate::editor::build_frame(editor, &mut self.underlay_batch);
                 }
-                if let Some(message) = self.core.recoverable_message() {
+                if let Some(message) = self.runtime.classic().recoverable_message() {
                     draw_recoverable_message(
                         message,
-                        &GameLayout::new(self.core.viewport()),
+                        &GameLayout::new(self.runtime.classic().viewport()),
                         &mut self.overlay_batch,
                     );
                 }
@@ -499,29 +757,523 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
             AppMode::Settings => {
                 self.underlay_batch.clear();
                 self.overlay_batch.clear();
-                let ui_frame = self.core.ui_frame();
+                let ui_frame = self.runtime.classic().ui_frame();
                 append_ui_primitives(&ui_frame, &mut self.overlay_batch);
                 if let Err(error) = build_ui_batch(&ui_frame, &self.ui_metrics, &mut self.ui_batch)
                 {
                     self.ui_batch.clear();
-                    self.core
+                    self.runtime
+                        .classic_mut()
                         .set_recoverable_message(format!("UI batch failed: {error}"));
                 }
-                if let Some(message) = self.core.recoverable_message() {
+                if let Some(message) = self.runtime.classic().recoverable_message() {
                     draw_recoverable_message(
                         message,
                         &GameLayout::with_user_scale(
-                            self.core.viewport(),
-                            self.core.preferences().ui_scale.factor(),
+                            self.runtime.classic().viewport(),
+                            self.runtime.classic().preferences().ui_scale.factor(),
                         ),
                         &mut self.overlay_batch,
                     );
                 }
             }
         }
+        self.sync_semantics(&SemanticTree {
+            root: SemanticNode::container(
+                "classic.application",
+                SemanticRole::Application,
+                "NYON Classic Sector",
+                guidance_nodes,
+            ),
+            announcements: Vec::new(),
+        });
+    }
+
+    fn build_workshop_frame(&mut self) {
+        self.ui_batch.clear();
+        self.underlay_batch.clear();
+        self.overlay_batch.clear();
+        let preferences = self.runtime.classic().preferences();
+        let Some((snapshot, redo_children)) = (match self.runtime.active_session() {
+            ActiveSession::Workshop(session) => {
+                Some((session.snapshot().clone(), session.history().redo_choices()))
+            }
+            ActiveSession::None | ActiveSession::Classic => None,
+        }) else {
+            if let Err(error) = self.runtime.return_to_main_menu() {
+                log::warn!("failed to recover the main-menu route: {error}");
+            }
+            self.build_shell_frame();
+            return;
+        };
+        let catalog = match self.runtime.active_session() {
+            ActiveSession::Workshop(session) => session.history().catalog(),
+            ActiveSession::None | ActiveSession::Classic => {
+                unreachable!("the active Workshop session was validated above")
+            }
+        };
+        if self
+            .selected_workshop_entity
+            .is_some_and(|entity| !snapshot.state.contains_entity(entity))
+        {
+            self.selected_workshop_entity = None;
+        }
+        let model = WorkshopUiModel::build(
+            &snapshot,
+            WorkshopUiContext {
+                backend: self.backend_kind,
+                catalog_hash: Some(catalog.catalog_hash()),
+                catalog: Some(catalog),
+                selected_entity: self.selected_workshop_entity,
+                redo_children: &redo_children,
+                pending_removal: self.pending_removal,
+                reduced_motion: preferences.motion
+                    == crate::presentation::MotionPreference::Reduced,
+                high_contrast: preferences.high_contrast,
+                creator_form: self.active_creator.as_ref().map(|editor| editor.tool),
+                creator_draft: self
+                    .active_creator
+                    .as_ref()
+                    .and_then(|editor| editor.draft.as_ref()),
+            },
+        );
+        let scene = build_workshop_scene_frame(
+            &snapshot.state,
+            self.selected_workshop_entity,
+            preferences.high_contrast,
+        );
+        let workshop_layout = WorkshopLayout::resolve(
+            self.runtime.classic().viewport(),
+            preferences.ui_scale.factor(),
+        )
+        .expect("validated application viewport must support Workshop layout");
+        draw_workshop_scene(
+            &scene,
+            &workshop_layout,
+            &mut self.underlay_batch,
+            preferences.high_contrast,
+        );
+        if let Some(focused) = self.ui_focus.focused() {
+            self.workshop_view
+                .reveal_action(&model, &workshop_layout, focused);
+        }
+        let frame = build_workshop_platform_frame_for_view(
+            &model,
+            workshop_layout,
+            &self.workshop_view,
+            self.ui_focus.focused(),
+        );
+        self.workshop_ui = Some(model);
+        self.install_platform_frame(frame);
+    }
+
+    fn build_shell_frame(&mut self) {
+        self.ui_batch.clear();
+        self.underlay_batch.clear();
+        self.overlay_batch.clear();
+        self.workshop_ui = None;
+        let capabilities = self.runtime.menu_capabilities();
+        let recovery_message = self
+            .runtime
+            .recovery_diagnostic()
+            .map(|diagnostic| safe_client_diagnostic(diagnostic.code));
+        let frame = build_shell_platform_frame(ShellPlatformInput {
+            screen: self.runtime.screen(),
+            capabilities: &capabilities,
+            credits_visible: self.runtime.credits_visible(),
+            recovery_message,
+            continue_available: self.runtime.continue_available(),
+            backend: self.backend_kind,
+            preferences: self.runtime.classic().preferences(),
+            viewport: self.runtime.classic().viewport(),
+            focused: self.ui_focus.focused(),
+        });
+        self.install_platform_frame(frame);
+    }
+
+    fn install_platform_frame(&mut self, mut frame: PlatformUiFrame) {
+        self.prepare_platform_frame(&mut frame);
+        let result = crate::ui::platform::install_platform_batches(
+            &frame,
+            &self.ui_metrics,
+            &mut self.ui_batch,
+            &mut self.overlay_batch,
+        )
+        .map(|_| ());
+        self.finish_platform_frame(frame, result);
+    }
+
+    fn install_guide_frame(&mut self, mut guide: crate::ui::guide::GuideFrame) {
+        self.prepare_platform_frame(&mut guide.platform);
+        let result = crate::ui::platform::install_guide_batches(
+            &guide,
+            &self.ui_metrics,
+            &mut self.ui_batch,
+            &mut self.overlay_batch,
+        );
+        self.finish_platform_frame(guide.platform, result);
+    }
+
+    fn prepare_platform_frame(&mut self, frame: &mut PlatformUiFrame) {
+        if self.durable_exit.is_pending() {
+            frame.append_status_line(
+                "Waiting for Workshop save and Continue selection; press Escape to cancel exit"
+                    .to_owned(),
+            );
+            frame.semantics.announcements.push(SemanticAnnouncement {
+                kind: AnnouncementKind::Status,
+                code: "durable-exit-pending",
+                message:
+                    "Exit is waiting for the Workshop save to complete. Press Escape to cancel."
+                        .to_owned(),
+            });
+        }
+        self.ui_focus
+            .replace_active_order(frame.focus_order())
+            .expect("a presented modal retains an actionable control");
+        let focused = self.ui_focus.focused();
+        frame.reconcile_focused(focused);
+    }
+
+    fn finish_platform_frame(
+        &mut self,
+        frame: PlatformUiFrame,
+        result: Result<(), crate::ui::UiBatchError>,
+    ) {
+        if let Err(error) = result {
+            // Never format atlas keys, unsupported characters, or imported text.
+            let (code, requested) = match error {
+                crate::ui::UiBatchError::Capacity { requested } => ("glyph-capacity", requested),
+                crate::ui::UiBatchError::PanelCapacity { requested } => {
+                    ("panel-capacity", requested)
+                }
+                crate::ui::UiBatchError::NonFiniteGeometry => ("geometry", 0),
+                crate::ui::UiBatchError::UnsupportedCharacter(_) => ("unsupported-character", 0),
+                crate::ui::UiBatchError::MissingEntry(_) => ("missing-atlas-entry", 0),
+            };
+            log::warn!(
+                "Platform UI composition failed: code={code} requested={requested} controls={} records={}",
+                frame.controls.len(),
+                frame.visible_nodes.len()
+            );
+        }
+        self.sync_semantics(&frame.semantics);
+        self.platform_ui = Some(frame);
+    }
+
+    fn sync_semantics(&mut self, tree: &SemanticTree) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.semantic_adapter.sync(tree, self.ui_focus.focused());
+            let update = self.semantic_adapter.full_tree_update();
+            if let Some(adapter) = &mut self.accesskit_adapter {
+                adapter.update_if_active(|| update);
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(adapter) = &mut self.semantic_adapter
+            && let Err(error) = adapter.sync(tree)
+        {
+            log::warn!("failed to update browser semantic mirror: {error:?}");
+        }
+    }
+
+    fn drain_semantic_actions(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let actions = self.semantic_adapter.drain_actions().collect::<Vec<_>>();
+        #[cfg(target_arch = "wasm32")]
+        let actions = self
+            .semantic_adapter
+            .as_mut()
+            .map(|adapter| adapter.drain_actions().collect::<Vec<_>>())
+            .unwrap_or_default();
+        #[cfg(target_arch = "wasm32")]
+        let edits = self
+            .semantic_adapter
+            .as_mut()
+            .map(|adapter| adapter.drain_edits().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for action in actions {
+            self.activate_platform_action_id(&action, InputModality::Keyboard);
+        }
+        #[cfg(target_arch = "wasm32")]
+        for (action, value) in edits {
+            self.apply_creator_semantic_value(&action, value);
+        }
+    }
+
+    fn apply_creator_semantic_value(&mut self, action: &SemanticActionId, value: String) {
+        if self.player_guide.is_some() {
+            return;
+        }
+        let Some(field_id) = action.as_str().strip_prefix("creator.field.") else {
+            return;
+        };
+        if let Some(editor) = &mut self.active_creator
+            && editor
+                .draft
+                .as_mut()
+                .is_some_and(|draft| draft.set_text(field_id, value).is_ok())
+        {
+            editor.editing_field = Some(field_id.to_owned());
+        }
+    }
+
+    fn activate_platform_action_id(
+        &mut self,
+        action_id: &SemanticActionId,
+        modality: InputModality,
+    ) {
+        let platform_action = self
+            .platform_ui
+            .as_ref()
+            .and_then(|frame| frame.action(action_id))
+            .cloned();
+        if let Some(action) = platform_action {
+            self.apply_platform_action(action, modality);
+            return;
+        }
+        if self.player_guide.is_some() {
+            return;
+        }
+        if let Some(intent) = self
+            .workshop_ui
+            .as_ref()
+            .and_then(|model| model.activate(action_id, modality))
+        {
+            self.apply_workshop_intent(intent);
+        }
+    }
+
+    fn apply_platform_action(&mut self, action: PlatformUiAction, modality: InputModality) {
+        match action {
+            PlatformUiAction::Guide(action) => self.apply_guide_action(action),
+            PlatformUiAction::Shell(action) => self.apply_shell_action(action),
+            PlatformUiAction::Workshop(action_id) => {
+                if let Some(intent) = self
+                    .workshop_ui
+                    .as_ref()
+                    .and_then(|model| model.activate(&action_id, modality))
+                {
+                    self.apply_workshop_intent(intent);
+                }
+            }
+            PlatformUiAction::WorkshopView(action) => {
+                self.apply_workshop_view_action(action);
+            }
+        }
+    }
+
+    fn apply_guide_action(&mut self, action: GuideAction) {
+        match action {
+            GuideAction::Open if self.player_guide.is_none() => {
+                let previous = std::mem::replace(&mut self.ui_focus, FocusManager::new([]));
+                self.player_guide =
+                    Some((GuideLocation::for_screen(self.runtime.screen()), previous));
+                self.interaction = InteractionController::default();
+                self.input = InputState::default();
+            }
+            GuideAction::Show(location) => {
+                if let Some((current, _)) = &mut self.player_guide {
+                    *current = location;
+                }
+            }
+            GuideAction::Close | GuideAction::MainMenu => {
+                if let Some((_, previous)) = self.player_guide.take() {
+                    self.ui_focus = previous;
+                }
+                if action == GuideAction::MainMenu {
+                    self.active_creator = None;
+                    self.pending_removal = None;
+                    self.close_workshop_modal_focus();
+                    if let Err(error) = self.runtime.return_to_main_menu() {
+                        log::warn!("guide main-menu transition was rejected: {error}");
+                    }
+                }
+            }
+            GuideAction::Open => {}
+        }
+        self.last_frame = None;
+        self.build_frame();
+    }
+
+    fn apply_shell_action(&mut self, action: ShellUiAction) {
+        match action {
+            ShellUiAction::Menu(route) => match self.runtime.select_menu_route(route) {
+                Ok(ClientRuntimeEffect::None | ClientRuntimeEffect::CreditsOpened) => {
+                    if route == MainMenuRoute::Settings {
+                        self.runtime.classic_mut().open_settings();
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                Ok(ClientRuntimeEffect::QuitRequested) => self.request_durable_exit(),
+                Err(error) => log::warn!("shell action was rejected: {error}"),
+            },
+            ShellUiAction::CloseSettings => {
+                self.runtime.close_settings();
+                self.runtime.classic_mut().close_settings();
+            }
+            ShellUiAction::CycleUiScale => {
+                let next = match self.runtime.classic().preferences().ui_scale {
+                    crate::preferences::UiScale::Percent85 => {
+                        crate::preferences::UiScale::Percent100
+                    }
+                    crate::preferences::UiScale::Percent100 => {
+                        crate::preferences::UiScale::Percent115
+                    }
+                    crate::preferences::UiScale::Percent115 => {
+                        crate::preferences::UiScale::Percent130
+                    }
+                    crate::preferences::UiScale::Percent130 => {
+                        crate::preferences::UiScale::Percent85
+                    }
+                };
+                self.runtime
+                    .classic_mut()
+                    .handle_settings_action(crate::app::settings::SettingsAction::SetUiScale(next));
+            }
+            ShellUiAction::ToggleReducedMotion => {
+                let reduced = self.runtime.classic().preferences().motion
+                    != crate::presentation::MotionPreference::Reduced;
+                self.runtime.classic_mut().handle_settings_action(
+                    crate::app::settings::SettingsAction::SetMotion(if reduced {
+                        crate::presentation::MotionPreference::Reduced
+                    } else {
+                        crate::presentation::MotionPreference::Full
+                    }),
+                );
+            }
+            ShellUiAction::ToggleHighContrast => {
+                let enabled = !self.runtime.classic().preferences().high_contrast;
+                self.runtime.classic_mut().handle_settings_action(
+                    crate::app::settings::SettingsAction::SetHighContrast(enabled),
+                );
+            }
+            ShellUiAction::DismissCredits => self.runtime.dismiss_credits(),
+            ShellUiAction::DismissRecovery => self.runtime.dismiss_recovery(),
+            ShellUiAction::ContinueRecovery => {
+                if let Err(error) = self.runtime.select_menu_route(MainMenuRoute::Continue) {
+                    log::warn!("recovered Continue was rejected: {error}");
+                }
+            }
+            ShellUiAction::ReturnToMainMenu => {
+                if let Err(error) = self.runtime.return_to_main_menu() {
+                    log::warn!("main-menu transition was rejected: {error}");
+                }
+            }
+        }
+    }
+
+    fn close_workshop_modal_focus(&mut self) {
+        self.ui_focus.close_modal();
+        self.workshop_view.reset_modal();
+    }
+
+    fn apply_workshop_intent(&mut self, intent: WorkshopUiIntent) {
+        match intent {
+            WorkshopUiIntent::OpenCreatorForm { tool, subject } => {
+                self.workshop_view.reset_modal();
+                if let Some(subject) = subject {
+                    self.selected_workshop_entity = Some(subject);
+                }
+                let draft = self.runtime.workshop_snapshot().and_then(|snapshot| {
+                    default_creator_batch(snapshot, self.selected_workshop_entity, tool)
+                        .ok()
+                        .and_then(|batch| CreatorDraft::from_batch(&snapshot.state, &batch).ok())
+                });
+                let editor = ActiveCreatorEditor {
+                    tool,
+                    draft,
+                    editing_field: None,
+                };
+                let modal_order = editor.modal_order();
+                self.active_creator = Some(editor);
+                let _ = self.ui_focus.open_modal(modal_order);
+            }
+            WorkshopUiIntent::SelectEntity(entity) => {
+                self.selected_workshop_entity = Some(entity);
+                self.active_creator = None;
+                self.close_workshop_modal_focus();
+            }
+            WorkshopUiIntent::Dispatch(action) => {
+                let submitted_creator = matches!(action, WorkshopAction::Submit(_));
+                if let Err(error) = self.runtime.enqueue_workshop_action(action) {
+                    log::warn!("Workshop UI action was rejected: {error}");
+                } else if submitted_creator {
+                    self.active_creator = None;
+                    self.close_workshop_modal_focus();
+                }
+            }
+            WorkshopUiIntent::OpenRemovalConfirmation(entity) => {
+                self.workshop_view.reset_modal();
+                self.pending_removal = Some(entity);
+                let _ = self.ui_focus.open_modal([
+                    SemanticActionId::new("remove.cancel"),
+                    SemanticActionId::new("remove.confirm"),
+                ]);
+            }
+            WorkshopUiIntent::CloseRemovalConfirmation => {
+                self.pending_removal = None;
+                self.close_workshop_modal_focus();
+            }
+            WorkshopUiIntent::SetReducedMotion(enabled) => {
+                self.update_workshop_presentation_preferences(Some(enabled), None);
+            }
+            WorkshopUiIntent::SetHighContrast(enabled) => {
+                self.update_workshop_presentation_preferences(None, Some(enabled));
+            }
+            WorkshopUiIntent::EditCreatorField { field_id, cycle } => {
+                if cycle
+                    && let Some(editor) = &mut self.active_creator
+                    && let Some(draft) = &mut editor.draft
+                    && let Err(error) = draft.cycle(&field_id, 1)
+                {
+                    log::warn!("Workshop creator choice was rejected: {error}");
+                }
+                if let Some(editor) = &mut self.active_creator {
+                    editor.editing_field = None;
+                }
+            }
+            WorkshopUiIntent::CloseCreatorForm => {
+                self.active_creator = None;
+                self.close_workshop_modal_focus();
+            }
+            WorkshopUiIntent::ReturnToMainMenu => {
+                self.active_creator = None;
+                self.pending_removal = None;
+                self.close_workshop_modal_focus();
+                if let Err(error) = self.runtime.return_to_main_menu() {
+                    log::warn!("Workshop main-menu transition was rejected: {error}");
+                }
+            }
+        }
+    }
+
+    fn update_workshop_presentation_preferences(
+        &mut self,
+        reduced_motion: Option<bool>,
+        high_contrast: Option<bool>,
+    ) {
+        self.runtime.classic_mut().open_settings();
+        if let Some(enabled) = reduced_motion {
+            self.runtime.classic_mut().handle_settings_action(
+                crate::app::settings::SettingsAction::SetMotion(if enabled {
+                    crate::presentation::MotionPreference::Reduced
+                } else {
+                    crate::presentation::MotionPreference::Full
+                }),
+            );
+        }
+        if let Some(enabled) = high_contrast {
+            self.runtime.classic_mut().handle_settings_action(
+                crate::app::settings::SettingsAction::SetHighContrast(enabled),
+            );
+        }
+        self.runtime.classic_mut().close_settings();
     }
 
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        self.drain_semantic_actions();
         let now = Instant::now();
         let delta = self
             .last_frame
@@ -529,10 +1281,24 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
             .map_or(Duration::ZERO, |previous| {
                 now.saturating_duration_since(previous)
             });
-        self.core.advance(delta);
-        self.poll_advisory();
-        self.submit_pending_advisory();
+        let delta = if self.player_guide.is_some() {
+            Duration::ZERO
+        } else {
+            delta
+        };
+        let _ = self.runtime.update(delta);
+        self.poll_durable_exit();
+        if self.runtime.screen() == ClientScreen::ClassicSector && self.player_guide.is_none() {
+            self.runtime.classic_mut().advance(delta);
+            self.poll_advisory();
+            self.submit_pending_advisory();
+        }
         self.build_frame();
+
+        if self.quit_requested {
+            event_loop.exit();
+            return;
+        }
 
         let acquired = self.gpu.as_ref().and_then(GpuContext::acquire);
         match acquired {
@@ -557,6 +1323,45 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         self.input.finish_frame();
     }
 
+    fn request_durable_exit(&mut self) {
+        let requires_save = matches!(
+            self.runtime.active_session(),
+            ActiveSession::Workshop(session) if !session.continue_ready()
+        );
+        match self.durable_exit.request(requires_save) {
+            DurableExitAction::ExitNow => self.quit_requested = true,
+            DurableExitAction::PrepareWorkshop => {
+                if let Err(error) = self.runtime.return_to_main_menu() {
+                    log::warn!("Workshop durable exit preparation was rejected: {error}");
+                }
+            }
+            DurableExitAction::Wait => {}
+        }
+    }
+
+    fn poll_durable_exit(&mut self) {
+        if !self.durable_exit.is_pending() {
+            return;
+        }
+        let continue_ready = matches!(
+            self.runtime.active_session(),
+            ActiveSession::Workshop(session) if session.continue_ready()
+        );
+        match self.durable_exit.observe_workshop(continue_ready) {
+            DurableExitAction::ExitNow => self.quit_requested = true,
+            DurableExitAction::PrepareWorkshop => unreachable!("polling cannot start an exit"),
+            DurableExitAction::Wait => {
+                if let Err(error) = self.runtime.return_to_main_menu() {
+                    log::warn!("Workshop durable exit preparation is still pending: {error}");
+                }
+            }
+        }
+    }
+
+    pub(super) fn cancel_durable_exit(&mut self) -> bool {
+        self.durable_exit.cancel()
+    }
+
     fn render_frame(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -566,12 +1371,18 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         let Some(gpu) = &self.gpu else {
             return;
         };
-        let scene = (self.core.mode() == AppMode::Playing).then(|| self.core.scene_frame());
+        let scene = (self.runtime.screen() == ClientScreen::ClassicSector
+            && self.runtime.classic().mode() == AppMode::Playing)
+            .then(|| self.runtime.classic().scene_frame());
         let physical_size = gpu.physical_size();
         let render_frame = RenderFrame {
-            logical_viewport: self.core.viewport().to_array(),
+            logical_viewport: self.runtime.classic().viewport().to_array(),
             physical_target: [physical_size.width, physical_size.height],
-            quality: self.core.presentation_preferences().graphics_quality,
+            quality: self
+                .runtime
+                .classic()
+                .presentation_preferences()
+                .graphics_quality,
             scene: scene.as_ref(),
             ui: (!self.ui_batch.glyphs().is_empty() || !self.ui_batch.panels().is_empty())
                 .then_some(&self.ui_batch),
@@ -595,16 +1406,19 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
     }
 
     fn submit_pending_advisory(&mut self) {
-        let Some(request) = self.core.take_gpu_request() else {
+        let Some(request) = self.runtime.classic_mut().take_gpu_request() else {
             return;
         };
         let Some(advisory) = &mut self.gpu_advisory else {
-            self.core
+            self.runtime
+                .classic_mut()
                 .fail_device_epoch("GPU advisory backend is unavailable");
             return;
         };
         if let Err(error) = advisory.submit(&request) {
-            self.core.fail_device_epoch(error.to_string());
+            self.runtime
+                .classic_mut()
+                .fail_device_epoch(error.to_string());
             self.gpu_advisory = None;
         }
     }
@@ -615,30 +1429,34 @@ impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
         };
         match advisory.poll() {
             Ok(Some(completion)) => {
-                self.core
+                self.runtime
+                    .classic_mut()
                     .complete_gpu(completion.metadata, completion.result);
             }
             Ok(None) => {}
             Err(error) => {
-                self.core.fail_device_epoch(error.to_string());
+                self.runtime
+                    .classic_mut()
+                    .fail_device_epoch(error.to_string());
                 self.gpu_advisory = None;
             }
         }
     }
 }
 
-impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandler<AppEvent>
-    for App<S, P>
+impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore + 'static>
+    ApplicationHandler<AppEvent> for App<S, P, W>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.core.on_resume();
+        self.runtime.classic_mut().on_resume();
         self.last_frame = None;
         if self.window.is_none() {
-            let attributes = Window::default_attributes().with_title("NYON // Sector Command");
+            let attributes = Window::default_attributes().with_title("NYON // Galaxy Workshop");
             #[cfg(not(target_arch = "wasm32"))]
             let attributes = attributes
                 .with_inner_size(LogicalSize::new(1440.0, 900.0))
-                .with_min_inner_size(LogicalSize::new(960.0, 600.0));
+                .with_min_inner_size(LogicalSize::new(960.0, 600.0))
+                .with_visible(false);
             #[cfg(target_arch = "wasm32")]
             let attributes = attributes
                 .with_append(true)
@@ -647,13 +1465,30 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
             match event_loop.create_window(attributes) {
                 Ok(window) => {
                     window.set_ime_allowed(true);
-                    self.window = Some(Arc::new(window));
+                    let window = Arc::new(window);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.accesskit_adapter =
+                            Some(accesskit_winit::Adapter::with_event_loop_proxy(
+                                event_loop,
+                                &window,
+                                self.event_proxy.live(),
+                            ));
+                        window.set_visible(true);
+                    }
+                    self.window = Some(window);
                     self.update_viewport();
                 }
                 Err(error) => {
                     self.fail(event_loop, format!("window creation failed: {error}"));
                     return;
                 }
+            }
+        }
+        if !self.continue_bootstrap_started {
+            self.continue_bootstrap_started = true;
+            if let Err(error) = self.runtime.begin_continue_bootstrap() {
+                log::warn!("Continue bootstrap could not start: {error}");
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -663,7 +1498,7 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.core.on_suspend();
+        self.runtime.classic_mut().on_suspend();
         self.input.clear_all();
         self.last_frame = None;
         #[cfg(not(target_arch = "wasm32"))]
@@ -680,6 +1515,60 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
             AppEvent::GpuInitFinished { generation } => {
                 self.complete_gpu_initialization(event_loop, generation)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            AppEvent::Accessibility(event) => {
+                if self.window.as_ref().map(|window| window.id()) != Some(event.window_id) {
+                    return;
+                }
+                match event.window_event {
+                    accesskit_winit::WindowEvent::InitialTreeRequested => {
+                        let update = self.semantic_adapter.full_tree_update();
+                        if let Some(adapter) = &mut self.accesskit_adapter {
+                            adapter.update_if_active(|| update);
+                        }
+                    }
+                    accesskit_winit::WindowEvent::ActionRequested(request) => {
+                        match request.action {
+                            AccessibilityAction::Click => {
+                                self.semantic_adapter
+                                    .request_node_action(request.target_node);
+                            }
+                            AccessibilityAction::Focus => {
+                                if let Some(action) = self
+                                    .semantic_adapter
+                                    .focus_action_for_node(request.target_node)
+                                {
+                                    self.ui_focus.request_focus(&action);
+                                }
+                            }
+                            AccessibilityAction::SetValue => {
+                                let value = match request.data {
+                                    Some(AccessibilityActionData::Value(value)) => {
+                                        Some(value.into_string())
+                                    }
+                                    Some(AccessibilityActionData::NumericValue(value)) => {
+                                        Some(value.to_string())
+                                    }
+                                    _ => None,
+                                };
+                                if let (Some(action), Some(value)) = (
+                                    self.semantic_adapter
+                                        .action_for_node(request.target_node)
+                                        .cloned(),
+                                    value,
+                                ) {
+                                    self.apply_creator_semantic_value(&action, value);
+                                }
+                            }
+                            _ => {}
+                        }
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                    }
+                    accesskit_winit::WindowEvent::AccessibilityDeactivated => {}
+                }
+            }
         }
     }
 
@@ -692,8 +1581,12 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
         if self.window.as_ref().map(|window| window.id()) != Some(window_id) {
             return;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let (Some(adapter), Some(window)) = (&mut self.accesskit_adapter, &self.window) {
+            adapter.process_event(window, &event);
+        }
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => self.request_durable_exit(),
             WindowEvent::Resized(size) => self.resize_surface(event_loop, size),
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
@@ -708,12 +1601,18 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
                 ..
             } => self.handle_key(&event),
             WindowEvent::Ime(Ime::Preedit(text, _)) => {
-                if let Some(editor) = self.core.editor_mut() {
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::ClassicSector
+                    && let Some(editor) = self.runtime.classic_mut().editor_mut()
+                {
                     editor.set_ime_preedit(text);
                 }
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
-                if let Some(editor) = self.core.editor_mut() {
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::ClassicSector
+                    && let Some(editor) = self.runtime.classic_mut().editor_mut()
+                {
                     editor.commit_ime(&text);
                 }
             }
@@ -727,29 +1626,50 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
                         self.update_pointer(id, logical);
                     }
                 }
-                if pointer_active {
-                    self.core.clear_hovered_world();
-                } else {
-                    let hud_consumed = self.core.ui_frame().consumes_pointer(logical);
-                    self.core.set_scene_cursor(logical, hud_consumed);
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::ClassicSector
+                {
+                    if pointer_active {
+                        self.runtime.classic_mut().clear_hovered_world();
+                    } else {
+                        let hud_consumed =
+                            self.runtime.classic().ui_frame().consumes_pointer(logical);
+                        self.runtime
+                            .classic_mut()
+                            .set_scene_cursor(logical, hud_consumed);
+                    }
                 }
             }
-            WindowEvent::CursorLeft { .. } => self.core.clear_hovered_world(),
+            WindowEvent::CursorLeft { .. } => {
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::ClassicSector
+                {
+                    self.runtime.classic_mut().clear_hovered_world();
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.handle_mouse_input(state, button);
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = wheel_logical_delta(delta, self.window_scale_factor());
                 self.input.add_wheel_delta(delta);
-                if let Some(editor) = self.core.editor_mut() {
-                    editor.scroll_by(-delta.y);
-                } else if self.core.mode() == AppMode::Playing
-                    && !self
-                        .core
-                        .ui_frame()
-                        .consumes_pointer(self.input.cursor_logical)
+                if self.runtime.screen() == ClientScreen::GalaxyWorkshop {
+                    self.scroll_workshop_view(delta.y);
+                }
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::ClassicSector
                 {
-                    self.core.zoom_camera(delta.y);
+                    if let Some(editor) = self.runtime.classic_mut().editor_mut() {
+                        editor.scroll_by(-delta.y);
+                    } else if self.runtime.classic().mode() == AppMode::Playing
+                        && !self
+                            .runtime
+                            .classic()
+                            .ui_frame()
+                            .consumes_pointer(self.input.cursor_logical)
+                    {
+                        self.runtime.classic_mut().zoom_camera(delta.y);
+                    }
                 }
             }
             WindowEvent::Touch(touch) => {
@@ -782,7 +1702,7 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static> ApplicationHandl
     }
 }
 
-impl<S: ScenarioStore, P: PreferencesStore> App<S, P> {
+impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     fn window_scale_factor(&self) -> f64 {
         self.window
             .as_ref()
@@ -811,6 +1731,24 @@ fn wheel_logical_delta(delta: MouseScrollDelta, scale_factor: f64) -> Vec2 {
     }
 }
 
+const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'static str {
+    match code {
+        ClientDiagnosticCode::Store => "Workshop storage is temporarily unavailable.",
+        ClientDiagnosticCode::StoreProtocol => {
+            "Workshop storage returned an unexpected recoverable result."
+        }
+        ClientDiagnosticCode::Catalog => "The built-in Workshop catalog did not validate.",
+        ClientDiagnosticCode::Archive => "The selected Workshop archive did not validate.",
+        ClientDiagnosticCode::ContinueUnavailable => {
+            "No explicitly selected valid Workshop save is available."
+        }
+        ClientDiagnosticCode::WorkshopInactive => "Galaxy Workshop is not currently active.",
+        ClientDiagnosticCode::RouteUnavailable => {
+            "That product route is unavailable from the current screen."
+        }
+    }
+}
+
 fn action_for_key(key: &Key) -> Option<Action> {
     match key {
         Key::Character(value) => match value.to_ascii_lowercase().as_str() {
@@ -832,6 +1770,450 @@ fn action_for_key(key: &Key) -> Option<Action> {
         Key::Named(NamedKey::Escape) => Some(Action::Cancel),
         Key::Named(NamedKey::F4) => Some(Action::Scenario),
         _ => None,
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod modal_lifecycle_tests {
+    use super::*;
+    use crate::preferences::store::PreferencesStoreError;
+    use crate::scenario::{ScenarioDraft, store::MemoryScenarioStore};
+    use crate::ui::workshop_view::WorkshopViewAction;
+    use nyon_workshop_core::{
+        BatchLocalId, CatalogId, CreatorBatchV1, CreatorOpV1, GalaxyPointV1, ObjectName,
+        ObjectRefV1,
+    };
+    use std::{cell::RefCell, rc::Rc};
+
+    type TestApp = App<MemoryScenarioStore>;
+
+    #[derive(Clone, Default)]
+    struct RecordingPreferencesStore {
+        slot: Rc<RefCell<Option<String>>>,
+    }
+
+    impl PreferencesStore for RecordingPreferencesStore {
+        fn load(&self) -> Result<Option<String>, PreferencesStoreError> {
+            Ok(self.slot.borrow().clone())
+        }
+
+        fn save(&mut self, payload: &str) -> Result<(), PreferencesStoreError> {
+            *self.slot.borrow_mut() = Some(payload.to_owned());
+            Ok(())
+        }
+    }
+
+    fn submit(app: &mut TestApp, operations: Vec<CreatorOpV1>) {
+        for chunk in operations.chunks(128) {
+            let snapshot = app.runtime.workshop_snapshot().unwrap();
+            let batch = CreatorBatchV1 {
+                expected_cursor: snapshot.active_view.view_cursor,
+                expected_tick: snapshot.active_view.tick,
+                operations: chunk.to_vec(),
+            };
+            app.apply_workshop_intent(WorkshopUiIntent::Dispatch(WorkshopAction::Submit(batch)));
+            app.runtime.update(std::time::Duration::ZERO);
+        }
+    }
+
+    pub(super) fn capacity_app() -> TestApp {
+        let core = AppCore::new_with_preferences(
+            ScenarioDraft::factory_default().validated().unwrap(),
+            MemoryScenarioStore::default(),
+            MemoryPreferencesStore::default(),
+        );
+        let mut app = App::with_event_proxy(
+            core,
+            MemoryWorkshopStore::default(),
+            AppEventProxy::Headless,
+        );
+        app.runtime
+            .classic_mut()
+            .set_viewport(glam::Vec2::new(1280.0, 480.0));
+        app.runtime.start_new_workshop(47).unwrap();
+        submit(
+            &mut app,
+            (0..64)
+                .map(|index| CreatorOpV1::CreateSystem {
+                    local: BatchLocalId(index),
+                    name: ObjectName::new("S".repeat(64)).unwrap(),
+                    position: GalaxyPointV1::new(i64::from(index), 0).unwrap(),
+                })
+                .collect(),
+        );
+        let system = *app
+            .runtime
+            .workshop_snapshot()
+            .unwrap()
+            .state
+            .systems
+            .keys()
+            .next()
+            .unwrap();
+        submit(
+            &mut app,
+            (0..128)
+                .map(|index| CreatorOpV1::CreateStar {
+                    local: BatchLocalId(index),
+                    system: ObjectRefV1::Existing(system),
+                    name: ObjectName::new("T".repeat(64)).unwrap(),
+                    archetype_id: CatalogId::new("yellow-dwarf").unwrap(),
+                })
+                .collect(),
+        );
+        let star = *app
+            .runtime
+            .workshop_snapshot()
+            .unwrap()
+            .state
+            .stars
+            .keys()
+            .next()
+            .unwrap();
+        submit(
+            &mut app,
+            (0..512)
+                .map(|index| CreatorOpV1::CreateWorld {
+                    local: BatchLocalId(index),
+                    system: ObjectRefV1::Existing(system),
+                    primary: ObjectRefV1::Existing(star),
+                    name: ObjectName::new("W".repeat(64)).unwrap(),
+                    archetype_id: CatalogId::new("rocky-world").unwrap(),
+                    orbit_radius_milli_au: 1000,
+                    orbit_period_ticks: 100,
+                    phase_millidegrees: 0,
+                })
+                .collect(),
+        );
+        app.build_workshop_frame();
+        app
+    }
+
+    #[test]
+    fn rendered_settings_scale_action_routes_full_cycle_and_persists_next_frame() {
+        let preference_store = RecordingPreferencesStore::default();
+        let persisted = Rc::clone(&preference_store.slot);
+        let core = AppCore::new_with_preferences(
+            ScenarioDraft::factory_default().validated().unwrap(),
+            MemoryScenarioStore::default(),
+            preference_store,
+        );
+        let mut app = App::with_event_proxy(
+            core,
+            MemoryWorkshopStore::default(),
+            AppEventProxy::Headless,
+        );
+        app.runtime
+            .classic_mut()
+            .set_viewport(glam::Vec2::new(723.0, 802.0));
+
+        app.build_shell_frame();
+        let settings_action = SemanticActionId::new("shell.menu.settings");
+        assert!(
+            app.platform_ui
+                .as_ref()
+                .is_some_and(|frame| frame.action(&settings_action).is_some())
+        );
+        app.activate_platform_action_id(&settings_action, InputModality::Pointer);
+        assert_eq!(app.runtime.screen(), ClientScreen::Settings);
+        app.build_shell_frame();
+
+        let scale_action = SemanticActionId::new("shell.settings.scale");
+        assert!(app.ui_focus.request_focus(&scale_action));
+        for (expected, modality) in [
+            (
+                crate::preferences::UiScale::Percent115,
+                InputModality::Pointer,
+            ),
+            (
+                crate::preferences::UiScale::Percent130,
+                InputModality::Keyboard,
+            ),
+            (
+                crate::preferences::UiScale::Percent85,
+                InputModality::Pointer,
+            ),
+            (
+                crate::preferences::UiScale::Percent100,
+                InputModality::Keyboard,
+            ),
+        ] {
+            let rendered_action = app
+                .platform_ui
+                .as_ref()
+                .and_then(|frame| {
+                    frame
+                        .controls
+                        .iter()
+                        .find(|control| control.action_id == scale_action)
+                })
+                .map(|control| control.action_id.clone())
+                .expect("the rendered Settings frame must expose the scale action");
+            app.activate_platform_action_id(&rendered_action, modality);
+            assert_eq!(app.runtime.classic().preferences().ui_scale, expected);
+            let saved = persisted
+                .borrow()
+                .clone()
+                .expect("scale activation must persist preferences");
+            assert_eq!(
+                crate::preferences::decode(&saved).unwrap().ui_scale,
+                expected
+            );
+
+            app.build_shell_frame();
+            let frame = app.platform_ui.as_ref().unwrap();
+            assert_eq!(frame.layout.ui_scale, expected.factor());
+            assert_eq!(app.ui_focus.focused(), Some(&scale_action));
+            let control = frame
+                .controls
+                .iter()
+                .find(|control| control.action_id == scale_action)
+                .unwrap();
+            assert_eq!(control.label, format!("UI scale: {}%", expected.percent()));
+            assert_eq!(frame.action(&scale_action), Some(&control.action));
+        }
+    }
+
+    pub(super) fn open(app: &mut TestApp, creator: bool) {
+        let system = *app
+            .runtime
+            .workshop_snapshot()
+            .unwrap()
+            .state
+            .systems
+            .keys()
+            .next()
+            .unwrap();
+        app.apply_workshop_intent(if creator {
+            WorkshopUiIntent::OpenCreatorForm {
+                tool: CreatorTool::CreateWorld,
+                subject: None,
+            }
+        } else {
+            WorkshopUiIntent::OpenRemovalConfirmation(system)
+        });
+        app.build_workshop_frame();
+    }
+
+    #[test]
+    fn app_modal_focus_consumes_frame_order_and_preserves_restore_target() {
+        let mut app = capacity_app();
+        let restore = app
+            .workshop_ui
+            .as_ref()
+            .unwrap()
+            .menu_control
+            .action_id
+            .clone();
+        for creator in [true, false] {
+            assert!(app.ui_focus.request_focus(&restore));
+            open(&mut app, creator);
+            let order = app.platform_ui.as_ref().unwrap().focus_order();
+            assert_eq!(app.ui_focus.active_order(), order);
+            assert!(!app.ui_focus.request_focus(&restore));
+            for action in &order {
+                assert!(app.ui_focus.request_focus(action), "rejected {action}");
+                app.build_workshop_frame();
+                assert_eq!(app.ui_focus.focused(), Some(action));
+                let control = app
+                    .platform_ui
+                    .as_ref()
+                    .unwrap()
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id == *action)
+                    .unwrap_or_else(|| panic!("focused action {action} was not revealed"));
+                if control.enabled {
+                    assert!(app.platform_ui.as_ref().unwrap().action(action).is_some());
+                }
+            }
+            assert!(app.ui_focus.request_focus(&order[0]));
+            for expected in order.iter().skip(1).chain(order.first()) {
+                assert_eq!(app.ui_focus.move_next(), Some(expected));
+                app.build_workshop_frame();
+            }
+            app.apply_workshop_intent(if creator {
+                WorkshopUiIntent::CloseCreatorForm
+            } else {
+                WorkshopUiIntent::CloseRemovalConfirmation
+            });
+            app.build_workshop_frame();
+            assert_eq!(app.ui_focus.focused(), Some(&restore));
+        }
+    }
+
+    #[test]
+    fn app_modal_paging_keeps_keyboard_and_pointer_pages_in_sync() {
+        let mut app = capacity_app();
+        for creator in [true, false] {
+            let mut pages = Vec::new();
+            for modality in [InputModality::Keyboard, InputModality::Pointer] {
+                open(&mut app, creator);
+                let initial_row = app.workshop_view.modal_row;
+                let next = WorkshopViewAction::ScrollNext.action_id();
+                if modality == InputModality::Keyboard {
+                    assert!(app.ui_focus.request_focus(&next));
+                }
+                app.activate_platform_action_id(&next, modality);
+                app.build_workshop_frame();
+                assert!(
+                    app.workshop_view.modal_row > initial_row,
+                    "page reverted for {modality:?}"
+                );
+                pages.push(app.platform_ui.as_ref().unwrap().visible_nodes.clone());
+                app.apply_workshop_intent(if creator {
+                    WorkshopUiIntent::CloseCreatorForm
+                } else {
+                    WorkshopUiIntent::CloseRemovalConfirmation
+                });
+                app.build_workshop_frame();
+            }
+            assert_eq!(pages[0], pages[1]);
+        }
+    }
+
+    #[test]
+    fn app_creator_submit_resets_paging_before_same_tool_reopens() {
+        let mut app = capacity_app();
+        let world = *app
+            .runtime
+            .workshop_snapshot()
+            .unwrap()
+            .state
+            .worlds
+            .keys()
+            .next()
+            .unwrap();
+        submit(
+            &mut app,
+            vec![CreatorOpV1::RemoveObject {
+                target: ObjectRefV1::Existing(world),
+            }],
+        );
+        assert_eq!(
+            app.runtime.workshop_snapshot().unwrap().state.worlds.len(),
+            511
+        );
+        open(&mut app, true);
+        app.activate_platform_action_id(
+            &WorkshopViewAction::ScrollNext.action_id(),
+            InputModality::Pointer,
+        );
+        app.build_workshop_frame();
+        assert!(app.workshop_view.modal_row > 0);
+        app.activate_platform_action_id(
+            &SemanticActionId::new("creator.submit"),
+            InputModality::Keyboard,
+        );
+        assert!(app.active_creator.is_none());
+        assert!(!app.ui_focus.modal_is_open());
+        assert_eq!(app.workshop_view.modal_row, 0);
+        app.runtime.update(std::time::Duration::ZERO);
+        assert_eq!(
+            app.runtime.workshop_snapshot().unwrap().state.worlds.len(),
+            512
+        );
+        open(&mut app, true);
+        assert_eq!(app.workshop_view.modal_row, 0);
+    }
+
+    #[test]
+    fn app_modal_close_and_same_context_reopen_starts_at_first_page() {
+        let mut app = capacity_app();
+        for render_closed in [false, true] {
+            for creator in [true, false] {
+                open(&mut app, creator);
+                let first = app.platform_ui.as_ref().unwrap().visible_nodes.clone();
+                // A footer focus must not force the body back to the first field.
+                let cancel = SemanticActionId::new(if creator {
+                    "creator.cancel"
+                } else {
+                    "remove.cancel"
+                });
+                assert!(
+                    app.ui_focus.request_focus(&cancel),
+                    "creator={creator}, active={:?}",
+                    app.ui_focus.active_order()
+                );
+                app.activate_platform_action_id(
+                    &WorkshopViewAction::ScrollNext.action_id(),
+                    InputModality::Pointer,
+                );
+                app.build_workshop_frame();
+                assert_ne!(app.platform_ui.as_ref().unwrap().visible_nodes, first);
+                app.apply_workshop_intent(if creator {
+                    WorkshopUiIntent::CloseCreatorForm
+                } else {
+                    WorkshopUiIntent::CloseRemovalConfirmation
+                });
+                assert_eq!(app.workshop_view.modal_row, 0);
+                // No synthetic view reveal or apply is inserted between close and reopen.
+                if render_closed {
+                    app.build_workshop_frame();
+                }
+                open(&mut app, creator);
+                assert_eq!(app.platform_ui.as_ref().unwrap().visible_nodes, first);
+                app.apply_workshop_intent(if creator {
+                    WorkshopUiIntent::CloseCreatorForm
+                } else {
+                    WorkshopUiIntent::CloseRemovalConfirmation
+                });
+                app.build_workshop_frame();
+            }
+        }
+    }
+
+    #[test]
+    fn app_frame_time_reveal_keeps_last_wide_outliner_action_materialized() {
+        for scale in [
+            crate::preferences::UiScale::Percent100,
+            crate::preferences::UiScale::Percent130,
+        ] {
+            let mut app = capacity_app();
+            app.runtime
+                .classic_mut()
+                .set_viewport(glam::Vec2::new(1920.0, 1080.0));
+            app.runtime.classic_mut().open_settings();
+            assert!(
+                app.runtime.classic_mut().handle_settings_action(
+                    crate::app::settings::SettingsAction::SetUiScale(scale)
+                )
+            );
+            app.runtime.classic_mut().close_settings();
+            app.build_workshop_frame();
+
+            let target = app
+                .workshop_ui
+                .as_ref()
+                .unwrap()
+                .outliner
+                .last()
+                .unwrap()
+                .control
+                .action_id
+                .clone();
+            assert!(app.ui_focus.request_focus(&target));
+            for rebuild in 0..2 {
+                app.build_workshop_frame();
+                let frame = app.platform_ui.as_ref().unwrap();
+                let control = frame
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id == target)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "App frame-time reveal lost {target} at {scale:?} on rebuild {rebuild}"
+                        )
+                    });
+                assert!(frame.action(&target).is_some());
+                assert_eq!(
+                    frame
+                        .hit_test(control.bounds.center())
+                        .map(|hit| &hit.action_id),
+                    Some(&target)
+                );
+            }
+        }
     }
 }
 
@@ -904,6 +2286,22 @@ mod native_gpu_startup_tests {
         assert!(!should_start_gpu_initialization(true, false));
         assert!(!should_start_gpu_initialization(false, true));
         assert!(!should_start_gpu_initialization(true, true));
+    }
+
+    #[test]
+    fn durable_exit_waits_for_continue_selection_and_can_be_cancelled() {
+        let mut state = DurableExitState::default();
+        assert_eq!(state.request(true), DurableExitAction::PrepareWorkshop);
+        assert!(state.is_pending());
+        assert_eq!(state.request(true), DurableExitAction::Wait);
+        assert_eq!(state.observe_workshop(false), DurableExitAction::Wait);
+        assert!(state.cancel());
+        assert!(!state.is_pending());
+
+        assert_eq!(state.request(true), DurableExitAction::PrepareWorkshop);
+        assert_eq!(state.observe_workshop(true), DurableExitAction::ExitNow);
+        assert!(!state.is_pending());
+        assert_eq!(state.request(false), DurableExitAction::ExitNow);
     }
 }
 

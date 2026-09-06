@@ -22,6 +22,7 @@ pub enum UiScreen {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiAction {
+    SelectGuidanceWorld(crate::game::model::WorldId),
     Launch,
     ClearSelection,
     SpeedDown,
@@ -246,7 +247,10 @@ pub fn build_ui_frame(state: UiBuildState<'_>) -> UiFrame {
     let onboarding_lines = state
         .onboarding
         .map(|(step, index, count)| {
-            vec![format!("GUIDANCE {index}/{count}"), step.title().to_owned()]
+            vec![
+                format!("TUTORIAL {index}/{count} // PAUSED"),
+                step.title().to_owned(),
+            ]
         })
         .unwrap_or_default();
     let tooltip = state.pointer.and_then(|point| {
@@ -343,7 +347,11 @@ pub fn build_ui_batch(
         } else {
             [0.48, 0.58, 0.66, 1.0]
         };
-        let font_size = (13.0 * frame.scale).max(12.0);
+        let font_size = if matches!(control.action, UiAction::SelectGuidanceWorld(_)) {
+            26.0
+        } else {
+            (13.0 * frame.scale).max(12.0)
+        };
         let baseline = [
             control.bounds.min.x + 8.0,
             control.bounds.center().y + font_size * 0.35,
@@ -587,7 +595,7 @@ fn playing_controls(viewport: Vec2, scale: f32, state: UiBuildState<'_>) -> Vec<
             action: UiAction::SkipOnboarding,
             bounds: UiRect::from_xywh(viewport.x - 116.0, 8.0, 108.0, MIN_CONTROL_EXTENT),
             label: ui::text::SKIP,
-            tooltip: "Skip first-run guidance",
+            tooltip: "Skip tutorial and play this match now",
             icon: Some(UiIcon::Close),
             enabled: true,
             focused: false,

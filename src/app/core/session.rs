@@ -22,6 +22,19 @@ impl<S: ScenarioStore, P: PreferencesStore> AppCore<S, P> {
 
     pub fn handle_ui_action(&mut self, action: UiAction) -> bool {
         match action {
+            UiAction::SelectGuidanceWorld(world) => {
+                if self.mode != AppMode::Playing
+                    || self.onboarding_step() != Some(OnboardingStep::SelectUnionWorld)
+                    || !self.world_is_union_owned(world)
+                {
+                    return false;
+                }
+                self.selected_world = Some(world);
+                self.hovered_world = Some(world);
+                self.touch_command_target = None;
+                self.observe_onboarding(OnboardingEvent::UnionWorldSelected);
+                true
+            }
             UiAction::Launch => self.launch_contextual_preview(),
             UiAction::ClearSelection => {
                 self.clear_scene_selection();

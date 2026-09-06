@@ -1,29 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly TOOLCHAIN="nightly-2026-09-01"
-readonly TARGET="wasm32-unknown-unknown"
-readonly WASM_BINDGEN_VERSION="0.2.127"
-readonly TOOL_ROOT="target/tools/wasm-bindgen-cli-${WASM_BINDGEN_VERSION}"
-readonly WASM_BINDGEN="${TOOL_ROOT}/bin/wasm-bindgen"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 
-rustup target add "${TARGET}" --toolchain "${TOOLCHAIN}"
-
-if [[ ! -x "${WASM_BINDGEN}" ]] || \
-   [[ "$("${WASM_BINDGEN}" --version)" != "wasm-bindgen ${WASM_BINDGEN_VERSION}" ]]; then
-  rm -rf "${TOOL_ROOT}"
-  cargo +"${TOOLCHAIN}" install \
-    --locked \
-    --version "${WASM_BINDGEN_VERSION}" \
-    --root "${TOOL_ROOT}" \
-    wasm-bindgen-cli
-fi
-
-cargo +"${TOOLCHAIN}" build --release --target "${TARGET}" --lib
-rm -rf dist
-mkdir -p dist
-"${WASM_BINDGEN}" \
-  --target web \
-  --out-dir dist \
-  --out-name nyon \
-  "target/${TARGET}/release/nyon.wasm"
+# Compatibility entry point: a browser release is now the pair of explicit
+# backend artifacts selected by web/loader.js before graphics initialization.
+"${SCRIPT_DIR}/build-web-webgpu.sh"
+"${SCRIPT_DIR}/build-web-webgl.sh"

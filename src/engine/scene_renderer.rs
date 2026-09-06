@@ -936,7 +936,11 @@ fn supports_high_resources(
     let bloom_flags =
         wgpu::TextureFormatFeatureFlags::FILTERABLE | wgpu::TextureFormatFeatureFlags::BLENDABLE;
 
-    device.limits().max_texture_dimension_2d > 0
+    !cfg!(all(
+        target_arch = "wasm32",
+        feature = "webgl-backend",
+        not(feature = "webgpu-backend")
+    )) && device.limits().max_texture_dimension_2d > 0
         && surface
             .allowed_usages
             .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)

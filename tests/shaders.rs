@@ -1,8 +1,11 @@
 use nyon::{
     advisory::gpu::ADVISORY_WGSL,
-    engine::shader::{
-        POSTPROCESS_WGSL, PRIMITIVES_WGSL, ROUTES_WGSL, SPACE_WGSL, ShaderError, WORLDS_WGSL,
-        validate_wgsl,
+    engine::{
+        primitives::PrimitiveBatch,
+        shader::{
+            POSTPROCESS_WGSL, PRIMITIVES_WGSL, ROUTES_WGSL, SPACE_WGSL, ShaderError, WORLDS_WGSL,
+            validate_wgsl,
+        },
     },
 };
 
@@ -79,6 +82,22 @@ fn primitive_shader_handles_packed_ring_width_endpoints_after_derivatives() {
     assert!(PRIMITIVES_WGSL.contains("coverage = 0.0"));
     assert!(PRIMITIVES_WGSL.contains("coverage = outer_coverage"));
     assert!(PRIMITIVES_WGSL.contains("coverage = outer_coverage * inner_coverage"));
+}
+
+#[test]
+fn filled_discs_use_the_validated_full_width_ring_endpoint() {
+    let mut batch = PrimitiveBatch::default();
+    batch.disc(glam::Vec2::new(12.0, 24.0), 6.0, [1.0, 0.5, 0.25, 1.0]);
+
+    assert_eq!(batch.vertices().len(), 6);
+    assert!(
+        batch
+            .vertices()
+            .iter()
+            .all(|vertex| vertex.shape == 0xffff_ff02)
+    );
+    assert!(PRIMITIVES_WGSL.contains("ring_width_bits == 0x00ffffffu"));
+    assert!(PRIMITIVES_WGSL.contains("coverage = outer_coverage"));
 }
 
 #[test]

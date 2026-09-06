@@ -5,6 +5,7 @@ mod interaction;
 mod picking;
 mod scene;
 pub mod ui;
+pub mod workshop;
 
 pub use camera::*;
 pub use interaction::*;

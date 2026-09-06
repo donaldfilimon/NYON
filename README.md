@@ -2,6 +2,12 @@
 
 NYON is a deterministic, single-player seven-world strategy game written in Rust with winit and wgpu. The campaign simulation uses integer fixed-tick state. Rendering, the detached scenario editor, and the optional WebGPU neural advisory do not control simulation commands, AI, or outcomes.
 
+## Playing NYON
+
+Start with the [player manual](docs/PLAYER-MANUAL.md). **Classic Sector** is the Union's battle for five of seven worlds; **Galaxy Workshop** is a separate offline creator/economy sandbox with no victory condition. The manual covers a first fleet, a first solar-energy result, ore/alloy production, ordinary controls, saves and current limitations. No MCP server or agent is required.
+
+Open **Player guide (F1)** from the main menu or Workshop, or **HELP / H / F1** in Classic. It holds simulation time while you read. Classic's first tutorial step marks a Union world with **START HERE**; **SKIP** removes that tutorial and resumes the same match. Native gamepad bindings and ray tracing are not implemented.
+
 ## Current Program
 
 NYON is being expanded into **NYON Galaxy Workshop V1**, an offline creative galaxy sandbox built beside the frozen RulesV1 game. The accepted target behavior is in the [NYON Galaxy Workshop V1 design](docs/superpowers/specs/2026-09-02-nyon-v2-design.md), and implementation is organized by the [NYON V2 master plan](docs/superpowers/plans/2026-09-02-nyon-v2.md) plus its core, client, and qualification child plans.
@@ -43,12 +49,12 @@ Open `http://127.0.0.1:8000/web/` in a browser with WebGPU enabled. The browser 
 - 1, 2, and 3 select atmosphere, hydrosphere, and topology; Q decreases and E increases the selected field.
 - P toggles pause and resume; `[` and `]` select 0x, 1x, 2x, or 4x game speed. Every simulation update remains one canonical 60 Hz step, and speed changes discard residual wall time.
 - Drag empty space or use the middle mouse button to orbit. Wheel or two-finger pinch zooms, and C resets the camera.
-- S or SETTINGS opens local settings. H toggles help, R restarts the active validated scenario, and Escape clears selection.
+- S or SETTINGS opens local settings. HELP / H / F1 opens the player guide, R restarts the active validated scenario, and Escape clears selection.
 - F4 or the on-screen SCENARIO control opens the detached editor.
 
 The editor supports pointer/touch, wheel scrolling, Tab and Shift-Tab focus, arrows, Page Up/Down, Enter/Space activation, Escape, text input, IME commits, Backspace, and Delete. REVERT, FACTORY DEFAULTS, REGENERATE FROM SEED, LOAD, SAVE, CANCEL, and APPLY AND RESTART operate on a detached draft and require confirmation where data would be discarded or replaced. The canvas is keyboard-operable but does not provide screen-reader semantics.
 
-First-run guidance pauses without accumulating catch-up time and walks through selection, launch preview and confirmation, field tuning, advisory status, and the detached editor. It can be skipped, restarted from Help, or reset in Settings. Settings provides 85%, 100%, 115%, and 130% UI scale, reduced motion, high contrast, and Auto/Low/High graphics quality. Interactive command-deck controls retain a minimum 44-by-44 logical-pixel target and visible keyboard focus.
+First-run guidance pauses without accumulating catch-up time and walks through selection, launch preview and confirmation, field tuning, advisory status, and the detached editor. SKIP resumes the same match; Settings > RESET GUIDANCE restarts the tutorial. Settings provides 85%, 100%, 115%, and 130% UI scale, reduced motion, high contrast, and Auto/Low/High graphics quality. Interactive command-deck controls retain a minimum 44-by-44 logical-pixel target and visible keyboard focus.
 
 ## Scenario persistence
 

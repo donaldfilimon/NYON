@@ -24,7 +24,10 @@ fn browser_gpu_startup_is_local_and_marker_only() {
         .unwrap();
     assert!(!web_attributes.contains("with_inner_size"));
     assert!(!web_attributes.contains("with_min_inner_size"));
-    assert!(gpu.contains("descriptor.backends = wgpu::Backends::BROWSER_WEBGPU"));
+    assert!(gpu.contains("descriptor.backends = selected_browser_backends()"));
+    assert!(gpu.contains("wgpu::Backends::BROWSER_WEBGPU"));
+    assert!(gpu.contains("wgpu::Backends::GL"));
+    assert!(gpu.contains("feature = \"webgl-backend\""));
 }
 
 #[test]
@@ -39,14 +42,21 @@ fn browser_store_and_static_loader_use_the_frozen_contract() {
     assert!(platform.contains("get_item(LEGACY_LOCAL_STORAGE_KEY)"));
     assert!(platform.contains("set_item(LOCAL_STORAGE_KEY, payload)"));
     assert!(!platform.contains("set_item(LEGACY_LOCAL_STORAGE_KEY"));
-    assert!(html.contains("../dist/nyon.js"));
-    assert!(html.contains("type=\"module\""));
+    let loader = project_file("web/loader.js");
+    assert!(html.contains("type=\"module\" src=\"./loader.js\""));
+    assert!(!html.contains("../dist/nyon.js"));
+    assert!(loader.contains("../dist/webgpu/nyon.js"));
+    assert!(loader.contains("../dist/webgl/nyon.js"));
+    assert!(loader.contains("nyon:graphics-ready"));
+    assert!(loader.contains("nyon:graphics-failed"));
 }
 
 #[test]
 fn web_build_is_pinned_and_generated_outputs_are_ignored() {
     let manifest = project_file("Cargo.toml");
-    let build = project_file("tools/build-web.sh");
+    let wrapper = project_file("tools/build-web.sh");
+    let webgpu = project_file("tools/build-web-webgpu.sh");
+    let webgl = project_file("tools/build-web-webgl.sh");
     let ignore = project_file(".gitignore");
     assert!(manifest.contains("crate-type = [\"rlib\", \"cdylib\"]"));
     for dependency in [
@@ -59,10 +69,15 @@ fn web_build_is_pinned_and_generated_outputs_are_ignored() {
     ] {
         assert!(manifest.contains(dependency), "missing {dependency}");
     }
-    assert!(build.contains("nightly-2026-09-01"));
-    assert!(build.contains("WASM_BINDGEN_VERSION=\"0.2.127\""));
-    assert!(build.contains("rustup target add"));
-    assert!(build.contains("target/tools/wasm-bindgen-cli-"));
+    assert!(wrapper.contains("build-web-webgpu.sh"));
+    assert!(wrapper.contains("build-web-webgl.sh"));
+    for build in [&webgpu, &webgl] {
+        assert!(build.contains("nightly-2026-09-01"));
+        assert!(build.contains("WASM_BINDGEN_VERSION=\"0.2.127\""));
+        assert!(build.contains("rustup target add"));
+        assert!(build.contains("target/tools/wasm-bindgen-cli-"));
+        assert!(build.contains("--out-name nyon"));
+    }
     assert!(ignore.lines().any(|line| line == "/target/"));
     assert!(ignore.lines().any(|line| line == "/dist/"));
 }

@@ -9,17 +9,26 @@ fn project_file(path: &str) -> String {
 fn cargo_and_web_artifacts_use_the_breaking_nyon_identity() {
     let manifest = project_file("Cargo.toml");
     let build = project_file("tools/build-web.sh");
+    let webgpu = project_file("tools/build-web-webgpu.sh");
+    let webgl = project_file("tools/build-web-webgl.sh");
+    let loader = project_file("web/loader.js");
     let html = project_file("web/index.html");
 
     assert_eq!(env!("CARGO_PKG_NAME"), "nyon");
     assert!(manifest.contains("[package]\nname = \"nyon\""));
     assert!(manifest.contains("[lib]\nname = \"nyon\""));
     assert!(!manifest.contains("name = \"intergalactic_warfare\""));
-    assert!(build.contains("--out-name nyon"));
-    assert!(build.contains("release/nyon.wasm"));
+    assert!(build.contains("build-web-webgpu.sh"));
+    assert!(build.contains("build-web-webgl.sh"));
+    for artifact_build in [&webgpu, &webgl] {
+        assert!(artifact_build.contains("--out-name nyon"));
+        assert!(artifact_build.contains("release/nyon.wasm"));
+    }
     assert!(html.contains("<title>NYON</title>"));
-    assert!(html.contains("../dist/nyon.js"));
-    assert!(html.contains("NYON startup failed"));
+    assert!(html.contains("./loader.js"));
+    assert!(loader.contains("../dist/webgpu/nyon.js"));
+    assert!(loader.contains("../dist/webgl/nyon.js"));
+    assert!(loader.contains("NYON startup failed"));
 }
 
 #[test]
@@ -30,7 +39,7 @@ fn visible_native_identity_and_readme_are_nyon() {
     let ui = project_file("src/ui.rs");
     let readme = project_file("README.md");
 
-    assert!(app.contains("with_title(\"NYON // Sector Command\")"));
+    assert!(app.contains("with_title(\"NYON // Galaxy Workshop\")"));
     assert!(gpu.contains("label: Some(\"NYON device\")"));
     assert!(main.contains("nyon::platform::native::run()"));
     assert!(main.contains("NYON startup failed"));

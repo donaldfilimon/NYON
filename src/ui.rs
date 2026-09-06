@@ -2,6 +2,24 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 
+pub mod accessibility;
+pub mod creator;
+pub mod guide;
+pub mod platform;
+pub mod platform_inspector;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod platform_native;
+pub(crate) mod platform_projection;
+pub mod platform_sdf;
+#[cfg(target_arch = "wasm32")]
+pub mod platform_web;
+pub mod start_marker;
+pub mod virtual_list;
+pub mod workshop;
+mod workshop_inspector;
+pub mod workshop_layout;
+pub mod workshop_view;
+
 pub const UI_ATLAS_WIDTH: u32 = 1024;
 pub const UI_ATLAS_HEIGHT: u32 = 1024;
 pub const UI_ATLAS_BYTES: &[u8] = include_bytes!("../assets/ui/atlas.r8");
@@ -173,6 +191,15 @@ impl AtlasMetrics {
         self.entries.iter().find(|entry| entry.key == key)
     }
 
+    pub fn measure_text(
+        &self,
+        font_size: f32,
+        weight: FontWeight,
+        value: &str,
+    ) -> Result<TextMetrics, UiBatchError> {
+        glyph_walk(self, font_size, weight, value, |_, _, _| Ok(()))
+    }
+
     pub fn validate(&self) -> Result<(), AtlasValidationError> {
         if self.format_version != 1 {
             return Err(AtlasValidationError::FormatVersion(self.format_version));
@@ -273,6 +300,11 @@ pub enum AtlasValidationError {
 pub enum FontWeight {
     Regular,
     SemiBold,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextMetrics {
+    pub advance: f32,
 }
 
 impl FontWeight {
@@ -444,54 +476,61 @@ impl UiBatch {
         color: [f32; 4],
         value: &str,
     ) -> Result<f32, UiBatchError> {
+        self.push_text_clipped(metrics, baseline, font_size, weight, color, value, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_text_clipped(
+        &mut self,
+        metrics: &AtlasMetrics,
+        baseline: [f32; 2],
+        font_size: f32,
+        weight: FontWeight,
+        color: [f32; 4],
+        value: &str,
+        clip: Option<[f32; 4]>,
+    ) -> Result<f32, UiBatchError> {
         validate_draw_values(baseline, font_size, color)?;
-        if !metrics.generator.font_px.is_finite() || metrics.generator.font_px <= 0.0 {
-            return Err(UiBatchError::NonFiniteGeometry);
-        }
-        let scale = font_size / metrics.generator.font_px;
-        if !scale.is_finite() {
-            return Err(UiBatchError::NonFiniteGeometry);
-        }
-        let mut cursor = baseline[0];
+        validate_clip(clip)?;
+        let scale = text_scale(metrics, font_size)?;
+        let existing_glyphs = self.glyphs.len();
+        let remaining_capacity = MAX_UI_GLYPHS.saturating_sub(existing_glyphs);
         let mut glyphs = Vec::with_capacity(value.len().min(MAX_UI_GLYPHS));
-        for character in value.chars() {
-            let codepoint = character as u32;
-            if !(0x20..=0x7e).contains(&codepoint) {
-                return Err(UiBatchError::UnsupportedCharacter(character));
-            }
-            let key = glyph_key(weight, codepoint);
-            let entry = metrics
-                .entry(&key)
-                .ok_or_else(|| UiBatchError::MissingEntry(key.clone()))?;
-            if character != ' ' {
-                if self.glyphs.len().saturating_add(glyphs.len()) >= MAX_UI_GLYPHS {
-                    return Err(UiBatchError::Capacity {
-                        requested: MAX_UI_GLYPHS + 1,
-                    });
+        let measured = glyph_walk(
+            metrics,
+            font_size,
+            weight,
+            value,
+            |character, entry, offset| {
+                if character == ' ' {
+                    return Ok(());
                 }
                 let size = metrics.generator.cell_size as f32 * scale;
-                let x = cursor - metrics.generator.font_origin_x as f32 * scale;
-                let y = baseline[1] - metrics.generator.font_baseline_y as f32 * scale;
-                let rect = [x, y, size, size];
+                let rect = [
+                    baseline[0] + offset - metrics.generator.font_origin_x as f32 * scale,
+                    baseline[1] - metrics.generator.font_baseline_y as f32 * scale,
+                    size,
+                    size,
+                ];
                 if rect.iter().any(|value| !value.is_finite()) {
                     return Err(UiBatchError::NonFiniteGeometry);
                 }
-                glyphs.push(instance(entry, rect, color));
-            }
-            let advance = entry.advance * scale;
-            let next_cursor = cursor + advance;
-            if !advance.is_finite() || !next_cursor.is_finite() {
-                return Err(UiBatchError::NonFiniteGeometry);
-            }
-            cursor = next_cursor;
-        }
-        let width = cursor - baseline[0];
-        if !width.is_finite() {
-            return Err(UiBatchError::NonFiniteGeometry);
-        }
+                if let Some(glyph) = clipped_instance(entry, rect, color, clip) {
+                    if glyphs.len() >= remaining_capacity {
+                        return Err(UiBatchError::Capacity {
+                            requested: existing_glyphs
+                                .saturating_add(glyphs.len())
+                                .saturating_add(1),
+                        });
+                    }
+                    glyphs.push(glyph);
+                }
+                Ok(())
+            },
+        )?;
         self.reserve(glyphs.len())?;
         self.glyphs.extend(glyphs);
-        Ok(width)
+        Ok(measured.advance)
     }
 
     pub fn push_icon(
@@ -501,12 +540,25 @@ impl UiBatch {
         rect: [f32; 4],
         color: [f32; 4],
     ) -> Result<(), UiBatchError> {
+        self.push_icon_clipped(metrics, icon, rect, color, None)
+    }
+
+    pub fn push_icon_clipped(
+        &mut self,
+        metrics: &AtlasMetrics,
+        icon: UiIcon,
+        rect: [f32; 4],
+        color: [f32; 4],
+        clip: Option<[f32; 4]>,
+    ) -> Result<(), UiBatchError> {
         validate_rect_and_color(rect, color)?;
-        self.reserve(1)?;
-        let entry = metrics
-            .entry(icon.key())
-            .ok_or_else(|| UiBatchError::MissingEntry(icon.key().to_owned()))?;
-        self.glyphs.push(instance(entry, rect, color));
+        validate_clip(clip)?;
+        let entry = validated_icon_entry(metrics, icon)?;
+        let glyph = clipped_instance(entry, rect, color, clip);
+        self.reserve(usize::from(glyph.is_some()))?;
+        if let Some(glyph) = glyph {
+            self.glyphs.push(glyph);
+        }
         Ok(())
     }
 
@@ -560,6 +612,109 @@ fn validate_draw_values(
     } else {
         Ok(())
     }
+}
+
+fn validate_clip(clip: Option<[f32; 4]>) -> Result<(), UiBatchError> {
+    if let Some(rect) = clip {
+        validate_rect_and_color(rect, [0.0; 4])?;
+        let right = rect[0] + rect[2];
+        let bottom = rect[1] + rect[3];
+        if !right.is_finite() || !bottom.is_finite() {
+            return Err(UiBatchError::NonFiniteGeometry);
+        }
+    }
+    Ok(())
+}
+
+fn text_scale(metrics: &AtlasMetrics, font_size: f32) -> Result<f32, UiBatchError> {
+    if !font_size.is_finite()
+        || font_size < 0.0
+        || !metrics.generator.font_px.is_finite()
+        || metrics.generator.font_px <= 0.0
+    {
+        return Err(UiBatchError::NonFiniteGeometry);
+    }
+    let scale = font_size / metrics.generator.font_px;
+    if scale.is_finite() {
+        Ok(scale)
+    } else {
+        Err(UiBatchError::NonFiniteGeometry)
+    }
+}
+
+fn glyph_walk(
+    metrics: &AtlasMetrics,
+    font_size: f32,
+    weight: FontWeight,
+    value: &str,
+    mut visit: impl FnMut(char, &AtlasEntry, f32) -> Result<(), UiBatchError>,
+) -> Result<TextMetrics, UiBatchError> {
+    let scale = text_scale(metrics, font_size)?;
+    let mut advance = 0.0_f32;
+    for character in value.chars() {
+        let codepoint = character as u32;
+        if !(0x20..=0x7e).contains(&codepoint) {
+            return Err(UiBatchError::UnsupportedCharacter(character));
+        }
+        let entry = validated_glyph_entry(metrics, weight, codepoint)?;
+        visit(character, entry, advance)?;
+        let next = advance + entry.advance * scale;
+        if !next.is_finite() {
+            return Err(UiBatchError::NonFiniteGeometry);
+        }
+        advance = next;
+    }
+    Ok(TextMetrics { advance })
+}
+
+fn validated_glyph_entry(
+    metrics: &AtlasMetrics,
+    weight: FontWeight,
+    codepoint: u32,
+) -> Result<&AtlasEntry, UiBatchError> {
+    let weight_offset = match weight {
+        FontWeight::Regular => 0,
+        FontWeight::SemiBold => 95,
+    };
+    let index = weight_offset + (codepoint - 0x20) as usize;
+    let entry = metrics
+        .entries
+        .get(index)
+        .ok_or_else(|| UiBatchError::MissingEntry(glyph_key(weight, codepoint)))?;
+    if entry.kind != EntryKind::Glyph
+        || entry.codepoint != Some(codepoint)
+        || entry.font_weight.as_deref() != Some(weight.name())
+        || !glyph_key_matches(&entry.key, weight, codepoint)
+    {
+        return Err(UiBatchError::MissingEntry(glyph_key(weight, codepoint)));
+    }
+    Ok(entry)
+}
+
+fn validated_icon_entry(metrics: &AtlasMetrics, icon: UiIcon) -> Result<&AtlasEntry, UiBatchError> {
+    let index = 95 * 2 + icon as usize;
+    let entry = metrics
+        .entries
+        .get(index)
+        .ok_or_else(|| UiBatchError::MissingEntry(icon.key().to_owned()))?;
+    if entry.kind != EntryKind::Icon
+        || entry.icon.as_deref() != Some(icon.name())
+        || entry.key != icon.key()
+    {
+        return Err(UiBatchError::MissingEntry(icon.key().to_owned()));
+    }
+    Ok(entry)
+}
+
+fn glyph_key_matches(key: &str, weight: FontWeight, codepoint: u32) -> bool {
+    let prefix = match weight {
+        FontWeight::Regular => "regular:U+",
+        FontWeight::SemiBold => "semibold:U+",
+    };
+    let Some(hex) = key.strip_prefix(prefix) else {
+        return false;
+    };
+    hex.len() == 4 && u32::from_str_radix(hex, 16) == Ok(codepoint)
 }
 
 fn glyph_key(weight: FontWeight, codepoint: u32) -> String {
@@ -623,4 +778,36 @@ fn instance(entry: &AtlasEntry, rect: [f32; 4], color: [f32; 4]) -> UiGlyphInsta
         ],
         color,
     }
+}
+
+fn clipped_instance(
+    entry: &AtlasEntry,
+    rect: [f32; 4],
+    color: [f32; 4],
+    clip: Option<[f32; 4]>,
+) -> Option<UiGlyphInstance> {
+    let mut glyph = instance(entry, rect, color);
+    let Some(clip) = clip else { return Some(glyph) };
+    if rect[2] == 0.0 || rect[3] == 0.0 || clip[2] == 0.0 || clip[3] == 0.0 {
+        return None;
+    }
+    let left = rect[0].max(clip[0]);
+    let top = rect[1].max(clip[1]);
+    let right = (rect[0] + rect[2]).min(clip[0] + clip[2]);
+    let bottom = (rect[1] + rect[3]).min(clip[1] + clip[3]);
+    if right <= left || bottom <= top {
+        return None;
+    }
+    let x0 = (left - rect[0]) / rect[2];
+    let y0 = (top - rect[1]) / rect[3];
+    let x1 = (right - rect[0]) / rect[2];
+    let y1 = (bottom - rect[1]) / rect[3];
+    glyph.rect = [left, top, right - left, bottom - top];
+    glyph.uv_rect = [
+        glyph.uv_rect[0] + glyph.uv_rect[2] * x0,
+        glyph.uv_rect[1] + glyph.uv_rect[3] * y0,
+        glyph.uv_rect[2] * (x1 - x0),
+        glyph.uv_rect[3] * (y1 - y0),
+    ];
+    Some(glyph)
 }

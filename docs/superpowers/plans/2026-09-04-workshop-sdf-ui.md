@@ -90,11 +90,13 @@ Define:
 - `PlatformTextStyle`: weight, scaled font size, line height, role, overflow;
 - `PlatformTextRun`: stable semantic ID, exact text, bounds, clip, style;
 - `PlatformIconRun`: stable semantic ID, typed `UiIcon`, bounds, clip;
-- `PlatformPanelRole`: PersistentChrome, ControlFill, Drawer, Modal, Scrim, ContrastBorder;
+- `PlatformPanelRole`: FullSurface, PersistentChrome, ControlFill, InspectorRowFill, Drawer, Modal, Scrim, ContrastBorder;
 - `PlatformPanelWitness`: role, bounds, optional owning node, and emitted panel range;
 - `PlatformSdfOutput`: `UiBatch`, text/icon witnesses, and typed panel witnesses.
 
 These records are presentation witnesses only. They do not enter canonical Workshop bytes, state digest, history, store data, or semantic action routing.
+
+Task 2 review reconciliation: `FullSurface` is restricted to the shell/Guide's existing `PlatformBackground::Full` surface; it is never Workshop persistent chrome. `InspectorRowFill` carries the materialized row's stable owner identity and bounds. Neither role weakens the canvas exclusion for `PersistentChrome`.
 
 Create visible-node records at typed frame/control construction, not by matching final strings or inventing IDs in the renderer. Include heading, status, save state, validation, removal explanation, empty state, diagnostics, controls, and inspector facts. Informative roles are heading, text/status/alert, controls with names/values, and labeled groups; structural containers without informative content need no glyph witness. Derive/validate semantic content and SDF runs from these records; migrate bare title/status strings and control labels into this common path.
 
@@ -128,6 +130,8 @@ Implement `build_platform_ui_batch(frame, metrics)` in a fresh local batch:
 4. Inter text.
 
 Publish only after complete success. Intersect every run's accepted record clip with the viewport. Persistent chrome may not cover the canvas. Exactly one active drawer may cover only its accepted drawer sheet; inactive drawers emit no panel. Modal and scrim overlap is permitted only through their typed roles and accepted modal geometry. Control fills remain within their owning control. Omit offscreen virtualized rows entirely.
+
+Keep the existing renderer's panel pass followed by glyph pass. While a modal is active, suppress covered nonmodal control fills, icons, and text rather than allowing them to repaint above its scrim/modal. Preserve underlying client/model state and make modal content the sole interaction scope. Do not introduce a new renderer pass or change the instance ABI for this repair.
 
 ### Step 4: Implement measured wrap and ellipsis
 

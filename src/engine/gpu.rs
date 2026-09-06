@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use winit::{dpi::PhysicalSize, window::Window};
 
+use super::backend::BackendKind;
+
 #[derive(Debug, thiserror::Error)]
 pub enum GpuError {
     #[error("failed to create a presentation surface: {0}")]
@@ -34,7 +36,7 @@ impl GpuContext {
         let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
         #[cfg(target_arch = "wasm32")]
         {
-            descriptor.backends = wgpu::Backends::BROWSER_WEBGPU;
+            descriptor.backends = selected_browser_backends();
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -102,6 +104,24 @@ impl GpuContext {
     pub fn surface_format(&self) -> Option<wgpu::TextureFormat> {
         self.config.as_ref().map(|config| config.format)
     }
+
+    /// Returns the backend actually selected by the adapter. This is
+    /// presentation diagnostics only and never enters authoritative state.
+    pub fn backend_kind(&self) -> Option<BackendKind> {
+        BackendKind::from_adapter(&self.adapter)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+const fn selected_browser_backends() -> wgpu::Backends {
+    if cfg!(all(
+        feature = "webgl-backend",
+        not(feature = "webgpu-backend")
+    )) {
+        wgpu::Backends::GL
+    } else {
+        wgpu::Backends::BROWSER_WEBGPU
+    }
 }
 
 /// Main-thread-created resources that are safe to move to a native executor
@@ -123,11 +143,25 @@ impl PreparedGpuContext {
                 apply_limit_buckets: false,
             })
             .await?;
+        #[cfg(all(
+            target_arch = "wasm32",
+            feature = "webgl-backend",
+            not(feature = "webgpu-backend")
+        ))]
+        let required_limits =
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+        #[cfg(not(all(
+            target_arch = "wasm32",
+            feature = "webgl-backend",
+            not(feature = "webgpu-backend")
+        )))]
+        let required_limits = wgpu::Limits::default();
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("NYON device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits,
                 ..Default::default()
             })
             .await?;

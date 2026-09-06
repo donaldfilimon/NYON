@@ -368,3 +368,306 @@ fn metrics_reject_generator_mapping_and_overlap_drift() {
         Err(AtlasValidationError::CellGeometry(_))
     ));
 }
+
+#[test]
+fn text_measurement_uses_exact_weighted_entries_and_matches_emission() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let wide = metrics
+        .measure_text(40.0, FontWeight::Regular, "WWW")
+        .unwrap();
+    let narrow = metrics
+        .measure_text(40.0, FontWeight::Regular, "iii")
+        .unwrap();
+    assert_ne!(wide.advance, narrow.advance);
+
+    let regular = metrics
+        .measure_text(40.0, FontWeight::Regular, "Aa")
+        .unwrap();
+    let semibold = metrics
+        .measure_text(40.0, FontWeight::SemiBold, "Aa")
+        .unwrap();
+    let expected_regular = metrics.entries[(b'A' - b' ') as usize].advance
+        + metrics.entries[(b'a' - b' ') as usize].advance;
+    let expected_semibold = metrics.entries[95 + (b'A' - b' ') as usize].advance
+        + metrics.entries[95 + (b'a' - b' ') as usize].advance;
+    assert_eq!(regular.advance, expected_regular);
+    assert_eq!(semibold.advance, expected_semibold);
+
+    let mut batch = UiBatch::default();
+    let emitted = batch
+        .push_text(
+            &metrics,
+            [100.0, 100.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "Aa",
+        )
+        .unwrap();
+    assert_eq!(emitted, regular.advance);
+    assert_eq!(batch.glyphs()[0].uv_rect[0], 64.0 / 1024.0);
+    assert_eq!(batch.glyphs()[1].uv_rect[0], 64.0 / 1024.0);
+    assert_ne!(batch.glyphs()[0].uv_rect[1], batch.glyphs()[1].uv_rect[1]);
+}
+
+#[test]
+fn measurement_and_emission_reject_bad_input_and_mapping_atomically() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    assert_eq!(
+        metrics.measure_text(16.0, FontWeight::Regular, "line\nbreak"),
+        Err(UiBatchError::UnsupportedCharacter('\n'))
+    );
+    assert_eq!(
+        metrics.measure_text(f32::NAN, FontWeight::Regular, "A"),
+        Err(UiBatchError::NonFiniteGeometry)
+    );
+
+    let mut batch = UiBatch::default();
+    batch
+        .push_icon(&metrics, UiIcon::Check, [1.0, 2.0, 3.0, 4.0], [1.0; 4])
+        .unwrap();
+    let before = batch.glyphs().to_vec();
+    let mut inconsistent = metrics.clone();
+    inconsistent.entries[(b'A' - b' ') as usize].codepoint = Some('B' as u32);
+    assert!(matches!(
+        batch.push_text(
+            &inconsistent,
+            [0.0, 0.0],
+            16.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A"
+        ),
+        Err(UiBatchError::MissingEntry(_))
+    ));
+    assert_eq!(batch.glyphs(), before);
+    let mut inconsistent_key = metrics.clone();
+    inconsistent_key.entries[(b'A' - b' ') as usize].key = "regular:U+0042".into();
+    assert!(matches!(
+        inconsistent_key.measure_text(16.0, FontWeight::Regular, "A"),
+        Err(UiBatchError::MissingEntry(_))
+    ));
+    assert_eq!(
+        batch.push_text_clipped(
+            &metrics,
+            [0.0, 0.0],
+            16.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A",
+            Some([0.0, 0.0, f32::INFINITY, 1.0])
+        ),
+        Err(UiBatchError::NonFiniteGeometry)
+    );
+    assert_eq!(batch.glyphs(), before);
+}
+
+#[test]
+fn clipped_text_and_icons_crop_rect_and_uv_proportionally() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let cases = [
+        (
+            [108.0, 52.0, 48.0, 64.0],
+            [108.0, 52.0, 48.0, 64.0],
+            [0.25, 0.0],
+        ),
+        (
+            [92.0, 52.0, 48.0, 64.0],
+            [92.0, 52.0, 48.0, 64.0],
+            [0.0, 0.0],
+        ),
+        (
+            [92.0, 68.0, 64.0, 48.0],
+            [92.0, 68.0, 64.0, 48.0],
+            [0.0, 0.25],
+        ),
+        (
+            [92.0, 52.0, 64.0, 48.0],
+            [92.0, 52.0, 64.0, 48.0],
+            [0.0, 0.0],
+        ),
+    ];
+    let entry = &metrics.entries[(b'A' - b' ') as usize];
+    let base_uv = [
+        entry.atlas_bounds.x as f32 / 1024.0,
+        entry.atlas_bounds.y as f32 / 1024.0,
+    ];
+    for (clip, expected_rect, uv_offset) in cases {
+        let mut batch = UiBatch::default();
+        batch
+            .push_text_clipped(
+                &metrics,
+                [100.0, 100.0],
+                40.0,
+                FontWeight::Regular,
+                [1.0; 4],
+                "A",
+                Some(clip),
+            )
+            .unwrap();
+        let glyph = batch.glyphs()[0];
+        assert_eq!(glyph.rect, expected_rect);
+        assert_eq!(glyph.uv_rect[0], base_uv[0] + uv_offset[0] * 64.0 / 1024.0);
+        assert_eq!(glyph.uv_rect[1], base_uv[1] + uv_offset[1] * 64.0 / 1024.0);
+        assert_eq!(glyph.uv_rect[2], expected_rect[2] / 1024.0);
+        assert_eq!(glyph.uv_rect[3], expected_rect[3] / 1024.0);
+    }
+
+    let mut icon_batch = UiBatch::default();
+    icon_batch
+        .push_icon_clipped(
+            &metrics,
+            UiIcon::Check,
+            [10.0, 20.0, 40.0, 40.0],
+            [1.0; 4],
+            Some([20.0, 30.0, 20.0, 20.0]),
+        )
+        .unwrap();
+    let icon = icon_batch.glyphs()[0];
+    assert_eq!(icon.rect, [20.0, 30.0, 20.0, 20.0]);
+    assert_eq!(icon.uv_rect[2], 32.0 / 1024.0);
+    assert_eq!(icon.uv_rect[3], 32.0 / 1024.0);
+}
+
+#[test]
+fn invisible_text_retains_advance_without_consuming_capacity() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let measured = metrics
+        .measure_text(40.0, FontWeight::Regular, "A A")
+        .unwrap();
+    let mut batch = UiBatch::default();
+    assert_eq!(
+        batch
+            .push_text(
+                &metrics,
+                [0.0, 48.0],
+                40.0,
+                FontWeight::Regular,
+                [1.0; 4],
+                "",
+            )
+            .unwrap(),
+        0.0
+    );
+    batch
+        .push_text(
+            &metrics,
+            [0.0, 48.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A",
+        )
+        .unwrap();
+    batch
+        .push_text(
+            &metrics,
+            [0.0, 96.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A",
+        )
+        .unwrap();
+    assert_ne!(batch.glyphs()[0].rect[1], batch.glyphs()[1].rect[1]);
+    batch.clear();
+    let emitted = batch
+        .push_text_clipped(
+            &metrics,
+            [100.0, 100.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A A",
+            Some([0.0, 0.0, 0.0, 0.0]),
+        )
+        .unwrap();
+    assert_eq!(emitted, measured.advance);
+    assert!(batch.glyphs().is_empty());
+    batch
+        .push_text_clipped(
+            &metrics,
+            [100.0, 100.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "A",
+            Some([156.0, 52.0, 1.0, 64.0]),
+        )
+        .unwrap();
+    assert!(batch.glyphs().is_empty());
+}
+
+#[test]
+fn capacity_boundaries_are_atomic_for_nonempty_batches() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut batch = UiBatch::default();
+    for _ in 0..MAX_UI_GLYPHS - 1 {
+        batch
+            .push_icon(&metrics, UiIcon::Check, [0.0, 0.0, 1.0, 1.0], [1.0; 4])
+            .unwrap();
+    }
+    assert_eq!(batch.glyphs().len(), MAX_UI_GLYPHS - 1);
+    let before = batch.glyphs().to_vec();
+    assert!(matches!(
+        batch.push_text(
+            &metrics,
+            [0.0, 48.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            "AA"
+        ),
+        Err(UiBatchError::Capacity { requested }) if requested == MAX_UI_GLYPHS + 1
+    ));
+    assert_eq!(batch.glyphs(), before);
+    batch
+        .push_icon(&metrics, UiIcon::Check, [0.0, 0.0, 1.0, 1.0], [1.0; 4])
+        .unwrap();
+    assert_eq!(batch.glyphs().len(), MAX_UI_GLYPHS);
+    let before = batch.glyphs().to_vec();
+    assert!(matches!(
+        batch.push_icon(&metrics, UiIcon::Check, [0.0, 0.0, 1.0, 1.0], [1.0; 4]),
+        Err(UiBatchError::Capacity { requested }) if requested == MAX_UI_GLYPHS + 1
+    ));
+    assert_eq!(batch.glyphs(), before);
+
+    let mut panels = UiBatch::default();
+    for _ in 0..MAX_UI_PANELS - 1 {
+        panels.push_panel([0.0, 0.0, 1.0, 1.0], [1.0; 4]).unwrap();
+    }
+    panels.push_panel([0.0, 0.0, 1.0, 1.0], [1.0; 4]).unwrap();
+    assert_eq!(panels.panels().len(), MAX_UI_PANELS);
+    let before = panels.panels().to_vec();
+    assert!(matches!(
+        panels.push_panel([0.0, 0.0, 1.0, 1.0], [1.0; 4]),
+        Err(UiBatchError::PanelCapacity { requested }) if requested == MAX_UI_PANELS + 1
+    ));
+    assert_eq!(panels.panels(), before);
+}
+
+#[test]
+fn text_emission_stops_at_the_first_capacity_breach() {
+    let metrics = AtlasMetrics::embedded().unwrap();
+    let mut batch = UiBatch::default();
+    batch
+        .push_icon(&metrics, UiIcon::Check, [0.0, 0.0, 1.0, 1.0], [1.0; 4])
+        .unwrap();
+    let before = batch.glyphs().to_vec();
+    let value = format!("{}☃", "A".repeat(MAX_UI_GLYPHS + 256));
+
+    assert_eq!(
+        batch.push_text(
+            &metrics,
+            [0.0, 48.0],
+            40.0,
+            FontWeight::Regular,
+            [1.0; 4],
+            &value,
+        ),
+        Err(UiBatchError::Capacity {
+            requested: MAX_UI_GLYPHS + 1,
+        })
+    );
+    assert_eq!(batch.glyphs(), before);
+}

@@ -1,0 +1,59 @@
+{
+  "kind": "NYON_WORKSHOP_DATA",
+  "format_version": 1,
+  "pack_id": "nyon.core",
+  "pack_version": 1,
+  "title": "NYON Core",
+  "star_archetypes": [
+    { "id": "yellow-dwarf", "name": "Yellow Dwarf", "description": "A stable main-sequence star." }
+  ],
+  "world_archetypes": [
+    { "id": "rocky-world", "name": "Rocky World", "description": "A solid world suitable for industry." }
+  ],
+  "resources": [
+    { "id": "energy", "name": "Energy", "description": "Electrical energy for industry." },
+    { "id": "ore", "name": "Ore", "description": "Unrefined mineral feedstock." },
+    { "id": "alloy", "name": "Alloy", "description": "Refined structural material." }
+  ],
+  "industry_definitions": [
+    {
+      "kind": "solar",
+      "id": "solar-array",
+      "name": "Solar Array",
+      "description": "Produces four energy units per tick.",
+      "duration_ticks": 1,
+      "outputs": [{ "resource_id": "energy", "quantity": 4 }]
+    },
+    {
+      "kind": "extractor",
+      "id": "extractor",
+      "name": "Extractor",
+      "description": "Uses energy to extract linked ore reserves.",
+      "duration_ticks": 1,
+      "energy_input": { "resource_id": "energy", "quantity": 1 },
+      "output": { "resource_id": "ore", "quantity": 2 }
+    },
+    {
+      "kind": "processor",
+      "id": "foundry",
+      "name": "Foundry",
+      "description": "Converts energy and ore into alloy.",
+      "duration_ticks": 1,
+      "inputs": [
+        { "resource_id": "energy", "quantity": 2 },
+        { "resource_id": "ore", "quantity": 3 }
+      ],
+      "outputs": [{ "resource_id": "alloy", "quantity": 1 }]
+    }
+  ],
+  "hazard_definitions": [
+    {
+      "id": "ion-storm",
+      "name": "Ion Storm",
+      "description": "Halves route capacity on its lane using integer floor division.",
+      "duration_ticks": 36000,
+      "route_capacity_numerator": 1,
+      "route_capacity_denominator": 2
+    }
+  ]
+}

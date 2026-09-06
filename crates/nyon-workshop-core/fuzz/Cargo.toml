@@ -1,0 +1,22 @@
+[package]
+name = "nyon-workshop-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nyon-workshop-core = { path = ".." }
+
+[[bin]]
+name = "pack_decode"
+path = "fuzz_targets/pack_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

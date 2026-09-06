@@ -22,9 +22,35 @@ jobs:
           toolchain: nightly-2026-09-01
           components: rustfmt, clippy
       - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-targets
+      # `--workspace` is required. `default-members = ["."]` scopes a bare
+      # invocation to the root package, which skips every integration binary in
+      # `crates/nyon-workshop-core` (archive, creator, history, pack,
+      # simulation, two_system_forge) and leaves that crate's test targets
+      # unlinted. Those are the deterministic-authority suites.
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-targets
       - run: cargo build --release
+
+  fuzz:
+    # `crates/nyon-workshop-core/fuzz` declares its own `[workspace]`, so the
+    # native job's `--workspace` invocations do not reach it and the target can
+    # rot against the core API without any gate noticing. Compile and lint only;
+    # this job does not run the fuzzer and is not fuzzing evidence. Ubuntu only,
+    # because `libfuzzer-sys` builds libFuzzer with a C++ toolchain and does not
+    # support the MSVC target used by the Windows runner.
+    name: Fuzz target compile and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+          components: rustfmt, clippy
+      - run: cargo fmt --manifest-path crates/nyon-workshop-core/fuzz/Cargo.toml --all --check
+      # `--locked` is deliberate. That crate's lockfile had drifted out of date
+      # against `sha2`'s `asm` feature and was silently rewritten by the first
+      # `cargo check` run against it on 2026-09-04.
+      - run: cargo clippy --locked --manifest-path crates/nyon-workshop-core/fuzz/Cargo.toml --all-targets -- -D warnings
 
   wasm:
     name: WASM compile and bundle
@@ -37,3 +63,11 @@ jobs:
           components: rustfmt, clippy
       - run: ./tools/build-web.sh
       - run: cargo check --target wasm32-unknown-unknown --lib
+      - run: cargo check -p nyon-workshop-core --target wasm32-unknown-unknown
+      # The host gate never compiles `cfg(target_arch = "wasm32")` code, so
+      # browser-only modules such as `src/ui/platform_web.rs` are otherwise
+      # unlinted. This caught a real `clippy::let_unit_value` on 2026-09-04.
+      - run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
+      # Runs after the build above so the artifact-freshness check sees a
+      # `dist/` newer than the checkout.
+      - run: ./tools/check-workshop.sh

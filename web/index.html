@@ -6,14 +6,99 @@
     <link rel="icon" href="data:,">
     <title>NYON</title>
     <style>
-      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #03050c; }
-      canvas { display: block; width: 100%; height: 100%; outline: none; }
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: #03050c;
+        color: #e7f5ff;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #03050c;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+      }
+
+      #nyon-status {
+        position: fixed;
+        z-index: 10;
+        top: 0.75rem;
+        left: 0.75rem;
+        max-width: min(42rem, calc(100vw - 3rem));
+        padding: 0.55rem 0.75rem;
+        border: 1px solid #4c718e;
+        border-radius: 0.25rem;
+        background: rgb(3 5 12 / 92%);
+        box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 45%);
+        line-height: 1.4;
+        pointer-events: none;
+      }
+
+      #nyon-status[data-state="ready"] {
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+
+      #nyon-status[data-state="error"] {
+        top: 50%;
+        left: 50%;
+        width: min(42rem, calc(100vw - 3rem));
+        transform: translate(-50%, -50%);
+        border-color: #d88989;
+        background: #16080d;
+        pointer-events: auto;
+      }
+
+      #nyon-backend {
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      #nyon-message {
+        display: block;
+        margin-top: 0.2rem;
+        color: #b9cbd9;
+        white-space: pre-wrap;
+      }
+
+      noscript {
+        display: block;
+        margin: 2rem;
+        padding: 1rem;
+        border: 1px solid #d88989;
+      }
     </style>
   </head>
   <body>
-    <script type="module">
-      import init from "../dist/nyon.js";
-      init().catch((error) => console.error("NYON startup failed", error));
-    </script>
+    <div
+      id="nyon-status"
+      data-state="loading"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span id="nyon-backend">STARTING</span>
+      <span id="nyon-message">Selecting a compatible graphics backend.</span>
+    </div>
+    <noscript>NYON requires JavaScript to start its local WebAssembly client.</noscript>
+    <script type="module" src="./loader.js"></script>
   </body>
 </html>

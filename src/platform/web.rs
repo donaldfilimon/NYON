@@ -1,3 +1,4 @@
+use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use winit::{
     event_loop::{ControlFlow, EventLoop},
@@ -12,10 +13,35 @@ use crate::{
         codec::MAX_JSON_BYTES,
         store::{ScenarioStore, StoreError, load_primary_or_legacy},
     },
+    workshop::store::IndexedDbWorkshopStore,
 };
 
 pub const LOCAL_STORAGE_KEY: &str = "nyon.scenario.v1";
 pub const LEGACY_LOCAL_STORAGE_KEY: &str = "intergalactic-warfare.scenario.v1";
+pub const GRAPHICS_READY_EVENT: &str = "nyon:graphics-ready";
+pub const GRAPHICS_FAILED_EVENT: &str = "nyon:graphics-failed";
+
+pub(crate) fn report_graphics_ready(backend: &str) {
+    dispatch_graphics_event(GRAPHICS_READY_EVENT, backend);
+}
+
+pub(crate) fn report_graphics_failed(message: &str) {
+    dispatch_graphics_event(GRAPHICS_FAILED_EVENT, message);
+}
+
+fn dispatch_graphics_event(name: &str, detail: &str) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let init = web_sys::CustomEventInit::new();
+    init.set_detail(&JsValue::from_str(detail));
+    match web_sys::CustomEvent::new_with_event_init_dict(name, &init) {
+        Ok(event) => {
+            let _ = window.dispatch_event(&event);
+        }
+        Err(error) => log::error!("failed to create graphics status event: {error:?}"),
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WebScenarioStore;
@@ -91,8 +117,9 @@ pub fn run() -> Result<(), WebStartupError> {
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let event_proxy = event_loop.create_proxy();
-    let app = App::new(
+    let app = App::with_workshop_store(
         AppCore::new_with_preferences(scenario, WebScenarioStore, WebPreferencesStore),
+        IndexedDbWorkshopStore::new(),
         event_proxy,
     );
     event_loop.spawn_app(app);
