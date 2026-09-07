@@ -10,6 +10,18 @@
 //! floating-point values. Decoders reject duplicate, unknown and reordered
 //! fields, invalid Unicode and noncanonical escapes, and any input whose
 //! decode and re-encode are not byte-identical.
+//!
+//! # `#[serde(deny_unknown_fields)]` is load-bearing for error fidelity
+//!
+//! Schema types decoded through [`decode_canonical_v2`] must carry
+//! `#[serde(deny_unknown_fields)]`. Rejection of an unknown field is guaranteed
+//! either way, because an ignored field survives in the input but not in the
+//! re-encoding and the exact byte comparison then fails. Which error the caller
+//! sees is not guaranteed: with the attribute the deserializer refuses first and
+//! the caller sees [`LivingWireErrorV2::Json`], and without it the document
+//! reaches the byte comparison and the caller sees
+//! [`LivingWireErrorV2::NonCanonical`] instead. A schema author who wants the
+//! precise diagnostic must set the attribute.
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -50,7 +62,8 @@ pub enum LivingWireErrorV2 {
     Float,
     /// The bytes are not one strictly typed JSON document of the target type.
     /// This covers malformed JSON, unknown and duplicate fields, out-of-range
-    /// integers, and unsorted or duplicated keyed arrays.
+    /// integers, and keyed arrays that arrive unsorted or duplicated through
+    /// the decoder rather than through [`LivingSortedVecV2::new`].
     #[error("Living V2 document is not one strictly typed canonical JSON document")]
     Json,
     /// The document parses but its re-encoding differs byte for byte, so the
@@ -58,6 +71,15 @@ pub enum LivingWireErrorV2 {
     /// noncanonical escape, or an omitted optional value.
     #[error("Living V2 document is not in canonical byte form")]
     NonCanonical,
+    /// A keyed collection was built without strictly ascending stable
+    /// identifiers.
+    ///
+    /// Only the programmatic constructor [`LivingSortedVecV2::new`] reports
+    /// this. The decoding path detects the same condition, but its check runs
+    /// inside the deserializer, whose error type cannot carry a variant of this
+    /// enum, so a decoded document surfaces it as [`LivingWireErrorV2::Json`].
+    #[error("Living V2 keyed collection is not sorted strictly ascending by stable identifier")]
+    KeyedOrder,
 }
 
 /// Decode one canonical Living V2 document of the declared type.
@@ -181,9 +203,13 @@ where
     T: LivingKeyedV2,
 {
     /// Build a sorted collection, rejecting unsorted or duplicated keys.
+    ///
+    /// This path never touches JSON, so it reports
+    /// [`LivingWireErrorV2::KeyedOrder`] rather than the decoder's
+    /// [`LivingWireErrorV2::Json`].
     pub fn new(items: Vec<T>) -> Result<Self, LivingWireErrorV2> {
         if !is_strictly_sorted(&items) {
-            return Err(LivingWireErrorV2::Json);
+            return Err(LivingWireErrorV2::KeyedOrder);
         }
         Ok(Self(items))
     }

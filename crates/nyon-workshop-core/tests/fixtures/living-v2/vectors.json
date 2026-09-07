@@ -1,72 +1,84 @@
 {
   "note": "Living Galaxy V2 canonical wire vectors. Every digest below is SHA-256 over the spec domain literal (ASCII plus a terminating NUL) followed by the little-endian framed inputs listed with each vector. Derived from docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md section 10 by tools recorded in the task-1 report, never from Rust output.",
+  "domain_digest_note": "A domain row's `empty_object_digest` is SHA256(domain_bytes || '{}'). It is NORMATIVE only for the four payload domains (pack, state, archive_integrity, receipt), whose spec formulas hash canonical JSON bytes and can therefore legitimately receive '{}'. For the other seven domains (revision, creator_entity, auto_entity, root_branch, fork_branch, event, claim) the formulas hash concatenated fixed-width binary fields and never receive a JSON payload at all, so those rows are NON-NORMATIVE probes kept only as a second anchor on the domain bytes. Each row states which it is in `digest_is_normative`. Do not treat a non-normative row as a frozen spec value; the frozen value is `bytes_hex`.",
   "rules_version": 2,
   "domains": [
     {
       "name": "pack",
       "literal": "NYON-LIVING-PACK-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d5041434b2d563200",
-      "empty_object_digest": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c"
+      "empty_object_digest": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+      "digest_is_normative": true
     },
     {
       "name": "state",
       "literal": "NYON-LIVING-STATE-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d53544154452d563200",
-      "empty_object_digest": "23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683"
+      "empty_object_digest": "23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683",
+      "digest_is_normative": true
     },
     {
       "name": "archive_integrity",
       "literal": "NYON-LIVING-ARCHIVE-INTEGRITY-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d415243484956452d494e544547524954592d563200",
-      "empty_object_digest": "dcf8ed382ce041b714305622a8c800cc6ae19bb1753b6f9369e62a14871e2714"
+      "empty_object_digest": "dcf8ed382ce041b714305622a8c800cc6ae19bb1753b6f9369e62a14871e2714",
+      "digest_is_normative": true
     },
     {
       "name": "receipt",
       "literal": "NYON-LIVING-RECEIPT-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d524543454950542d563200",
-      "empty_object_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b"
+      "empty_object_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b",
+      "digest_is_normative": true
     },
     {
       "name": "revision",
       "literal": "NYON-LIVING-REVISION-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d5245564953494f4e2d563200",
-      "empty_object_digest": "a118516e78ac98d0cc574193c2bbb313b8a5ebea30ea8e3f17ddd7a11db02cc1"
+      "empty_object_digest": "a118516e78ac98d0cc574193c2bbb313b8a5ebea30ea8e3f17ddd7a11db02cc1",
+      "digest_is_normative": false
     },
     {
       "name": "creator_entity",
       "literal": "NYON-LIVING-CREATOR-ENTITY-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d43524541544f522d454e544954592d563200",
-      "empty_object_digest": "a7a31f29b90a6355cadcaa02c4f018319946b5c522168006d046acf25fd69353"
+      "empty_object_digest": "a7a31f29b90a6355cadcaa02c4f018319946b5c522168006d046acf25fd69353",
+      "digest_is_normative": false
     },
     {
       "name": "auto_entity",
       "literal": "NYON-LIVING-AUTO-ENTITY-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d4155544f2d454e544954592d563200",
-      "empty_object_digest": "b52a71e880556ad72100d0992fcbe1bd3095744f242fbd15e69adef368a1bef4"
+      "empty_object_digest": "b52a71e880556ad72100d0992fcbe1bd3095744f242fbd15e69adef368a1bef4",
+      "digest_is_normative": false
     },
     {
       "name": "root_branch",
       "literal": "NYON-LIVING-ROOT-BRANCH-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d524f4f542d4252414e43482d563200",
-      "empty_object_digest": "c08f6774f5c291cea6dcbbc3ecae50926ffa2eb7f9c83dedd75a7fef95eed98d"
+      "empty_object_digest": "c08f6774f5c291cea6dcbbc3ecae50926ffa2eb7f9c83dedd75a7fef95eed98d",
+      "digest_is_normative": false
     },
     {
       "name": "fork_branch",
       "literal": "NYON-LIVING-FORK-BRANCH-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d464f524b2d4252414e43482d563200",
-      "empty_object_digest": "70154213adb64ab211f6034ffa7a40e1fece2b92a69a0677ee5530adfe8e9bb3"
+      "empty_object_digest": "70154213adb64ab211f6034ffa7a40e1fece2b92a69a0677ee5530adfe8e9bb3",
+      "digest_is_normative": false
     },
     {
       "name": "event",
       "literal": "NYON-LIVING-EVENT-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d4556454e542d563200",
-      "empty_object_digest": "499a1ee5d07492b3c16a4e7c9b8eb353da93eba1bb3127c6572bc8324b9de8f5"
+      "empty_object_digest": "499a1ee5d07492b3c16a4e7c9b8eb353da93eba1bb3127c6572bc8324b9de8f5",
+      "digest_is_normative": false
     },
     {
       "name": "claim",
       "literal": "NYON-LIVING-CLAIM-V2",
       "bytes_hex": "4e594f4e2d4c4956494e472d434c41494d2d563200",
-      "empty_object_digest": "859c82593f6c5f97c21078c06a641dbdd99be5ac1b322279c8713b9b8780cf8d"
+      "empty_object_digest": "859c82593f6c5f97c21078c06a641dbdd99be5ac1b322279c8713b9b8780cf8d",
+      "digest_is_normative": false
     }
   ],
   "payload_hashes": {

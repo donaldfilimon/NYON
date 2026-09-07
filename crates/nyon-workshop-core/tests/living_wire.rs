@@ -112,6 +112,59 @@ fn the_eleven_spec_domain_literals_are_frozen_byte_for_byte() {
 
     assert_eq!(LIVING_RULES_VERSION, 2);
     assert_eq!(LIVING_TICK_HZ, 10);
+    assert_eq!(
+        vectors["rules_version"].as_u64(),
+        Some(u64::from(LIVING_RULES_VERSION))
+    );
+}
+
+/// The fixture's `empty_object_digest` column is `SHA256(domain || "{}")`. That
+/// is a real spec quantity only for the four payload domains, whose formulas
+/// hash canonical JSON bytes; the other seven hash concatenated fixed-width
+/// binary fields and never receive a JSON payload. This test consumes the
+/// column rather than leaving it as decorative data: normative rows are checked
+/// through the public API, and the rest must declare themselves non-normative
+/// so a later task cannot mistake one for a frozen spec value.
+#[test]
+fn only_the_four_payload_domains_carry_a_normative_empty_object_digest() {
+    let vectors = vectors();
+    let normative: [(&str, [u8; 32]); 4] = [
+        ("pack", catalog_hash_v2(EMPTY_OBJECT).0),
+        ("state", state_digest_v2(EMPTY_OBJECT).0),
+        ("archive_integrity", archive_integrity_v2(EMPTY_OBJECT)),
+        ("receipt", receipt_digest_v2(EMPTY_OBJECT).0),
+    ];
+
+    let mut normative_rows = 0;
+    for entry in vectors["domains"].as_array().expect("domain table") {
+        let name = entry["name"].as_str().expect("domain name");
+        let declared = entry["digest_is_normative"]
+            .as_bool()
+            .unwrap_or_else(|| panic!("domain {name} declares whether its digest is normative"));
+        match normative.iter().find(|(payload, _)| *payload == name) {
+            Some((_, computed)) => {
+                assert!(declared, "payload domain {name} carries a normative digest");
+                assert_eq!(
+                    *computed,
+                    hex32(&entry["empty_object_digest"]),
+                    "payload domain {name} digest is reproduced by the public API"
+                );
+                normative_rows += 1;
+            }
+            None => assert!(
+                !declared,
+                "domain {name} hashes fixed-width binary fields and can never receive a \
+                 JSON payload, so its digest must be labelled non-normative"
+            ),
+        }
+    }
+    assert_eq!(normative_rows, 4);
+    assert!(
+        vectors["domain_digest_note"]
+            .as_str()
+            .expect("the fixture explains the distinction")
+            .contains("NON-NORMATIVE")
+    );
 }
 
 #[test]
@@ -261,8 +314,20 @@ fn autonomous_entity_framing_including_a_shipment_matches_reviewed_vectors() {
     }
 }
 
+/// Perturb each of the nine framed inputs one at a time and require ten
+/// distinct identities.
+///
+/// This is the assertion the exact-vector sibling cannot make. `local_id` is
+/// zero in all three reviewed rows, so an implementation that ignored the field
+/// and hashed a constant zero in its place reproduces every committed digest
+/// exactly. That mutant was run: it leaves
+/// `autonomous_entity_framing_including_a_shipment_matches_reviewed_vectors`
+/// green and fails only here. Dropping a field outright is a weaker mutant,
+/// because it also shortens the hashed byte stream.
 #[test]
-fn identity_tuple_reuse_is_deterministic_and_every_field_is_load_bearing() {
+fn every_autonomous_identity_field_changes_the_identity() {
+    use std::collections::BTreeSet;
+
     let vectors = vectors();
     let catalog = LivingCatalogHashV2(hex32(&vectors["payload_hashes"]["catalog_hash"]));
     let rows = vectors["autonomous_entities"]
@@ -270,39 +335,47 @@ fn identity_tuple_reuse_is_deterministic_and_every_field_is_load_bearing() {
         .expect("autonomous rows");
     let base = autonomous_inputs(catalog, &rows[0]);
 
-    // Reusing the identical tuple reproduces the identical identity.
+    // Reuse of the identical tuple reproduces the reviewed identity, not merely
+    // some repeatable value: this compares against the fixture, not against a
+    // second call of the same function.
     assert_eq!(
-        autonomous_entity_id_v2(&base),
-        autonomous_entity_id_v2(&autonomous_inputs(catalog, &rows[0]))
+        autonomous_entity_id_v2(&base).0,
+        hex16(&rows[0]["entity_id"])
     );
 
-    // The reviewed corpus pins that a different phase/kind and a bumped intent
-    // ordinal are distinct identities from the same actor and boundary.
-    let shipment = autonomous_inputs(catalog, &rows[1]);
-    let next_intent = autonomous_inputs(catalog, &rows[2]);
-    assert_ne!(
-        autonomous_entity_id_v2(&base),
-        autonomous_entity_id_v2(&shipment)
-    );
-    assert_ne!(
-        autonomous_entity_id_v2(&base),
-        autonomous_entity_id_v2(&next_intent)
-    );
-    assert_eq!(next_intent.intent_ordinal, base.intent_ordinal + 1);
+    let mut variants = vec![base];
+    let push = |mutate: fn(&mut LivingAutonomousEntityInputsV2)| {
+        let mut variant = base;
+        mutate(&mut variant);
+        variant
+    };
+    variants.push(push(|input| {
+        input.catalog_hash = LivingCatalogHashV2([0x33; 32])
+    }));
+    variants.push(push(|input| input.genesis_seed = [0x12; 32]));
+    variants.push(push(|input| input.branch = LivingBranchIdV2([0x44; 16])));
+    variants.push(push(|input| input.tick = LivingTickV2(input.tick.0 + 1)));
+    variants.push(push(|input| input.phase += 1));
+    variants.push(push(|input| input.actor = LivingEntityIdV2([0x55; 16])));
+    variants.push(push(|input| input.intent_ordinal += 1));
+    variants.push(push(|input| input.entity_kind += 1));
+    variants.push(push(|input| input.local_id += 1));
+    assert_eq!(variants.len(), 10, "the base tuple plus its nine fields");
 
-    let mut perturbed = base;
-    perturbed.local_id += 1;
-    assert_ne!(
-        autonomous_entity_id_v2(&base),
-        autonomous_entity_id_v2(&perturbed)
+    let identities: BTreeSet<_> = variants
+        .iter()
+        .map(|input| autonomous_entity_id_v2(input).0)
+        .collect();
+    assert_eq!(
+        identities.len(),
+        10,
+        "every framed field must reach the hash input; a collision means one is unframed"
     );
 
-    let mut other_seed = base;
-    other_seed.genesis_seed = [0x12; 32];
-    assert_ne!(
-        autonomous_entity_id_v2(&base),
-        autonomous_entity_id_v2(&other_seed)
-    );
+    // The same nine-field sensitivity holds for the untruncated digest, so the
+    // property is not an artifact of taking the leading sixteen bytes.
+    let digests: BTreeSet<_> = variants.iter().map(autonomous_entity_digest_v2).collect();
+    assert_eq!(digests.len(), 10);
 }
 
 // ------------------------------------------------------- branches and events
@@ -424,37 +497,181 @@ fn v2_wrapper_hex_rejects_uppercase_short_long_and_non_hex_text() {
     );
 }
 
+/// Every source file the crate compiles, compiled in so the scan cannot resolve
+/// a stale path after the checkout moves. `crate_module_scan_covers_every_file`
+/// proves this list is complete.
+const CRATE_SOURCES: [(&str, &str); 11] = [
+    ("lib.rs", include_str!("../src/lib.rs")),
+    ("archive.rs", include_str!("../src/archive.rs")),
+    ("command.rs", include_str!("../src/command.rs")),
+    ("history.rs", include_str!("../src/history.rs")),
+    ("ids.rs", include_str!("../src/ids.rs")),
+    ("model.rs", include_str!("../src/model.rs")),
+    ("pack.rs", include_str!("../src/pack.rs")),
+    ("simulation.rs", include_str!("../src/simulation.rs")),
+    ("living/mod.rs", include_str!("../src/living/mod.rs")),
+    ("living/ids.rs", include_str!("../src/living/ids.rs")),
+    ("living/wire.rs", include_str!("../src/living/wire.rs")),
+];
+
+/// The WorkshopV1 identity vocabulary, stated here so a reader can see exactly
+/// what the isolation guard means by "a V1 identity".
+const WORKSHOP_V1_IDENTITY_NAMES: [&str; 9] = [
+    "RevisionId",
+    "EntityId",
+    "BranchId",
+    "CatalogHash",
+    "StateDigest",
+    "WorkshopTick",
+    "BatchLocalId",
+    "WORKSHOP_RULES_VERSION",
+    "WORKSHOP_TICK_HZ",
+];
+
+/// Remove every identifier belonging to the Living V2 vocabulary, so that a V1
+/// name is only reported when it stands on its own. Without this,
+/// `LivingRevisionIdV2` would register as a mention of V1's `RevisionId`.
+fn without_living_identifiers(source: &str) -> String {
+    const PREFIXES: [&[u8]; 3] = [b"Living", b"LIVING", b"living"];
+    let bytes = source.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        // Byte-wise on purpose: the prefixes are ASCII, and copying any other
+        // byte unchanged keeps multi-byte sequences intact.
+        match PREFIXES
+            .into_iter()
+            .find(|prefix| bytes[index..].starts_with(prefix))
+        {
+            Some(prefix) => {
+                index += prefix.len();
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+                {
+                    index += 1;
+                }
+                // A removed identifier still separates its neighbours.
+                output.push(b' ');
+            }
+            None => {
+                output.push(bytes[index]);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(output).expect("byte-wise filtering preserves UTF-8")
+}
+
+fn names_living_v2(source: &str) -> bool {
+    source.contains("Living") || source.contains("LIVING_")
+}
+
+fn names_workshop_v1(source: &str) -> Option<&'static str> {
+    let residue = without_living_identifiers(source);
+    WORKSHOP_V1_IDENTITY_NAMES
+        .into_iter()
+        .find(|name| residue.contains(name))
+}
+
+/// The plan's top-tier constraint is that a WorkshopV1 wrapper is never
+/// reinterpreted as a Living V2 identity in either direction. Rust cannot prove
+/// an absence, so this test enforces a partition instead: **no source file in
+/// this crate names both a V1 identity type and a V2 identity type.**
+///
+/// What it catches, in every file the crate compiles, independent of syntax,
+/// whitespace and naming: `impl From<..>` and `impl  From<..>` and
+/// `impl<'a> From<..>`, `Into`, `TryFrom`, `AsRef`, an arbitrarily named free
+/// function such as `fn v1_to_v2(id: RevisionId) -> LivingRevisionIdV2`, and
+/// the re-wrap idiom `LivingRevisionIdV2(v1_revision.0)` whenever the V1 type
+/// is named anywhere in that file.
+///
+/// What it does **not** catch, stated plainly rather than implied away: a
+/// conversion whose V1 operand type is never spelled in the file because it is
+/// inferred, for example `LivingRevisionIdV2(value.0)` where `value` arrives
+/// from an untyped `let`; and any conversion written in a downstream crate,
+/// which both wrappers' public tuple fields make constructible. Closing those
+/// needs type-level analysis or private fields, neither of which this task owns.
 #[test]
-fn living_v2_sources_declare_no_conversion_to_or_from_workshop_v1() {
-    let living = [
-        ("living/mod.rs", include_str!("../src/living/mod.rs")),
-        ("living/ids.rs", include_str!("../src/living/ids.rs")),
-        ("living/wire.rs", include_str!("../src/living/wire.rs")),
-    ];
-    for (name, source) in living {
-        for forbidden in [
-            "crate::ids",
-            "super::ids",
-            "crate::model",
-            "crate::command",
-            "crate::history",
-            "WorkshopTick",
-            "WORKSHOP_RULES_VERSION",
-            "impl From<",
-            "impl Into<",
-            "unsafe",
-        ] {
+fn no_crate_source_file_names_both_a_workshop_v1_and_a_living_v2_identity() {
+    for (name, source) in CRATE_SOURCES {
+        let v2 = names_living_v2(source);
+        let v1 = names_workshop_v1(source);
+        assert!(
+            !(v2 && v1.is_some()),
+            "{name} names both the Living V2 vocabulary and the WorkshopV1 identity \
+             {v1:?}; the two identity families must never meet in one source file"
+        );
+    }
+
+    // The partition is only meaningful if both sides are actually populated.
+    assert!(
+        CRATE_SOURCES
+            .iter()
+            .any(|(_, source)| names_living_v2(source)),
+        "the scan must observe at least one Living V2 source"
+    );
+    assert!(
+        CRATE_SOURCES
+            .iter()
+            .any(|(_, source)| names_workshop_v1(source).is_some()),
+        "the scan must observe at least one WorkshopV1 source"
+    );
+}
+
+/// A guard that skips a file is worse than no guard, so prove the file list is
+/// complete: every `mod` declaration in every scanned file must resolve to
+/// another scanned file. Adding `pub mod schema;` anywhere fails this test until
+/// `schema.rs` is added to `CRATE_SOURCES`.
+#[test]
+fn crate_module_scan_covers_every_file() {
+    let scanned: Vec<&str> = CRATE_SOURCES.iter().map(|(name, _)| *name).collect();
+    let mut declarations = 0;
+    for (name, source) in CRATE_SOURCES {
+        for line in source.lines() {
+            let line = line.trim();
+            let Some(rest) = line
+                .strip_prefix("pub mod ")
+                .or_else(|| line.strip_prefix("mod "))
+            else {
+                continue;
+            };
+            let Some(module) = rest.strip_suffix(';') else {
+                continue;
+            };
+            declarations += 1;
+            let directory = match name {
+                "lib.rs" => String::new(),
+                other => other
+                    .rsplit_once('/')
+                    .map_or_else(String::new, |(head, _)| format!("{head}/")),
+            };
+            let candidates = [
+                format!("{directory}{module}.rs"),
+                format!("{directory}{module}/mod.rs"),
+            ];
             assert!(
-                !source.contains(forbidden),
-                "{name} must not reference the WorkshopV1 identity surface: {forbidden}"
+                candidates
+                    .iter()
+                    .any(|candidate| scanned.contains(&candidate.as_str())),
+                "{name} declares module `{module}`, which the isolation scan does not \
+                 cover; add it to CRATE_SOURCES"
             );
         }
     }
-    let v1_ids = include_str!("../src/ids.rs");
-    assert!(
-        !v1_ids.contains("Living"),
-        "the WorkshopV1 identity module must not know about Living V2"
+    assert_eq!(
+        declarations, 10,
+        "the crate declares eight top-level modules and two living submodules"
     );
+    // `lib.rs` legitimately spells the word once, in `#![forbid(unsafe_code)]`.
+    let (_, crate_root) = CRATE_SOURCES[0];
+    assert!(crate_root.starts_with("#![forbid(unsafe_code)]"));
+    assert_eq!(crate_root.matches("unsafe").count(), 1);
+    for (name, source) in CRATE_SOURCES.into_iter().skip(1) {
+        assert!(
+            !source.contains("unsafe"),
+            "{name} must not mention unsafe code"
+        );
+    }
 }
 
 // ------------------------------------------------------- canonical JSON wire
@@ -660,4 +877,70 @@ fn optional_values_are_explicit_null_and_never_omitted() {
             .expect("utf8")
             .contains(&"01".repeat(32))
     );
+}
+
+#[test]
+fn encode_runs_the_same_structural_pre_scan_as_decode() {
+    // Depth: the encode path must reject an over-deep value even though it was
+    // built in memory rather than parsed. Deleting the pre-scan from
+    // `encode_canonical_v2` makes both of these silently succeed.
+    let nested = |depth: usize| {
+        let mut value = Value::from(0);
+        for _ in 0..depth {
+            value = Value::Array(vec![value]);
+        }
+        value
+    };
+    let accepted = nested(32);
+    assert!(encode_canonical_v2(&accepted, LIVING_MAX_PACK_BYTES_V2).is_ok());
+    assert_eq!(
+        encode_canonical_v2(&nested(33), LIVING_MAX_PACK_BYTES_V2),
+        Err(LivingWireErrorV2::DepthExceeded { limit: 32 })
+    );
+
+    // Floats: a value holding a non-integer number cannot be encoded either.
+    let mut float_object = serde_json::Map::new();
+    float_object.insert("ratio".to_owned(), Value::from(1.5));
+    assert_eq!(
+        encode_canonical_v2(&Value::Object(float_object), LIVING_MAX_PACK_BYTES_V2),
+        Err(LivingWireErrorV2::Float)
+    );
+
+    let mut integer_object = serde_json::Map::new();
+    integer_object.insert("count".to_owned(), Value::from(-25));
+    let encoded = encode_canonical_v2(&Value::Object(integer_object), LIVING_MAX_PACK_BYTES_V2)
+        .expect("integers encode");
+    assert_eq!(encoded, br#"{"count":-25}"#);
+}
+
+#[test]
+fn the_keyed_collection_constructor_reports_a_keyed_order_error() {
+    let row = |id: u32| KeyedRow {
+        id,
+        name: format!("row-{id}"),
+    };
+
+    let sorted = LivingSortedVecV2::new(vec![row(1), row(2), row(7)]).expect("sorted rows");
+    assert_eq!(sorted.as_slice().len(), 3);
+    assert_eq!(sorted.into_vec().len(), 3);
+
+    assert_eq!(
+        LivingSortedVecV2::new(vec![row(2), row(1)]).map(LivingSortedVecV2::into_vec),
+        Err(LivingWireErrorV2::KeyedOrder)
+    );
+    assert_eq!(
+        LivingSortedVecV2::new(vec![row(1), row(1)]).map(LivingSortedVecV2::into_vec),
+        Err(LivingWireErrorV2::KeyedOrder)
+    );
+
+    // The decoding path detects the same condition but surfaces `Json`, because
+    // its check fires inside the deserializer. Both are pinned so the asymmetry
+    // cannot drift unnoticed.
+    assert!(matches!(
+        decode_canonical_v2::<LivingSortedVecV2<KeyedRow>>(
+            br#"[{"id":2,"name":"row-2"},{"id":1,"name":"row-1"}]"#,
+            LIVING_MAX_PACK_BYTES_V2
+        ),
+        Err(LivingWireErrorV2::Json)
+    ));
 }
