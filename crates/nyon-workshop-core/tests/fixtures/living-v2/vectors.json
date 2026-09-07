@@ -1,0 +1,213 @@
+{
+  "note": "Living Galaxy V2 canonical wire vectors. Every digest below is SHA-256 over the spec domain literal (ASCII plus a terminating NUL) followed by the little-endian framed inputs listed with each vector. Derived from docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md section 10 by tools recorded in the task-1 report, never from Rust output.",
+  "rules_version": 2,
+  "domains": [
+    {
+      "name": "pack",
+      "literal": "NYON-LIVING-PACK-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d5041434b2d563200",
+      "empty_object_digest": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c"
+    },
+    {
+      "name": "state",
+      "literal": "NYON-LIVING-STATE-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d53544154452d563200",
+      "empty_object_digest": "23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683"
+    },
+    {
+      "name": "archive_integrity",
+      "literal": "NYON-LIVING-ARCHIVE-INTEGRITY-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d415243484956452d494e544547524954592d563200",
+      "empty_object_digest": "dcf8ed382ce041b714305622a8c800cc6ae19bb1753b6f9369e62a14871e2714"
+    },
+    {
+      "name": "receipt",
+      "literal": "NYON-LIVING-RECEIPT-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d524543454950542d563200",
+      "empty_object_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b"
+    },
+    {
+      "name": "revision",
+      "literal": "NYON-LIVING-REVISION-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d5245564953494f4e2d563200",
+      "empty_object_digest": "a118516e78ac98d0cc574193c2bbb313b8a5ebea30ea8e3f17ddd7a11db02cc1"
+    },
+    {
+      "name": "creator_entity",
+      "literal": "NYON-LIVING-CREATOR-ENTITY-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d43524541544f522d454e544954592d563200",
+      "empty_object_digest": "a7a31f29b90a6355cadcaa02c4f018319946b5c522168006d046acf25fd69353"
+    },
+    {
+      "name": "auto_entity",
+      "literal": "NYON-LIVING-AUTO-ENTITY-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d4155544f2d454e544954592d563200",
+      "empty_object_digest": "b52a71e880556ad72100d0992fcbe1bd3095744f242fbd15e69adef368a1bef4"
+    },
+    {
+      "name": "root_branch",
+      "literal": "NYON-LIVING-ROOT-BRANCH-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d524f4f542d4252414e43482d563200",
+      "empty_object_digest": "c08f6774f5c291cea6dcbbc3ecae50926ffa2eb7f9c83dedd75a7fef95eed98d"
+    },
+    {
+      "name": "fork_branch",
+      "literal": "NYON-LIVING-FORK-BRANCH-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d464f524b2d4252414e43482d563200",
+      "empty_object_digest": "70154213adb64ab211f6034ffa7a40e1fece2b92a69a0677ee5530adfe8e9bb3"
+    },
+    {
+      "name": "event",
+      "literal": "NYON-LIVING-EVENT-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d4556454e542d563200",
+      "empty_object_digest": "499a1ee5d07492b3c16a4e7c9b8eb353da93eba1bb3127c6572bc8324b9de8f5"
+    },
+    {
+      "name": "claim",
+      "literal": "NYON-LIVING-CLAIM-V2",
+      "bytes_hex": "4e594f4e2d4c4956494e472d434c41494d2d563200",
+      "empty_object_digest": "859c82593f6c5f97c21078c06a641dbdd99be5ac1b322279c8713b9b8780cf8d"
+    }
+  ],
+  "payload_hashes": {
+    "canonical_bytes_hex": "7b7d",
+    "catalog_hash": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+    "state_digest": "23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683",
+    "archive_integrity": "dcf8ed382ce041b714305622a8c800cc6ae19bb1753b6f9369e62a14871e2714",
+    "receipt_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b"
+  },
+  "revisions": [
+    {
+      "label": "root_no_parent",
+      "rules_version": 2,
+      "catalog_hash": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+      "genesis_seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "parent": null,
+      "tick": 7,
+      "ordinal": 3,
+      "command_bytes_hex": "7b7d",
+      "revision_id": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad"
+    },
+    {
+      "label": "child_with_parent",
+      "rules_version": 2,
+      "catalog_hash": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+      "genesis_seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "parent": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad",
+      "tick": 8,
+      "ordinal": 4,
+      "command_bytes_hex": "7b7d",
+      "revision_id": "f578847e04303eaba9a9656fe43143dfab001a56e508dfc275684060f577d61d"
+    }
+  ],
+  "optional_tag": {
+    "absent_hex": "00",
+    "present_prefix_hex": "01",
+    "present_example_hex": "015273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad"
+  },
+  "creator_entities": [
+    {
+      "label": "kind_3_local_0",
+      "revision_id": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad",
+      "entity_kind": 3,
+      "batch_local_id": 0,
+      "entity_digest": "a65a0bf3dbebc95828914b1698e6a81bd54fbce706f01750b1b25dcae387f091",
+      "entity_id": "a65a0bf3dbebc95828914b1698e6a81b"
+    },
+    {
+      "label": "kind_3_local_1",
+      "revision_id": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad",
+      "entity_kind": 3,
+      "batch_local_id": 1,
+      "entity_digest": "fb78f9adfe1caa4561fce74b3d3b5f3b4d09c1cf2b272e0401572ee67b700d4a",
+      "entity_id": "fb78f9adfe1caa4561fce74b3d3b5f3b"
+    }
+  ],
+  "autonomous_entities": [
+    {
+      "label": "ai_fleet_phase_8",
+      "branch_id": "5c2e8c4e9c3e5274b9e6814dc72ebd87",
+      "tick": 50,
+      "phase": 8,
+      "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
+      "intent_ordinal": 0,
+      "entity_kind": 4,
+      "local_id": 0,
+      "entity_digest": "47acc48ab3c8cab08b818fb8fb03d673b3cd34b830b21182d0c022e21c9e766f",
+      "entity_id": "47acc48ab3c8cab08b818fb8fb03d673"
+    },
+    {
+      "label": "route_shipment_phase_9",
+      "branch_id": "5c2e8c4e9c3e5274b9e6814dc72ebd87",
+      "tick": 50,
+      "phase": 9,
+      "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
+      "intent_ordinal": 0,
+      "entity_kind": 7,
+      "local_id": 0,
+      "entity_digest": "a4a02447df43697c943b187971b88a837365954d2546584d60dc682d0d10e504",
+      "entity_id": "a4a02447df43697c943b187971b88a83"
+    },
+    {
+      "label": "ai_fleet_phase_8_next_intent_ordinal",
+      "branch_id": "5c2e8c4e9c3e5274b9e6814dc72ebd87",
+      "tick": 50,
+      "phase": 8,
+      "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
+      "intent_ordinal": 1,
+      "entity_kind": 4,
+      "local_id": 0,
+      "entity_digest": "bfc1bda089825681404ce1a496daf97f448beaf93bbbc8fa1df4edbecedced18",
+      "entity_id": "bfc1bda089825681404ce1a496daf97f"
+    }
+  ],
+  "branches": {
+    "root": {
+      "rules_version": 2,
+      "catalog_hash": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+      "genesis_seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "genesis_manifest_digest": "23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683",
+      "branch_digest": "5c2e8c4e9c3e5274b9e6814dc72ebd87413fa06d97d649e115f05e0b43a2420b",
+      "branch_id": "5c2e8c4e9c3e5274b9e6814dc72ebd87"
+    },
+    "fork": {
+      "parent_branch_id": "5c2e8c4e9c3e5274b9e6814dc72ebd87",
+      "fork_revision": "f578847e04303eaba9a9656fe43143dfab001a56e508dfc275684060f577d61d",
+      "fork_tick": 8,
+      "branch_ordinal": 1,
+      "branch_digest": "9de3ecc478938c65bf5bd91272c02d7ea6a10630c110d5f820c7c0f10b29dd73",
+      "branch_id": "9de3ecc478938c65bf5bd91272c02d7e"
+    }
+  },
+  "events": [
+    {
+      "receipt_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b",
+      "event_ordinal": 0,
+      "event_digest": "3f87cc0773b1de8183d7dfc3450aa4b3f4b061f26e4b4adce6266719ffdf0f5e",
+      "event_id": "3f87cc0773b1de8183d7dfc3450aa4b3"
+    },
+    {
+      "receipt_digest": "97cd026d796d7bfcf988b75b6482deb7d026b7aa19a94a15825bf17afbb8a53b",
+      "event_ordinal": 1,
+      "event_digest": "a48154fe8d515d5df4fde55230a4d5164e280c6827df4b77577288d67a357491",
+      "event_id": "a48154fe8d515d5df4fde55230a4d516"
+    }
+  ],
+  "claims": [
+    {
+      "label": "civilization_a",
+      "world_id": "a65a0bf3dbebc95828914b1698e6a81b",
+      "claim_close_tick": 150,
+      "civilization_id": "47acc48ab3c8cab08b818fb8fb03d673",
+      "claim_rank": "8fbf3f2628a053dc025ce3c6d754bde3d706fcdc8e523443db92644a8c62915b"
+    },
+    {
+      "label": "civilization_b",
+      "world_id": "a65a0bf3dbebc95828914b1698e6a81b",
+      "claim_close_tick": 150,
+      "civilization_id": "a4a02447df43697c943b187971b88a83",
+      "claim_rank": "9f6a4cc0443979c12f9d722e7275a6b363e65acb3f834ca8ddcf87b1814f1097"
+    }
+  ],
+  "claim_winner": "civilization_a"
+}

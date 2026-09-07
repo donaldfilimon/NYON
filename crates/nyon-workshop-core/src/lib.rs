@@ -4,6 +4,7 @@ pub mod archive;
 pub mod command;
 pub mod history;
 pub mod ids;
+pub mod living;
 pub mod model;
 pub mod pack;
 pub mod simulation;
