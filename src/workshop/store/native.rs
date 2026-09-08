@@ -713,6 +713,13 @@ impl WorkshopStore for NativeWorkshopStore {
         Ok(job)
     }
 
+    /// Drops the worker's receiver as well as the lane. The thread finishes its
+    /// write and its `send` fails silently; nothing is cancelled or undone.
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.pending.remove(&job);
+        self.jobs.abandon(job)
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         let received = self.pending.get(&job).map(mpsc::Receiver::try_recv);
         match received {

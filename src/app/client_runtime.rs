@@ -581,24 +581,36 @@ where
     /// The active session, its digest, its queued work, and its recovery
     /// obligations are untouched.
     ///
-    /// Cancel is offered only in the two states that wait on the user. An
-    /// in-flight `PutPack` may not be abandoned: the store frees its Commit
-    /// lane on the terminal poll, so dropping the job would leave that lane
-    /// occupied forever and starve the resident Workshop's own commit and
-    /// recovery-persistence obligation, which must always stay eligible to run.
+    /// Cancel is offered in the two states that wait on the user and, since the
+    /// store gained [`WorkshopStore::abandon`], in `Storing` too. Abandoning
+    /// the in-flight `PutPack` releases its Commit lane immediately, so the
+    /// resident Workshop's own commit and recovery-persistence obligation stay
+    /// eligible to run; previously the only way out of that lane was to poll to
+    /// completion, so cancel had to be refused.
+    ///
+    /// Abandoning does not recall the write. A pack that was going to store
+    /// still stores, which is consistent with the paragraph above: cancel never
+    /// withdraws a stored pack either way. What it drops is the client's
+    /// interest in the outcome.
+    ///
+    /// Cancellation is ordinary, so it pushes no diagnostic; only the refusal
+    /// does.
     pub fn cancel_catalog_import(&mut self) -> Result<(), ClientRuntimeError> {
-        if !matches!(
-            &self.catalog_import,
-            CatalogImport::StoreFailed { .. } | CatalogImport::StartBlocked { .. }
-        ) {
-            self.push_diagnostic(
-                ClientDiagnosticCode::RouteUnavailable,
-                "No cancellable Workshop catalog import is waiting",
-            );
-            return Err(ClientRuntimeError::RouteUnavailable);
+        match std::mem::replace(&mut self.catalog_import, CatalogImport::Idle) {
+            CatalogImport::Storing { job, .. } => {
+                self.workshop_store.abandon(job);
+                Ok(())
+            }
+            CatalogImport::StoreFailed { .. } | CatalogImport::StartBlocked { .. } => Ok(()),
+            restored @ (CatalogImport::Idle | CatalogImport::Stored { .. }) => {
+                self.catalog_import = restored;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No cancellable Workshop catalog import is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
         }
-        self.catalog_import = CatalogImport::Idle;
-        Ok(())
     }
 
     /// Starts the Workshop a [`CatalogImportStatus::StartBlocked`] import still

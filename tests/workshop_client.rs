@@ -195,6 +195,18 @@ impl WorkshopStore for FaultyPackStore {
         }
     }
 
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            self.pending = None;
+            return true;
+        }
+        self.inner.abandon(job)
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         if self
             .pending
@@ -214,6 +226,10 @@ struct SharedWorkshopStore(Rc<RefCell<MemoryWorkshopStore>>);
 impl WorkshopStore for SharedWorkshopStore {
     fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
         self.0.borrow_mut().start(request)
+    }
+
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.0.borrow_mut().abandon(job)
     }
 
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
@@ -245,6 +261,18 @@ impl FaultyPutPackStore {
 }
 
 impl WorkshopStore for FaultyPutPackStore {
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            self.pending = None;
+            return true;
+        }
+        self.inner.abandon(job)
+    }
+
     fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
         if matches!(request, WorkshopStoreRequest::PutPack { .. }) {
             match self.fault.take() {
@@ -1095,21 +1123,19 @@ fn cancelling_a_blocked_catalog_import_never_deletes_the_stored_pack() {
 }
 
 #[test]
-fn an_in_flight_catalog_import_cannot_be_cancelled_out_of_its_commit_lane() {
+fn cancelling_an_in_flight_catalog_import_frees_the_commit_lane_it_held() {
+    // The inverse of the contract `ff9b6ca` shipped. That commit had to refuse
+    // this cancel, because the only way out of a reserved Commit lane was to
+    // poll the very job the caller had given up on, and dropping the job would
+    // starve the resident Workshop's own save and its recovery-persistence
+    // obligation. `WorkshopStore::abandon` is the clean escape the Library
+    // addendum's section 6 needs, so `Storing` becomes cancellable.
     let pack_bytes = custom_pack();
     let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
-    let mut runtime = runtime(MemoryWorkshopStore::default());
+    let shared = SharedWorkshopStore::default();
+    let mut runtime = ClientRuntime::new(classic(), shared.clone());
     runtime.start_new_workshop(14).unwrap();
     assert_eq!(runtime.begin_catalog_import(&pack_bytes).unwrap(), expected);
-
-    // The store frees a Commit lane only on the terminal poll, so abandoning an
-    // in-flight `PutPack` would starve the resident Workshop's own commit and
-    // its recovery-persistence obligation. Cancel is offered only in the two
-    // states that wait on the user.
-    assert_eq!(
-        runtime.cancel_catalog_import(),
-        Err(ClientRuntimeError::RouteUnavailable)
-    );
     assert_eq!(
         runtime.catalog_import_status(),
         CatalogImportStatus::Storing {
@@ -1117,21 +1143,28 @@ fn an_in_flight_catalog_import_cannot_be_cancelled_out_of_its_commit_lane() {
             starts_new_workshop: false,
         }
     );
+
+    // The lane is genuinely occupied while the import is in flight: this is the
+    // wedge, observed rather than assumed.
+    assert!(matches!(
+        shared.clone().start(WorkshopStoreRequest::PutPack {
+            canonical_pack: Box::from(&pack_bytes[..]),
+        }),
+        Err(WorkshopStoreError::Busy { .. })
+    ));
+
+    // Cancellation is ordinary, so it is neither a diagnostic nor a recovery.
+    let diagnostics_before = runtime.diagnostics().len();
+    runtime.cancel_catalog_import().unwrap();
+    assert_eq!(runtime.catalog_import_status(), CatalogImportStatus::Idle);
+    assert!(!runtime.catalog_import_active());
+    assert_eq!(runtime.diagnostics().len(), diagnostics_before);
     assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
     assert!(runtime.recovery_diagnostic().is_none());
 
-    runtime.update(Duration::ZERO);
-    assert_eq!(
-        runtime.catalog_import_status(),
-        CatalogImportStatus::Stored { hash: expected }
-    );
-
-    // A terminal `Stored` has no intent left to cancel either, and the resident
-    // Workshop's Commit lane is free: it commits its own save straight after.
-    assert_eq!(
-        runtime.cancel_catalog_import(),
-        Err(ClientRuntimeError::RouteUnavailable)
-    );
+    // The invariant, not the implementation: the resident Workshop can save
+    // again. Under the old refusal this same sequence left the lane occupied
+    // for the store's lifetime.
     runtime
         .enqueue_workshop_action(WorkshopAction::RequestSave)
         .unwrap();
@@ -1153,6 +1186,218 @@ fn an_in_flight_catalog_import_cannot_be_cancelled_out_of_its_commit_lane() {
             .unwrap()
             .store
             .generation
-            .is_some()
+            .is_some(),
+        "the resident Workshop must be able to commit after the cancel"
     );
+
+    // Abandoning drops the answer, never the write. The memory adapter had
+    // already stored the pack when `start` returned, and cancel does not, and
+    // must not, withdraw it -- the request vocabulary has no pack deletion.
+    let loaded = complete(
+        &mut *shared.clone().0.borrow_mut(),
+        WorkshopStoreRequest::GetPack { hash: expected },
+    );
+    let WorkshopStoreResult::PackLoaded { hash, .. } = loaded else {
+        panic!("cancelling an in-flight import withdrew the pack: {loaded:?}");
+    };
+    assert_eq!(hash, expected);
+
+    // Idle has no intent left to cancel.
+    assert_eq!(
+        runtime.cancel_catalog_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+}
+
+/// The exact-catalog open algorithm's own protocol messages, pinned before the
+/// algorithm moved into `WorkshopLibraryClient`.
+///
+/// Every other bootstrap test asserts a [`ClientDiagnosticCode`], which is a
+/// seven-value enum: three of the five arms below collapse onto
+/// `StoreProtocol`, so a code-only suite cannot tell a mis-copied arm from a
+/// correct one. These strings are the arm identities. They exist so that a
+/// behaviour-preserving extraction has evidence beyond a green gate.
+#[derive(Clone, Copy)]
+enum BootstrapFault {
+    ForgotListJob,
+    ArchivedSelection,
+    WrongLoadedSlot,
+    InconsistentGenerations,
+}
+
+/// Corrupts exactly one store answer inside the bootstrap pipeline, leaving
+/// every lane correctly released so the fault under test is the only one.
+struct FaultyBootstrapStore {
+    inner: MemoryWorkshopStore,
+    fault: BootstrapFault,
+    list_job: Option<StoreJobId>,
+    load_job: Option<StoreJobId>,
+}
+
+impl FaultyBootstrapStore {
+    fn new(inner: MemoryWorkshopStore, fault: BootstrapFault) -> Self {
+        Self {
+            inner,
+            fault,
+            list_job: None,
+            load_job: None,
+        }
+    }
+}
+
+impl WorkshopStore for FaultyBootstrapStore {
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.inner.abandon(job)
+    }
+
+    fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
+        let is_list = matches!(request, WorkshopStoreRequest::ListSlots);
+        let is_load = matches!(request, WorkshopStoreRequest::LoadSlot { .. });
+        let job = self.inner.start(request)?;
+        if is_list {
+            self.list_job = Some(job);
+        }
+        if is_load {
+            self.load_job = Some(job);
+        }
+        Ok(job)
+    }
+
+    fn poll(&mut self, job: StoreJobId) -> StoreJobState {
+        if self.list_job == Some(job) && matches!(self.fault, BootstrapFault::ForgotListJob) {
+            // Consume the real job first so the lane is genuinely released;
+            // the client must cope with the *answer* going missing, not with a
+            // second wedged lane.
+            let _ = self.inner.poll(job);
+            self.list_job = None;
+            return StoreJobState::Unknown;
+        }
+        let mut state = self.inner.poll(job);
+        if self.list_job == Some(job)
+            && let StoreJobState::Complete(Ok(WorkshopStoreResult::Slots(list))) = &mut state
+            && matches!(self.fault, BootstrapFault::ArchivedSelection)
+        {
+            for summary in &mut list.slots {
+                summary.archived = true;
+            }
+        }
+        if self.load_job == Some(job)
+            && let StoreJobState::Complete(Ok(WorkshopStoreResult::SlotLoaded(loaded))) = &mut state
+        {
+            match self.fault {
+                BootstrapFault::WrongLoadedSlot => {
+                    loaded.slot = nyon::workshop::store::SlotId(loaded.slot.0 + 1);
+                }
+                BootstrapFault::InconsistentGenerations => {
+                    loaded.head_generation =
+                        nyon::workshop::store::SaveGeneration(loaded.generation.0 + 1);
+                }
+                BootstrapFault::ForgotListJob | BootstrapFault::ArchivedSelection => {}
+            }
+        }
+        state
+    }
+}
+
+#[test]
+fn continue_bootstrap_protocol_messages_are_the_pinned_arm_identities() {
+    let expected: [(BootstrapFault, &str); 4] = [
+        (
+            BootstrapFault::ForgotListJob,
+            "Workshop storage forgot the active slot-list job",
+        ),
+        (
+            BootstrapFault::ArchivedSelection,
+            "The explicitly selected Continue slot is missing or archived",
+        ),
+        (
+            BootstrapFault::WrongLoadedSlot,
+            "Workshop storage loaded a slot other than the selected Continue slot",
+        ),
+        (
+            BootstrapFault::InconsistentGenerations,
+            "Workshop storage returned inconsistent loaded and head generations",
+        ),
+    ];
+
+    for (fault, message) in expected {
+        let inner = selected_store(valid_archive(0x9A11));
+        let mut runtime = ClientRuntime::new(classic(), FaultyBootstrapStore::new(inner, fault));
+        runtime.begin_continue_bootstrap().unwrap();
+        finish_continue(&mut runtime);
+
+        let diagnostic = runtime.recovery_diagnostic().unwrap();
+        assert_eq!(diagnostic.code, ClientDiagnosticCode::StoreProtocol);
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(runtime.screen(), ClientScreen::RecoverableError);
+        // A protocol failure always drops the candidate; it never leaves a
+        // half-validated Continue behind.
+        assert!(!runtime.continue_available());
+    }
+
+    // The catalog arm is a fifth `StoreProtocol` message and reaches the same
+    // sink through `LoadingCatalog` rather than `Listing` or `Loading`.
+    let (_, archive) = custom_archive(0x9A12);
+    let inner = selected_custom_store(None, archive);
+    let mut runtime =
+        ClientRuntime::new(classic(), FaultyPackStore::new(inner, PackFault::WrongHash));
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+    assert_eq!(
+        runtime.recovery_diagnostic().unwrap().message,
+        "Workshop storage returned a catalog other than the archive's exact catalog"
+    );
+}
+
+#[test]
+fn recovered_predecessor_continue_keeps_its_exact_offer_message_and_candidate() {
+    // Head generation 2 is structurally valid JSON that cannot replay, so the
+    // pipeline falls back to the retained predecessor at generation 1.
+    let mut store = MemoryWorkshopStore::default();
+    let created = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Two-System Forge").unwrap(),
+            archive: valid_archive(0x9A13),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
+        panic!("unexpected create result: {created:?}");
+    };
+    let committed = complete(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: Box::from(&b"{}"[..]),
+        },
+    );
+    let WorkshopStoreResult::SlotCommitted {
+        generation: head, ..
+    } = committed
+    else {
+        panic!("unexpected commit result: {committed:?}");
+    };
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: head,
+        },
+    );
+
+    let mut runtime = runtime(store);
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+
+    // The offer is a recovery screen that still holds a usable candidate:
+    // "recovered" is not "failed", and the two differ only by this message.
+    assert_eq!(runtime.screen(), ClientScreen::RecoverableError);
+    let diagnostic = runtime.recovery_diagnostic().unwrap();
+    assert_eq!(diagnostic.code, ClientDiagnosticCode::Archive);
+    assert_eq!(
+        diagnostic.message,
+        "The latest save was invalid; a previous valid generation is available"
+    );
+    assert!(runtime.continue_available());
 }

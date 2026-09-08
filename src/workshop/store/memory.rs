@@ -394,6 +394,10 @@ impl WorkshopStore for MemoryWorkshopStore {
         Ok(job)
     }
 
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.jobs.abandon(job)
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         self.jobs.poll(job)
     }

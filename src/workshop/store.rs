@@ -420,21 +420,51 @@ pub trait WorkshopStore {
     /// request in an occupied lane is refused with
     /// [`WorkshopStoreError::Busy`].
     ///
-    /// **A reserved job must be polled to its terminal state, or its lane
-    /// leaks.** [`Self::poll`] is the only thing that frees a lane, and there
-    /// is no abandon or cancel in this vocabulary, so a caller that drops a job
-    /// ID without polling it wedges that lane for the lifetime of the store.
-    /// For the Commit lane that is not a recoverable inconvenience: it starves
+    /// **A reserved job must reach a terminal state, or its lane leaks.**
+    /// [`Self::poll`] and [`Self::abandon`] are the only things that free a
+    /// lane, so a caller that drops a job ID without doing either wedges that
+    /// lane for the lifetime of the store. For the Commit lane that is not a
+    /// recoverable inconvenience: it starves
     /// [`WorkshopStoreRequest::CommitSlot`] and
     /// [`WorkshopStoreRequest::PromoteRecoveredSlot`], so the resident
     /// Workshop can no longer save and can no longer discharge a recovery
     /// obligation.
     ///
     /// Consequences for a client that owns a job across frames: a cancel or
-    /// reset must either keep polling the outstanding job to completion or
-    /// refuse while one is in flight. `ClientRuntime::cancel_catalog_import`
-    /// takes the second route.
+    /// reset must keep polling the outstanding job to completion, abandon it,
+    /// or refuse while one is in flight.
     fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError>;
+
+    /// Releases `job`'s lane without delivering its outcome, and reports
+    /// whether a live job was actually released.
+    ///
+    /// This is the escape for a caller that owns a job across frames and has
+    /// decided it no longer wants the answer. Without it the only way out of a
+    /// reserved Commit lane is to poll to completion, so a client that gives up
+    /// on an in-flight job wedges the lane that
+    /// [`WorkshopStoreRequest::CommitSlot`] and
+    /// [`WorkshopStoreRequest::PromoteRecoveredSlot`] need.
+    ///
+    /// **It abandons the outcome, not the work.** The memory and browser
+    /// adapters have already executed the request by the time `start` returns;
+    /// the native adapter's worker thread and a live IndexedDB transaction run
+    /// to completion regardless. Nothing is cancelled and nothing is undone, so
+    /// a mutation that was going to land still lands.
+    ///
+    /// The consequence a caller must absorb is that abandoning a mutation
+    /// leaves it not knowing the slot's head generation. That is safe rather
+    /// than corrupting only because every mutation that depends on the head
+    /// compares and swaps: the next [`WorkshopStoreRequest::CommitSlot`],
+    /// [`WorkshopStoreRequest::PromoteRecoveredSlot`] or
+    /// [`WorkshopStoreRequest::SelectContinue`] is refused with
+    /// [`WorkshopStoreError::StaleGeneration`] rather than silently writing
+    /// over an unobserved generation. A caller that abandons a mutation must
+    /// re-list before it trusts any generation it held.
+    ///
+    /// Abandoning an unknown, already-polled or already-abandoned ID is a
+    /// no-op that returns `false`. Polling an abandoned ID afterwards returns
+    /// [`StoreJobState::Unknown`].
+    fn abandon(&mut self, job: StoreJobId) -> bool;
 
     /// Returns a terminal state at most once, and frees that job's lane when it
     /// does. Polling a consumed or unknown ID returns
@@ -489,11 +519,40 @@ impl JobTable {
         Ok(id)
     }
 
+    /// Records a reserved job's outcome.
+    ///
+    /// A missing record is not a protocol violation: [`Self::abandon`] removes
+    /// the record while work may still be in flight, and the browser adapter
+    /// finishes from a callback that cannot be recalled. Dropping the outcome
+    /// on the floor is exactly what abandonment asked for, so this is a
+    /// deliberate no-op rather than a panic.
     fn finish(&mut self, job: StoreJobId, result: Result<WorkshopStoreResult, WorkshopStoreError>) {
-        self.records
-            .get_mut(&job)
-            .expect("reserved Workshop job remains present")
-            .result = Some(result);
+        if let Some(record) = self.records.get_mut(&job) {
+            record.result = Some(result);
+        }
+    }
+
+    /// Frees `job`'s lane and forgets it, returning whether it held one.
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        let Some(record) = self.records.remove(&job) else {
+            return false;
+        };
+        // Only clear the lane when this job is the one holding it. A job whose
+        // result was already recorded still holds its lane until it is polled,
+        // so the guard is about identity, not about completion.
+        match record.class {
+            StoreJobClass::Commit => {
+                if self.active_commit == Some(job) {
+                    self.active_commit = None;
+                }
+            }
+            StoreJobClass::LoadOrImport => {
+                if self.active_load == Some(job) {
+                    self.active_load = None;
+                }
+            }
+        }
+        true
     }
 
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {

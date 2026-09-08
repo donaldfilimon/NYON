@@ -197,6 +197,10 @@ impl<T: WorkshopStore> WorkshopStore for SharedStore<T> {
         self.0.borrow_mut().start(request)
     }
 
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.0.borrow_mut().abandon(job)
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         self.0.borrow_mut().poll(job)
     }
@@ -233,6 +237,10 @@ impl<T: WorkshopStore> WorkshopStore for FailPromotionOnce<T> {
             }
         }
         self.inner.start(request)
+    }
+
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.inner.abandon(job)
     }
 
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {

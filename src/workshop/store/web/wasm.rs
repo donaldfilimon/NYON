@@ -224,6 +224,12 @@ impl WorkshopStore for IndexedDbWorkshopStore {
         Ok(job)
     }
 
+    /// The spawned transaction cannot be recalled, so this only stops the
+    /// runtime waiting on it: `JobTable::finish` drops the late outcome.
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        self.jobs.borrow_mut().abandon(job)
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         self.jobs.borrow_mut().poll(job)
     }

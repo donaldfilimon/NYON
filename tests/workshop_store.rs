@@ -571,14 +571,16 @@ fn commit_and_load_jobs_have_independent_in_flight_lanes() {
 
 #[test]
 fn an_unpolled_job_holds_its_lane_and_only_the_terminal_poll_frees_it() {
-    // The invariant on `WorkshopStore::start`, made executable. `poll` is the
-    // only thing that frees a lane and there is no abandon in this vocabulary,
-    // so a client that drops a job ID without polling it wedges that lane for
-    // the lifetime of the store. On the Commit lane that starves `CommitSlot`
-    // and `PromoteRecoveredSlot`, meaning the resident Workshop can no longer
-    // save or discharge a recovery obligation. Any client owning a job across
-    // frames must either keep polling it or refuse to reset while one is in
-    // flight; `ClientRuntime::cancel_catalog_import` takes the second route.
+    // The invariant on `WorkshopStore::start`, made executable. A client that
+    // drops a job ID without reaching a terminal state wedges that lane for the
+    // lifetime of the store. On the Commit lane that starves `CommitSlot` and
+    // `PromoteRecoveredSlot`, meaning the resident Workshop can no longer save
+    // or discharge a recovery obligation.
+    //
+    // This test owns the *poll* half of the release contract, and deliberately
+    // still asserts that nothing incidental releases a lane. The abandon half
+    // is the test immediately below; keeping them apart is what makes "only
+    // these two free a lane" checkable rather than assumed.
     let mut store = MemoryWorkshopStore::default();
     let pack = store
         .start(WorkshopStoreRequest::PutPack {
@@ -625,6 +627,130 @@ fn an_unpolled_job_holds_its_lane_and_only_the_terminal_poll_frees_it() {
                 archive: archive(1),
             })
             .is_ok()
+    );
+}
+
+#[test]
+fn abandoning_an_in_flight_job_frees_its_lane_for_the_next_commit() {
+    // The escape the Library needs. `ff9b6ca` removed a leaky one and left the
+    // wedged-`Storing` case with no clean route out at all: the only way to
+    // release a Commit lane was to poll the very job the caller had given up
+    // on. This is the invariant, not the implementation -- wedge the lane,
+    // escape, and prove a real `CommitSlot` gets through afterwards.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Forge", archive(1)).unwrap();
+
+    // A pack that genuinely validates, so the "the work still happened" half
+    // below is about abandonment rather than about a rejected request. `{}` was
+    // the first attempt here and it stores nothing at all: `validate_pack`
+    // refuses it before the adapter writes.
+    let wedge = store
+        .start(WorkshopStoreRequest::PutPack {
+            canonical_pack: Box::from(&include_bytes!("../assets/workshop/core-pack-v1.json")[..]),
+        })
+        .unwrap();
+    assert!(matches!(
+        store.start(WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        }),
+        Err(WorkshopStoreError::Busy {
+            class: StoreJobClass::Commit
+        })
+    ));
+
+    assert!(
+        store.abandon(wedge),
+        "abandoning a live job reports the release"
+    );
+
+    let committed = run(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        },
+    )
+    .expect("the Commit lane is free again");
+    assert_eq!(
+        committed,
+        WorkshopStoreResult::SlotCommitted {
+            slot,
+            generation: SaveGeneration(generation.0 + 1),
+        }
+    );
+
+    // The abandoned job is gone rather than merely detached: its outcome is
+    // undeliverable, and abandoning it a second time reports no release.
+    assert_eq!(store.poll(wedge), StoreJobState::Unknown);
+    assert!(!store.abandon(wedge));
+    assert!(!store.abandon(StoreJobId(u64::MAX)));
+
+    // Abandonment discards the answer, never the work: the memory adapter had
+    // already executed the pack write when `start` returned, and nothing undid
+    // it. That is the property a caller must absorb, so it is asserted rather
+    // than left to the doc comment.
+    let hash = match run(&mut store, WorkshopStoreRequest::ListPacks).unwrap() {
+        WorkshopStoreResult::Packs(packs) => {
+            assert_eq!(
+                packs.len(),
+                1,
+                "the abandoned PutPack still stored its pack"
+            );
+            packs[0]
+        }
+        result => panic!("unexpected pack list: {result:?}"),
+    };
+    assert!(matches!(
+        run(&mut store, WorkshopStoreRequest::GetPack { hash }).unwrap(),
+        WorkshopStoreResult::PackLoaded { .. }
+    ));
+}
+
+#[test]
+fn abandoning_a_native_job_frees_its_lane_while_the_worker_thread_finishes() {
+    // The native adapter is the one where work is genuinely in flight: its
+    // worker owns the receiver this drops. Abandoning must free the lane
+    // without panicking when that thread later sends into a dropped channel.
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let (slot, generation) = create(&mut store, "Forge", archive(1)).unwrap();
+
+    let wedge = store
+        .start(WorkshopStoreRequest::PutPack {
+            canonical_pack: Box::from(&include_bytes!("../assets/workshop/core-pack-v1.json")[..]),
+        })
+        .unwrap();
+    assert!(matches!(
+        store.start(WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        }),
+        Err(WorkshopStoreError::Busy {
+            class: StoreJobClass::Commit
+        })
+    ));
+    assert!(store.abandon(wedge));
+    assert_eq!(store.poll(wedge), StoreJobState::Unknown);
+
+    let committed = run(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        },
+    )
+    .expect("the Commit lane is free again");
+    assert_eq!(
+        committed,
+        WorkshopStoreResult::SlotCommitted {
+            slot,
+            generation: SaveGeneration(generation.0 + 1),
+        }
     );
 }
 

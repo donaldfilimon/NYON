@@ -27,6 +27,10 @@ impl WorkshopStore for RejectingStore {
         Err(WorkshopStoreError::QuotaExceeded { max_bytes: 0 })
     }
 
+    fn abandon(&mut self, _job: nyon::workshop::store::StoreJobId) -> bool {
+        false
+    }
+
     fn poll(&mut self, _job: nyon::workshop::store::StoreJobId) -> StoreJobState {
         StoreJobState::Unknown
     }
@@ -50,6 +54,10 @@ impl WorkshopStore for CountingStore {
             self.save_starts += 1;
         }
         self.inner.start(request)
+    }
+
+    fn abandon(&mut self, job: nyon::workshop::store::StoreJobId) -> bool {
+        self.inner.abandon(job)
     }
 
     fn poll(&mut self, job: nyon::workshop::store::StoreJobId) -> StoreJobState {

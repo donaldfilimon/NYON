@@ -69,6 +69,13 @@ impl WorkshopStore for RuntimeWorkshopStore {
         }
     }
 
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        match self {
+            Self::Native(store) => store.abandon(job),
+            Self::Unavailable(_) => false,
+        }
+    }
+
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
         match self {
             Self::Native(store) => store.poll(job),
