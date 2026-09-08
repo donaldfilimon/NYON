@@ -227,7 +227,14 @@ fn promotion_abort_and_quota_failure_preserve_head_and_exact_recovered_predecess
 fn model_keeps_continue_explicit_and_archive_non_destructive() {
     let mut store = IndexedDbTransactionModel::default();
     let slot = create(&mut store);
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: SaveGeneration(1),
+        },
+    )
+    .unwrap();
     run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
 
     let list = match run(&mut store, WorkshopStoreRequest::ListSlots).unwrap() {
@@ -258,7 +265,14 @@ fn model_unarchive_clears_only_the_flag_and_does_not_restore_continue() {
         WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
         result => panic!("unexpected commit result: {result:?}"),
     };
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
     let before_head = loaded(&mut store, slot);
     let before_predecessor = match run(
         &mut store,
@@ -315,7 +329,14 @@ fn model_unarchive_clears_only_the_flag_and_does_not_restore_continue() {
         ),
         Err(WorkshopStoreError::UnknownSlot { slot }) if slot == SlotId(9)
     ));
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
 }
 
 /// An aborted unarchive must publish nothing, exactly like an aborted commit.
@@ -337,6 +358,145 @@ fn model_unarchive_abort_leaves_the_slot_archived() {
     };
     assert!(list.slots[0].archived);
     assert_eq!(&*loaded(&mut store, slot).archive, &*archive("one"));
+}
+
+fn list(store: &mut dyn WorkshopStore) -> nyon::workshop::store::SlotList {
+    match run(store, WorkshopStoreRequest::ListSlots).unwrap() {
+        WorkshopStoreResult::Slots(list) => list,
+        result => panic!("unexpected list result: {result:?}"),
+    }
+}
+
+fn select(
+    store: &mut dyn WorkshopStore,
+    slot: SlotId,
+    expected_generation: SaveGeneration,
+) -> Result<WorkshopStoreResult, WorkshopStoreError> {
+    run(
+        store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation,
+        },
+    )
+}
+
+/// The generation-checked Continue contract, against the browser adapter's
+/// host-testable transaction model.
+///
+/// The model stages every request against a cloned committed state and
+/// publishes it only if the transaction succeeds, so a selection refused for a
+/// stale generation, and a marker cleared by a commit, are both proven to be
+/// all-or-nothing here rather than merely in-memory bookkeeping. The wasm
+/// implementation performs the same comparison inside its `mutate_references`
+/// read-write transaction; only compilation covers that file on the host.
+#[test]
+fn model_continue_selection_is_generation_checked_and_cleared_by_every_new_head() {
+    let mut store = IndexedDbTransactionModel::default();
+    let slot = create(&mut store);
+    let first = SaveGeneration(1);
+
+    assert!(matches!(
+        select(&mut store, slot, SaveGeneration(2)),
+        Err(WorkshopStoreError::StaleGeneration {
+            expected,
+            actual,
+            ..
+        }) if expected == SaveGeneration(2) && actual == first
+    ));
+    assert_eq!(list(&mut store).selected_continue, None);
+
+    assert_eq!(
+        select(&mut store, slot, first).unwrap(),
+        WorkshopStoreResult::ContinueSelected {
+            slot,
+            generation: first,
+        }
+    );
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+
+    // Listed at N, committed to N+1, then selected at N: refused, with the
+    // marker already cleared by the commit that invalidated it.
+    let observed = list(&mut store).slots[0].generation;
+    assert_eq!(observed, first);
+    let second = match run(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: first,
+            archive: archive("two"),
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected commit result: {result:?}"),
+    };
+    assert_eq!(
+        list(&mut store).selected_continue,
+        None,
+        "a commit must clear the Continue marker it invalidated"
+    );
+    assert!(matches!(
+        select(&mut store, slot, observed),
+        Err(WorkshopStoreError::StaleGeneration {
+            expected,
+            actual,
+            ..
+        }) if expected == observed && actual == second
+    ));
+    assert_eq!(list(&mut store).selected_continue, None);
+
+    select(&mut store, slot, second).unwrap();
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+
+    // A refused selection publishes nothing, and an aborted successful one
+    // publishes nothing either: the marker still names the old head.
+    store.inject_next_failure(IndexedDbModelFailure::Abort);
+    assert_eq!(
+        select(&mut store, slot, second),
+        Err(WorkshopStoreError::IndexedDbTransactionAborted)
+    );
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+
+    let promoted = match run(
+        &mut store,
+        WorkshopStoreRequest::PromoteRecoveredSlot {
+            slot,
+            expected_head_generation: second,
+            recovered_generation: first,
+            archive: archive("promoted"),
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected promotion result: {result:?}"),
+    };
+    assert_eq!(promoted, SaveGeneration(3));
+    assert_eq!(
+        list(&mut store).selected_continue,
+        None,
+        "a promotion must clear the Continue marker it invalidated"
+    );
+    select(&mut store, slot, promoted).unwrap();
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+
+    // Precedence: unknown outranks archived outranks stale.
+    assert!(matches!(
+        select(&mut store, SlotId(9), SaveGeneration(1)),
+        Err(WorkshopStoreError::UnknownSlot { slot: unknown }) if unknown == SlotId(9)
+    ));
+    run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+    assert!(matches!(
+        select(&mut store, slot, SaveGeneration(999)),
+        Err(WorkshopStoreError::ArchivedSlot { slot: archived }) if archived == slot
+    ));
+    run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap();
+    assert!(matches!(
+        select(&mut store, slot, SaveGeneration(999)),
+        Err(WorkshopStoreError::StaleGeneration { .. })
+    ));
 }
 
 #[test]

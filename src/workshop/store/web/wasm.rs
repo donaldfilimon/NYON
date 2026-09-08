@@ -287,8 +287,18 @@ async fn execute_with_database(
         WorkshopStoreRequest::UnarchiveSlot { slot } => {
             update_slot_metadata(database, MetadataMutation::Unarchive { slot }).await
         }
-        WorkshopStoreRequest::SelectContinue { slot } => {
-            update_slot_metadata(database, MetadataMutation::Select { slot }).await
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation,
+        } => {
+            update_slot_metadata(
+                database,
+                MetadataMutation::Select {
+                    slot,
+                    expected_generation,
+                },
+            )
+            .await
         }
         WorkshopStoreRequest::PutPack { canonical_pack } => {
             put_pack(database, canonical_pack).await
@@ -417,6 +427,11 @@ async fn commit_slot(
                 current.generations.push(previous);
             }
             write_slot_sync(slots_store, slot, current)?;
+            // The archive bytes, the new slot reference and the cleared marker
+            // are staged through one read-write transaction, so a browser that
+            // aborts publishes none of them and one that commits publishes a
+            // head with no marker pointing at the generation it replaced.
+            clear_continue_for_sync(references, slots_store, slot)?;
             Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
         },
     )
@@ -495,6 +510,9 @@ async fn promote_recovered_slot(
                 .expect("validated IndexedDB slot remains present");
             current.generations = vec![descriptor, predecessor];
             write_slot_sync(slots_store, slot, current)?;
+            // Promotion advances the head exactly as a commit does, and clears
+            // the marker inside the same transaction.
+            clear_continue_for_sync(references, slots_store, slot)?;
             Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
         },
     )
@@ -583,10 +601,20 @@ async fn load_previous_generation(
 }
 
 enum MetadataMutation {
-    Rename { slot: SlotId, name: SlotName },
-    Archive { slot: SlotId },
-    Unarchive { slot: SlotId },
-    Select { slot: SlotId },
+    Rename {
+        slot: SlotId,
+        name: SlotName,
+    },
+    Archive {
+        slot: SlotId,
+    },
+    Unarchive {
+        slot: SlotId,
+    },
+    Select {
+        slot: SlotId,
+        expected_generation: SaveGeneration,
+    },
 }
 
 async fn update_slot_metadata(
@@ -632,7 +660,14 @@ async fn update_slot_metadata(
                 write_slot_sync(store, slot, reference)?;
                 Ok(WorkshopStoreResult::SlotUnarchived { slot })
             }
-            MetadataMutation::Select { slot } => {
+            MetadataMutation::Select {
+                slot,
+                expected_generation,
+            } => {
+                // `references` was read by the same read-write transaction
+                // that `write_metadata_sync` writes through, so the head
+                // comparison and the marker write are one IndexedDB
+                // transaction rather than a read followed by a write.
                 let reference = references
                     .slots
                     .get(&slot)
@@ -640,8 +675,24 @@ async fn update_slot_metadata(
                 if reference.archived {
                     return Err(WorkshopStoreError::ArchivedSlot { slot });
                 }
+                let actual = reference
+                    .generations
+                    .first()
+                    .expect("validated IndexedDB slot has a generation")
+                    .generation;
+                if actual != expected_generation {
+                    return Err(WorkshopStoreError::StaleGeneration {
+                        slot,
+                        expected: expected_generation,
+                        actual,
+                    });
+                }
+                references.selected_continue = Some(slot);
                 write_metadata_sync(store, Some(slot))?;
-                Ok(WorkshopStoreResult::ContinueSelected { slot })
+                Ok(WorkshopStoreResult::ContinueSelected {
+                    slot,
+                    generation: actual,
+                })
             }
         },
     )
@@ -788,6 +839,22 @@ async fn read_reference_state(
     }
     .await;
     finish_transaction(&transaction, waiter, result).await
+}
+
+/// Drops the Continue marker when it names `slot`, through `store`.
+///
+/// Called from inside a `mutate_references` closure, so the metadata write
+/// joins the same read-write transaction as the slot reference it follows.
+fn clear_continue_for_sync(
+    references: &mut ReferenceState,
+    store: &IdbObjectStore,
+    slot: SlotId,
+) -> Result<(), WorkshopStoreError> {
+    if references.selected_continue == Some(slot) {
+        references.selected_continue = None;
+        write_metadata_sync(store, None)?;
+    }
+    Ok(())
 }
 
 fn write_metadata_sync(

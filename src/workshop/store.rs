@@ -287,6 +287,7 @@ pub enum WorkshopStoreResult {
     },
     ContinueSelected {
         slot: SlotId,
+        generation: SaveGeneration,
     },
     PackStored {
         hash: CatalogHash,
@@ -355,8 +356,33 @@ pub enum WorkshopStoreRequest {
     UnarchiveSlot {
         slot: SlotId,
     },
+    /// Records `slot` as the Continue target, but only while its head is still
+    /// `expected_generation`.
+    ///
+    /// This is a compare-and-swap, not a read followed by a write. Every
+    /// adapter reads the head generation inside the same serialized mutation
+    /// that writes the marker, so a row listed at generation N whose slot is
+    /// committed to N+1 before the selection arrives is refused with
+    /// [`WorkshopStoreError::StaleGeneration`] rather than silently selecting
+    /// the newer head.
+    ///
+    /// Errors are ordered exactly as [`WorkshopStoreRequest::CommitSlot`]
+    /// orders them: [`WorkshopStoreError::UnknownSlot`], then
+    /// [`WorkshopStoreError::ArchivedSlot`], then
+    /// [`WorkshopStoreError::StaleGeneration`]. An archived slot is ineligible
+    /// as a Continue target until it is explicitly unarchived, which no
+    /// refresh cures, so that eligibility failure outranks the freshness one
+    /// whose remedy is to re-list and retry.
+    ///
+    /// [`WorkshopStoreRequest::CommitSlot`] and
+    /// [`WorkshopStoreRequest::PromoteRecoveredSlot`] advance the head and
+    /// therefore invalidate any marker naming that slot. Both clear it inside
+    /// their own mutation, so the marker never survives pointing at a
+    /// generation that is no longer the head; the caller restores it with a
+    /// fresh generation-checked `SelectContinue` once the new head is known.
     SelectContinue {
         slot: SlotId,
+        expected_generation: SaveGeneration,
     },
     PutPack {
         canonical_pack: Box<[u8]>,

@@ -816,10 +816,12 @@ impl WorkshopSession {
                         CommitPurpose::SelectContinue { slot, generation },
                         Ok(WorkshopStoreResult::ContinueSelected {
                             slot: selected_slot,
+                            generation: selected_generation,
                         }),
                     ) => {
                         self.select_continue_requested = false;
                         if selected_slot == slot
+                            && selected_generation == generation
                             && self
                                 .slot
                                 .map(|resident| (resident.slot, resident.head_generation))
@@ -955,6 +957,7 @@ impl WorkshopSession {
         };
         match store.start(WorkshopStoreRequest::SelectContinue {
             slot: resident.slot,
+            expected_generation: resident.head_generation,
         }) {
             Ok(job) => {
                 self.pending_commit = Some(PendingCommit {

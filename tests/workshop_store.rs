@@ -109,8 +109,225 @@ fn slot_with_predecessor_and_continue(store: &mut dyn WorkshopStore) -> (SlotId,
         WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
         result => panic!("unexpected commit result: {result:?}"),
     };
-    run(store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
     (slot, second)
+}
+
+fn commit(
+    store: &mut dyn WorkshopStore,
+    slot: SlotId,
+    expected_generation: SaveGeneration,
+    bytes: Box<[u8]>,
+) -> SaveGeneration {
+    match run(
+        store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation,
+            archive: bytes,
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected commit result: {result:?}"),
+    }
+}
+
+fn select(
+    store: &mut dyn WorkshopStore,
+    slot: SlotId,
+    expected_generation: SaveGeneration,
+) -> Result<WorkshopStoreResult, WorkshopStoreError> {
+    run(
+        store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation,
+        },
+    )
+}
+
+/// The generation-checked Continue contract, shared by every adapter.
+///
+/// `tests/workshop_store_web.rs` runs the same body against the IndexedDB
+/// transaction model, so memory, native and the browser model are held to one
+/// description of the behavior rather than three drifting copies.
+///
+/// The store is expected to be empty when this begins.
+fn continue_selection_is_generation_checked(store: &mut dyn WorkshopStore) {
+    let (slot, first) = create(store, "Forge", archive(1)).unwrap();
+
+    // A mismatched expectation is refused, and refusal writes nothing.
+    assert!(matches!(
+        select(store, slot, SaveGeneration(2)),
+        Err(WorkshopStoreError::StaleGeneration {
+            slot: refused,
+            expected,
+            actual,
+        }) if refused == slot && expected == SaveGeneration(2) && actual == first
+    ));
+    assert_eq!(list(store).selected_continue, None);
+
+    // At the head it succeeds and reports the generation it selected against.
+    assert_eq!(
+        select(store, slot, first).unwrap(),
+        WorkshopStoreResult::ContinueSelected {
+            slot,
+            generation: first,
+        }
+    );
+    assert_eq!(list(store).selected_continue, Some(slot));
+
+    // The race the addendum names: a row observed at generation N, a commit to
+    // N+1 that lands before the selection, and a selection still carrying N.
+    // Two things must hold. The commit clears the marker it invalidated, in
+    // the same mutation that advanced the head, so no marker is ever left
+    // naming a superseded generation. And the late selection is refused rather
+    // than silently promoted onto the newer head.
+    let observed = list(store).slots[0].generation;
+    assert_eq!(observed, first);
+    let second = commit(store, slot, first, archive(2));
+    assert_eq!(
+        list(store).selected_continue,
+        None,
+        "a commit must clear the Continue marker it invalidated"
+    );
+    assert!(matches!(
+        select(store, slot, observed),
+        Err(WorkshopStoreError::StaleGeneration {
+            expected,
+            actual,
+            ..
+        }) if expected == observed && actual == second
+    ));
+    assert_eq!(list(store).selected_continue, None);
+
+    // Selecting the generation that is now the head restores the marker.
+    assert_eq!(
+        select(store, slot, second).unwrap(),
+        WorkshopStoreResult::ContinueSelected {
+            slot,
+            generation: second,
+        }
+    );
+    assert_eq!(list(store).selected_continue, Some(slot));
+
+    // Promotion advances the head exactly as a commit does, so it clears the
+    // marker in the same mutation too.
+    let promoted = match run(
+        store,
+        WorkshopStoreRequest::PromoteRecoveredSlot {
+            slot,
+            expected_head_generation: second,
+            recovered_generation: first,
+            archive: archive(3),
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected promotion result: {result:?}"),
+    };
+    assert_eq!(promoted, SaveGeneration(3));
+    assert_eq!(
+        list(store).selected_continue,
+        None,
+        "a promotion must clear the Continue marker it invalidated"
+    );
+    assert!(matches!(
+        select(store, slot, second),
+        Err(WorkshopStoreError::StaleGeneration { .. })
+    ));
+    select(store, slot, promoted).unwrap();
+    assert_eq!(list(store).selected_continue, Some(slot));
+
+    // Error precedence, in the order `CommitSlot` already uses: an unknown
+    // slot outranks everything, and an archived slot outranks a stale
+    // generation because unarchiving, not refreshing, is what unblocks it.
+    assert!(matches!(
+        select(store, SlotId(9), SaveGeneration(1)),
+        Err(WorkshopStoreError::UnknownSlot { slot: unknown }) if unknown == SlotId(9)
+    ));
+    run(store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+    assert_eq!(list(store).selected_continue, None);
+    assert!(matches!(
+        select(store, slot, SaveGeneration(999)),
+        Err(WorkshopStoreError::ArchivedSlot { slot: archived }) if archived == slot
+    ));
+    run(store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap();
+    assert!(matches!(
+        select(store, slot, SaveGeneration(999)),
+        Err(WorkshopStoreError::StaleGeneration { .. })
+    ));
+    select(store, slot, promoted).unwrap();
+    assert_eq!(list(store).selected_continue, Some(slot));
+}
+
+#[test]
+fn memory_continue_selection_is_generation_checked_and_cleared_by_every_new_head() {
+    continue_selection_is_generation_checked(&mut MemoryWorkshopStore::default());
+}
+
+#[test]
+fn native_continue_selection_is_generation_checked_and_cleared_by_every_new_head() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    continue_selection_is_generation_checked(&mut store);
+
+    // The manifest, not a cached field, carries the marker: a fresh instance
+    // over the same root sees the selection the run above left behind.
+    let mut reopened = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let slots = list(&mut reopened);
+    assert_eq!(slots.selected_continue, Some(SlotId(0)));
+    assert!(slots.slots[0].selected_for_continue);
+}
+
+/// The race across two store instances sharing one directory.
+///
+/// Instance A lists the row at generation N. Instance B commits N+1. A's
+/// selection still carries N and must be refused. This is the version of the
+/// race that a cached-manifest CAS would pass wrongly: `execute` re-reads the
+/// manifest under the store lock, so the comparison sees B's commit.
+#[test]
+fn native_continue_selection_rejects_a_generation_another_instance_superseded() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut first_instance = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let (slot, first) = create(&mut first_instance, "Forge", archive(1)).unwrap();
+    select(&mut first_instance, slot, first).unwrap();
+    let observed = list(&mut first_instance).slots[0].generation;
+    assert_eq!(observed, first);
+
+    let mut second_instance = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let second = commit(&mut second_instance, slot, first, archive(2));
+    assert_eq!(second, SaveGeneration(2));
+    assert_eq!(
+        list(&mut second_instance).selected_continue,
+        None,
+        "the concurrent commit clears the marker the first instance selected"
+    );
+
+    assert!(matches!(
+        select(&mut first_instance, slot, observed),
+        Err(WorkshopStoreError::StaleGeneration {
+            expected,
+            actual,
+            ..
+        }) if expected == observed && actual == second
+    ));
+    assert_eq!(list(&mut first_instance).selected_continue, None);
+
+    // Refreshing and retrying at the real head is what unblocks it.
+    let refreshed = list(&mut first_instance).slots[0].generation;
+    select(&mut first_instance, slot, refreshed).unwrap();
+    assert_eq!(list(&mut second_instance).selected_continue, Some(slot));
 }
 
 #[test]
@@ -126,7 +343,7 @@ fn store_is_object_safe_and_continue_is_initially_absent() {
 fn memory_store_orders_slots_and_applies_rename_select_archive_deterministically() {
     let mut store = MemoryWorkshopStore::default();
     let (alpha, _) = create(&mut store, "Alpha", archive(1)).unwrap();
-    let (beta, _) = create(&mut store, "Beta", archive(1)).unwrap();
+    let (beta, beta_generation) = create(&mut store, "Beta", archive(1)).unwrap();
     assert_eq!((alpha, beta), (SlotId(0), SlotId(1)));
 
     run(
@@ -139,7 +356,10 @@ fn memory_store_orders_slots_and_applies_rename_select_archive_deterministically
     .unwrap();
     run(
         &mut store,
-        WorkshopStoreRequest::SelectContinue { slot: beta },
+        WorkshopStoreRequest::SelectContinue {
+            slot: beta,
+            expected_generation: beta_generation,
+        },
     )
     .unwrap();
 
@@ -159,7 +379,10 @@ fn memory_store_orders_slots_and_applies_rename_select_archive_deterministically
     assert!(matches!(
         run(
             &mut store,
-            WorkshopStoreRequest::SelectContinue { slot: beta }
+            WorkshopStoreRequest::SelectContinue {
+                slot: beta,
+                expected_generation: beta_generation,
+            }
         ),
         Err(WorkshopStoreError::ArchivedSlot { slot }) if slot == beta
     ));
@@ -209,7 +432,14 @@ fn memory_unarchive_clears_only_the_flag_and_restores_neither_continue_nor_the_o
     ));
 
     // The flag really is clear: the operations archiving refused now succeed.
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
     assert!(matches!(
         run(
             &mut store,
@@ -647,7 +877,6 @@ fn native_store_recovers_the_previous_valid_generation_without_moving_the_head()
     let mut store = NativeWorkshopStore::at_root(directory.path()).unwrap();
     let (slot, first) = create(&mut store, "Forge", archive(1)).unwrap();
     assert_eq!(first, SaveGeneration(1));
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
     let second = match run(
         &mut store,
         WorkshopStoreRequest::CommitSlot {
@@ -662,6 +891,16 @@ fn native_store_recovers_the_previous_valid_generation_without_moving_the_head()
         result => panic!("unexpected commit result: {result:?}"),
     };
     assert_eq!(second, SaveGeneration(2));
+    // Selection follows the commit: a commit advances the head and clears any
+    // marker naming this slot, so selecting first would be cleared again here.
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
 
     std::fs::write(
         directory
@@ -757,7 +996,7 @@ fn native_invalid_and_stale_commits_preserve_the_last_valid_generation() {
 fn native_rename_select_and_archive_survive_reopen_without_deleting_the_slot() {
     let directory = tempfile::tempdir().unwrap();
     let mut store = NativeWorkshopStore::at_root(directory.path()).unwrap();
-    let (slot, _) = create(&mut store, "Original", archive(1)).unwrap();
+    let (slot, generation) = create(&mut store, "Original", archive(1)).unwrap();
     run(
         &mut store,
         WorkshopStoreRequest::RenameSlot {
@@ -766,7 +1005,14 @@ fn native_rename_select_and_archive_survive_reopen_without_deleting_the_slot() {
         },
     )
     .unwrap();
-    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    )
+    .unwrap();
     run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
 
     let mut reopened = NativeWorkshopStore::at_root(directory.path()).unwrap();
@@ -821,7 +1067,14 @@ fn native_unarchive_clears_only_the_flag_and_survives_reopen_without_restoring_c
         ),
         Err(WorkshopStoreError::UnknownSlot { slot }) if slot == SlotId(9)
     ));
-    run(&mut reopened, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    run(
+        &mut reopened,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: second,
+        },
+    )
+    .unwrap();
 }
 
 struct FailAfterSecondGeneration {

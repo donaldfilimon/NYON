@@ -276,6 +276,10 @@ impl NativeStoreWorker {
                 if let Some(previous) = previous {
                     record.generations.push(previous);
                 }
+                // One manifest write carries both the new head and the cleared
+                // marker, so the marker can never be observed pointing at a
+                // generation this commit has already superseded.
+                clear_continue_for(&mut manifest, slot);
                 self.persist_manifest(manifest)?;
                 Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
             }
@@ -334,6 +338,9 @@ impl NativeStoreWorker {
                     .find(|record| record.id == slot)
                     .expect("validated native slot remains present");
                 record.generations = vec![descriptor, predecessor];
+                // Promotion advances the head exactly as a commit does, and
+                // clears the marker in the same manifest write.
+                clear_continue_for(&mut manifest, slot);
                 self.persist_manifest(manifest)?;
                 Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
             }
@@ -376,7 +383,14 @@ impl NativeStoreWorker {
                 self.persist_manifest(manifest)?;
                 Ok(WorkshopStoreResult::SlotUnarchived { slot })
             }
-            WorkshopStoreRequest::SelectContinue { slot } => {
+            WorkshopStoreRequest::SelectContinue {
+                slot,
+                expected_generation,
+            } => {
+                // `execute` holds the store lock and re-read the manifest from
+                // disk at its head, so this comparison and the manifest write
+                // below are one serialized mutation even across store
+                // instances sharing a root.
                 let record = self
                     .manifest
                     .slots
@@ -386,10 +400,25 @@ impl NativeStoreWorker {
                 if record.archived {
                     return Err(WorkshopStoreError::ArchivedSlot { slot });
                 }
+                let actual = record
+                    .generations
+                    .first()
+                    .expect("validated native slot has a generation")
+                    .generation;
+                if actual != expected_generation {
+                    return Err(WorkshopStoreError::StaleGeneration {
+                        slot,
+                        expected: expected_generation,
+                        actual,
+                    });
+                }
                 let mut manifest = self.manifest.clone();
                 manifest.selected_continue = Some(slot);
                 self.persist_manifest(manifest)?;
-                Ok(WorkshopStoreResult::ContinueSelected { slot })
+                Ok(WorkshopStoreResult::ContinueSelected {
+                    slot,
+                    generation: actual,
+                })
             }
             WorkshopStoreRequest::PutPack { canonical_pack } => {
                 let (hash, canonical_pack) = validate_pack(&canonical_pack)?;
@@ -740,6 +769,16 @@ fn read_manifest(root: &Path) -> Result<NativeManifest, WorkshopStoreError> {
         serde_json::from_slice(&bytes).map_err(|_| WorkshopStoreError::CorruptManifest)?;
     validate_manifest(&manifest)?;
     Ok(manifest)
+}
+
+/// Drops the Continue marker from `manifest` when it names `slot`.
+///
+/// Applied to the candidate manifest before it is persisted, so the cleared
+/// marker and the advanced head reach disk in the same atomic replacement.
+fn clear_continue_for(manifest: &mut NativeManifest, slot: SlotId) {
+    if manifest.selected_continue == Some(slot) {
+        manifest.selected_continue = None;
+    }
 }
 
 fn validate_manifest(manifest: &NativeManifest) -> Result<(), WorkshopStoreError> {

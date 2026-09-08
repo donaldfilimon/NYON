@@ -177,6 +177,10 @@ impl MemoryWorkshopStore {
                 candidate_slot.generations.truncate(2);
                 self.ensure_quota(&candidate, &self.packs)?;
                 self.slots = candidate;
+                // The new head invalidates any Continue marker naming this
+                // slot, so it is cleared in the same mutation that advanced
+                // the head rather than by a follow-up request.
+                self.clear_continue_for(slot);
                 Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
             }
             WorkshopStoreRequest::PromoteRecoveredSlot {
@@ -230,6 +234,9 @@ impl MemoryWorkshopStore {
                 ];
                 self.ensure_quota(&candidate, &self.packs)?;
                 self.slots = candidate;
+                // Promotion advances the head exactly as a commit does, so it
+                // invalidates and clears the marker the same way.
+                self.clear_continue_for(slot);
                 Ok(WorkshopStoreResult::SlotCommitted { slot, generation })
             }
             WorkshopStoreRequest::RenameSlot { slot, name } => {
@@ -258,7 +265,13 @@ impl MemoryWorkshopStore {
                     .archived = false;
                 Ok(WorkshopStoreResult::SlotUnarchived { slot })
             }
-            WorkshopStoreRequest::SelectContinue { slot } => {
+            WorkshopStoreRequest::SelectContinue {
+                slot,
+                expected_generation,
+            } => {
+                // `execute` is the serialized mutation for this adapter, so
+                // reading the head here and assigning the marker below cannot
+                // be interleaved with another request's commit.
                 let record = self
                     .slots
                     .get(&slot)
@@ -266,8 +279,23 @@ impl MemoryWorkshopStore {
                 if record.archived {
                     return Err(WorkshopStoreError::ArchivedSlot { slot });
                 }
+                let actual = record
+                    .generations
+                    .first()
+                    .expect("stored slot has a generation")
+                    .generation;
+                if actual != expected_generation {
+                    return Err(WorkshopStoreError::StaleGeneration {
+                        slot,
+                        expected: expected_generation,
+                        actual,
+                    });
+                }
                 self.selected_continue = Some(slot);
-                Ok(WorkshopStoreResult::ContinueSelected { slot })
+                Ok(WorkshopStoreResult::ContinueSelected {
+                    slot,
+                    generation: actual,
+                })
             }
             WorkshopStoreRequest::PutPack { canonical_pack } => {
                 let (hash, canonical_pack) = validate_pack(&canonical_pack)?;
@@ -296,6 +324,16 @@ impl MemoryWorkshopStore {
             WorkshopStoreRequest::ListPacks => Ok(WorkshopStoreResult::Packs(
                 self.packs.keys().copied().collect(),
             )),
+        }
+    }
+
+    /// Drops the Continue marker when it names `slot`.
+    ///
+    /// Called from the mutations that advance a head, so the marker never
+    /// outlives the generation it was selected against.
+    fn clear_continue_for(&mut self, slot: SlotId) {
+        if self.selected_continue == Some(slot) {
+            self.selected_continue = None;
         }
     }
 

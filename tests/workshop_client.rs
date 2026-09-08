@@ -62,10 +62,16 @@ fn selected_store(archive: Box<[u8]>) -> MemoryWorkshopStore {
             archive,
         },
     );
-    let WorkshopStoreResult::SlotCreated { slot, .. } = created else {
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
         panic!("unexpected create result: {created:?}");
     };
-    complete(&mut store, WorkshopStoreRequest::SelectContinue { slot });
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
     store
 }
 

@@ -70,10 +70,24 @@ fn create_selected(store: &mut dyn WorkshopStore, archive: Box<[u8]>) -> (SlotId
     ) else {
         panic!("create returned the wrong result");
     };
-    complete(store, WorkshopStoreRequest::SelectContinue { slot });
+    complete(
+        store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
     (slot, generation)
 }
 
+/// Commits, then re-selects the committed head for Continue.
+///
+/// This is the sequence the addendum mandates for every save: commit, validate
+/// the returned generation, then issue a generation-checked `SelectContinue`.
+/// A commit clears any Continue marker naming the slot, because the new head
+/// invalidates a marker chosen against the old one, so a fixture that stopped
+/// at the commit would build a store state the product can no longer produce
+/// and these recovery journeys would start with no Continue candidate at all.
 fn commit(
     store: &mut dyn WorkshopStore,
     slot: SlotId,
@@ -90,6 +104,13 @@ fn commit(
     ) else {
         panic!("commit returned the wrong result");
     };
+    complete(
+        store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
     generation
 }
 
