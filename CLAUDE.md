@@ -145,12 +145,13 @@ measured against. `reviews/` mixes accepted records with unapplied proposals, so
 read a review's `Status:` line before treating it as authority.
 
 `docs/PLAYER-MANUAL.md` and `README.md` describe shipped controls, storage slots
-and current limitations. `README.md` is stale in two measured places: its
-Verification block omits the mandatory `--workspace`, and its "Build and run in a
-browser" section says the browser path has no WebGL fallback, while
-`web/loader.js` falls back to the `dist/webgl` artifact automatically when the
-WebGPU preflight fails or WebGPU initialization throws. Take gate and web facts
-from `AGENTS.md`.
+and current limitations. **Both `README.md` staleness items recorded here were
+fixed on 2026-09-08**: its Verification block now carries the mandatory
+`--workspace` with the reason stated, and its browser section now describes the
+real two-artifact story and both WebGL2 fallback paths in `web/loader.js` (failed
+preflight, and WebGPU initialization throwing after a successful preflight).
+`AGENTS.md` remains canonical for the gate and the README says so; prefer it on
+any conflict.
 
 ## Traps
 

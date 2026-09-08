@@ -39,7 +39,9 @@ The repository script is the supported web build path. It idempotently installs 
 python3 -m http.server 8000
 ```
 
-Open `http://127.0.0.1:8000/web/` in a browser with WebGPU enabled. The browser path requests `BROWSER_WEBGPU` explicitly and has no WebGL fallback. A successful target compile or bundle does not by itself prove browser startup, rendering, input, or storage access.
+Open `http://127.0.0.1:8000/web/` in a browser. A browser release is a **pair** of artifacts, not one: `build-web.sh` runs both backend builds and emits `dist/webgpu` and `dist/webgl`.
+
+`web/loader.js` chooses between them before graphics initialization and **does fall back to WebGL2**, by two separate paths: when the WebGPU preflight fails, and when WebGPU initialization itself throws after a successful preflight. `?backend=webgl2` forces the WebGL2 artifact directly. A successful target compile or bundle does not by itself prove browser startup, rendering, input, or storage access.
 
 ## Controls
 
@@ -88,12 +90,19 @@ The advisory is a fixed, transparent 12-to-4-to-1 scoring model, not a trained s
 
 ```bash
 cargo fmt --all --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets
 cargo build --release
 ./tools/build-web.sh
 cargo check --target wasm32-unknown-unknown --lib
 ```
+
+`--workspace` is mandatory and is not a stylistic preference. `Cargo.toml` sets
+`default-members = ["."]`, so a bare `cargo test --all-targets` scopes to the root
+package, silently skips every `crates/nyon-workshop-core` integration suite, and
+still prints a green result. `AGENTS.md` is canonical for the gate; this block
+mirrors it. Note also that `crates/nyon-workshop-core/fuzz` is a separate workspace
+that no command here reaches.
 
 `cargo test --test advisory_gpu -- --nocapture` is adapter-backed. A printed `SKIP:` is a passing test but is not GPU parity evidence. Headless tests, native builds, wasm compilation, bundle generation, provider CI, live native startup, live browser behavior, and manual visual acceptance are separate evidence layers.
 
