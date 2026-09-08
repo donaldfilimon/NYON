@@ -9,6 +9,18 @@ its derivation order, the historical-versus-allocator split for `accepted_sequen
 with two new archive fields, and the published phase and intent ordinal registries with two new queue
 limits. Two amendments differ from that proposal: phases are numbered from 1 rather than 0, and the
 `LivingEventKindV2` ordinal is deliberately left unassigned. No previously frozen vector is invalidated
+by that first amendment.
+
+Amended again 2026-09-08 on the owner's decision, closing a fourth gap found while preparing the state
+schema: this document named `LivingGalaxyStateV2` without ever listing its fields, so the only ordered
+field list lived in a downstream consumer plan. That list is promoted here, `counters` is defined as a
+reserved empty record, and the entity-kind registry is assigned freely rather than pinned to the values
+already present in the test corpus. **That last decision will invalidate frozen vectors**: the
+`entity_kind` values in `crates/nyon-workshop-core/tests/fixtures/living-v2/vectors.json` are renumbered
+when the registry lands, so the `creator_entities` and `autonomous_entities` rows and their digests are
+re-derived. The commit that renumbers them must say so here. Everything frozen that carries no
+`entity_kind` — the domain literals, the payload digests, and the revision, branch, event and claim rows
+— is unaffected
 
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 
@@ -331,6 +343,48 @@ claim_rank = SHA256("NYON-LIVING-CLAIM-V2\0" || rules_u32 || genesis_seed_32 ||
 `genesis_manifest_digest_32` is the Living state digest of the validated tick-zero state materialized from that manifest. In the formulas, `entity_digest` means the creator or autonomous formula appropriate to the provenance. Shipments, AI-created fleets/hulls, and other tick-created objects use the autonomous formula; creator batches use the creator formula. `phase_u16`, `intent_ordinal_u16`, entity kinds, and local IDs come from the explicit never-reordered schema tables published below, not from Rust enum layout. The same autonomous identity inputs may be used only once; route dispatch uses the route as actor and its stable per-boundary dispatch ordinal. Optional tags are exactly `0x00` for absent and `0x01` followed by the fixed-width value for present. Batch-local IDs start at zero and are unique within the command.
 
 `branch_ordinal_u64` is allocated from a separate document-global monotonically increasing `branch_sequence` only when a fork command validates and is accepted. Rejected or stale forks consume no ordinal. Accepted ordinals remain reserved and are never reused after queue clearing, a fault, Undo, later branch navigation, or archival. The root branch does not consume the fork sequence.
+
+### Authoritative state schema
+
+`LivingGalaxyStateV2`'s field order is normative and is published here. It was promoted from the
+civilizations implementation plan on 2026-09-08 so that this specification, rather than a downstream
+consumer plan, is its authority. Reordering a field is a format break, not a cosmetic edit.
+
+Every field is present. Logical maps are arrays sorted by stable identifier; generic JSON maps are
+forbidden. Fields 4 through 23 are sorted arrays.
+
+| # | Field | Notes |
+| ---: | --- | --- |
+| 1 | `tick` | completed boundaries |
+| 2 | `accepted_sequence` | historical, per section 2 |
+| 3 | `branch_sequence` | historical, per section 2 |
+| 4-7 | `systems`, `stars`, `worlds`, `lanes` | topology |
+| 8 | `civilizations` | |
+| 9-10 | `deposits`, `colonies` | |
+| 11-13 | `facilities`, `construction_jobs`, `hull_jobs` | |
+| 14 | `fleets` | hulls nested inside the fleet record |
+| 15-16 | `routes`, `shipments` | |
+| 17-19 | `relations`, `agreements`, `wars` | relations are directed |
+| 20-21 | `observations`, `hazards` | |
+| 22-23 | `settlement_claims`, `occupations` | |
+| 24 | `counters` | reserved; see below |
+
+Fields 2 and 3 are the historical values defined in section 2. The live allocator high-water marks are
+not state fields, never appear in any `LivingGalaxyStateV2`, and are never inputs to `state_digest`.
+
+`counters` is a `LivingCountersV2` that carries no fields in this rules version. It is reserved rather
+than omitted so that adding document-global counters later does not reorder fields 1 through 23. The
+cost is deliberate and is stated so it is not later mistaken for an oversight: it contributes a constant
+to **every** `state_digest`, permanently, and populating or removing it is a format break requiring new
+vectors. The per-relation delivery accumulators of section 5 are not this record; they live inside the
+relation record where section 5 places them.
+
+Entity kinds are assigned by the task that fixes the authority entity set, numbered freely rather than
+chosen to match values that already appear in the test corpus. Renumbering invalidates the affected
+frozen vectors, which are re-derived. Re-derivation does not license a new method: the affected digests
+are recomputed outside this crate by the same independent path the original vectors used, because a
+corpus regenerated from the implementation's own output is a recording of the code rather than evidence
+about it.
 
 ### Receipt payload and derivation order
 
