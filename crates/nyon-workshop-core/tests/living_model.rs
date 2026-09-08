@@ -964,3 +964,146 @@ fn the_historical_sequences_are_carried_through_encoding_unchanged() {
     let text = str::from_utf8(&bytes).expect("utf-8");
     assert!(text.starts_with(r#"{"tick":1000,"accepted_sequence":7,"branch_sequence":2,"#));
 }
+
+// ---------------------------------------------------------------------------
+// Record-level field-order pin (review finding F1)
+//
+// WHAT THIS IS, STATED PRECISELY, BECAUSE THE DISTINCTION IS LOAD-BEARING.
+//
+// This is a DRIFT REGRESSION PIN DERIVED FROM THIS IMPLEMENTATION. It is *not*
+// independent evidence and must never be described as such. Section 10 of the
+// rules spec publishes the 24-field order of the state itself, but publishes no
+// field list for any individual record, so there is no upstream text from which
+// a record's field order could be independently derived. `model.rs`'s own
+// header says exactly that and declares itself the authority for record order.
+//
+// The consequence is unavoidable and better stated than hidden: this pin cannot
+// tell you the current order is *correct*, because nothing outside this crate
+// defines correct. It tells you the order has not *changed*. That is precisely
+// the failure it exists to catch. A reordered record is a canonical format
+// break that moves every `state_digest` of any state containing that record,
+// and before this test such a reorder passed the whole suite with zero
+// failures: the only byte-exact pin was over the *empty* state, where all
+// twenty collections are `[]`, so it constrained the 24 top-level names and
+// nothing inside them.
+//
+// It pins ORDER ONLY, never values, so editing a fixture value does not touch
+// it and there is no routine pressure to regenerate it.
+//
+// IF THIS TEST FAILS, DO NOT PASTE IN THE NEW SEQUENCE. Read the diff, find
+// what moved, and establish whether the move was intended. If it was, every
+// frozen digest covering a state containing that record is now invalid and must
+// be re-derived -- outside this crate, by the same non-Rust path the rest of the
+// corpus uses.
+
+/// Returns every object key in the byte stream, in document order.
+///
+/// Deliberately a scanner rather than a `serde_json::Value` walk: serde_json's
+/// default map is sorted, so parsing would discard the very property under test.
+fn canonical_key_sequence(bytes: &[u8]) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != b'"' {
+            index += 1;
+            continue;
+        }
+        let start = index + 1;
+        let mut end = start;
+        while end < bytes.len() {
+            match bytes[end] {
+                b'\\' => end += 2,
+                b'"' => break,
+                _ => end += 1,
+            }
+        }
+        if end >= bytes.len() {
+            break;
+        }
+        // A string is a key exactly when the next byte is ':'. The canonical
+        // encoding is compact, so no whitespace skip is needed.
+        if bytes.get(end + 1) == Some(&b':') {
+            keys.push(String::from_utf8_lossy(&bytes[start..end]).into_owned());
+        }
+        index = end + 1;
+    }
+    keys
+}
+
+#[test]
+fn every_record_field_order_is_pinned_against_silent_drift() {
+    // `valid_state()` populates all twenty-four fields with every collection
+    // non-empty, so this sequence reaches inside every record type the schema
+    // defines -- including the nested hulls inside a fleet and the nested
+    // inventories inside a world and a colony.
+    let state = valid_state();
+    let bytes = state
+        .canonical_bytes()
+        .expect("the reference fixture encodes");
+    let keys = canonical_key_sequence(&bytes);
+
+    #[rustfmt::skip]
+    const EXPECTED: &[&str] = &[
+        "tick", "accepted_sequence", "branch_sequence", "systems",
+        "id", "name", "id", "name",
+        "stars", "id", "system", "archetype",
+        "name", "id", "system", "archetype",
+        "name", "worlds", "id", "system",
+        "archetype", "name", "owner", "inventory",
+        "energy", "ore", "alloy", "id",
+        "system", "archetype", "name", "owner",
+        "inventory", "energy", "ore", "alloy",
+        "id", "system", "archetype", "name",
+        "owner", "inventory", "energy", "ore",
+        "alloy", "lanes", "id", "system_a",
+        "system_b", "distance_units", "civilizations", "id",
+        "name", "policy", "status", "id",
+        "name", "policy", "status", "deposits",
+        "id", "world", "resource", "remaining_units",
+        "colonies", "world", "owner", "hub",
+        "energy_next_due", "ore_next_due", "fallback_next_due", "blocked_reasons",
+        "facilities", "id", "world", "definition",
+        "status", "paid_alloy", "hit_points", "next_due",
+        "next_repair", "blocked_reasons", "construction_jobs", "id",
+        "world", "owner", "definition", "accepted_tick",
+        "completion_tick", "paid_alloy", "hull_jobs", "id",
+        "world", "owner", "definition", "accepted_tick",
+        "completion_tick", "paid_alloy", "target_fleet", "fleets",
+        "id", "owner", "location", "type",
+        "world", "order", "hulls", "id",
+        "definition", "hit_points", "return_credit", "next_repair",
+        "id", "definition", "hit_points", "return_credit",
+        "next_repair", "routes", "id", "kind",
+        "source_world", "destination_world", "resource", "batch_size",
+        "cadence_ticks", "source_reserve", "source_owner", "receiver_owner",
+        "next_due", "suspended", "shipments", "id",
+        "dispatch_owner", "intended_receiver", "source_world", "destination_world",
+        "resource", "units", "departure_tick", "arrival_tick",
+        "disposition", "relations", "from", "to",
+        "base_disposition", "reasons", "delivered_aid", "successful_trade",
+        "adjacent_rival_settlement", "war_declared_against_it", "colony_captured_from_it", "aid_units_remainder",
+        "trade_units_remainder", "from", "to", "base_disposition",
+        "reasons", "delivered_aid", "successful_trade", "adjacent_rival_settlement",
+        "war_declared_against_it", "colony_captured_from_it", "aid_units_remainder", "trade_units_remainder",
+        "agreements", "kind", "participant_a", "participant_b",
+        "start_tick", "end_tick", "wars", "participant_a",
+        "participant_b", "declarer", "start_tick", "end_tick",
+        "observations", "civilization", "world", "observed_tick",
+        "owner", "remaining_deposit", "facilities", "stationed_hulls",
+        "hazards", "id", "definition", "lane",
+        "start_tick", "end_tick", "settlement_claims", "world",
+        "civilization", "arrival_tick", "close_tick", "occupations",
+        "world", "claimant", "progress_ticks", "counters",
+    ];
+
+    if keys != EXPECTED {
+        panic!(
+            "canonical field order changed ({} keys, expected {}).\n\
+             Read the note above this test before touching the expected list.\n\
+             actual = {:#?}",
+            keys.len(),
+            EXPECTED.len(),
+            keys
+        );
+    }
+}
