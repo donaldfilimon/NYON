@@ -540,6 +540,33 @@ fn wasm_source_uses_atomic_transactions_and_bounded_diagnostics() {
             "missing browser contract: {contract}"
         );
     }
+    // Counted contracts, for invariants that need *every* site rather than one.
+    //
+    // `contains` is the wrong tool when a rule must hold at more than one call
+    // site: it passes while a site is deleted. Clear-on-new-head is exactly
+    // that shape -- `commit_slot` and `promote_recovered_slot` must each clear
+    // any marker naming the slot, inside their own transaction. Memory and
+    // native are covered behaviourally; the browser arm is not, because
+    // `store/web/wasm.rs` executes nowhere in this repository. The only
+    // accidental protection is that the helper is private, so deleting *both*
+    // sites makes it dead code and trips wasm clippy -- deleting *one* trips
+    // nothing at all.
+    //
+    // Still not caught here, and stated rather than implied: hoisting a call
+    // out of its `mutate_references` closure. That is the atomicity property
+    // the doc comments claim, and no test, lint or source contract constrains
+    // where the call sits.
+    // Written as a direct assertion rather than a one-element loop, which
+    // clippy rejects as `single_element_loop`. Turn it back into a loop when a
+    // second counted contract joins it.
+    const CLEAR_CONTINUE_CALL: &str = "clear_continue_for_sync(references, slots_store, slot)?";
+    let clear_continue_sites = source.matches(CLEAR_CONTINUE_CALL).count();
+    assert_eq!(
+        clear_continue_sites, 2,
+        "clear-on-new-head must be called from both commit_slot and \
+         promote_recovered_slot; found {clear_continue_sites} call site(s)"
+    );
+
     for forbidden in [
         "local_storage(",
         "console.log",
