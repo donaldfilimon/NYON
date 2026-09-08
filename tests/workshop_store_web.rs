@@ -242,6 +242,104 @@ fn model_keeps_continue_explicit_and_archive_non_destructive() {
 }
 
 #[test]
+fn model_unarchive_clears_only_the_flag_and_does_not_restore_continue() {
+    let mut store = IndexedDbTransactionModel::default();
+    let slot = create(&mut store);
+    let second = match run(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: SaveGeneration(1),
+            archive: archive("two"),
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected commit result: {result:?}"),
+    };
+    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    let before_head = loaded(&mut store, slot);
+    let before_predecessor = match run(
+        &mut store,
+        WorkshopStoreRequest::LoadPreviousGeneration {
+            slot,
+            expected_head_generation: second,
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotLoaded(loaded) => loaded,
+        result => panic!("unexpected previous load result: {result:?}"),
+    };
+
+    run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+
+    assert_eq!(loaded(&mut store, slot), before_head);
+    assert_eq!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::LoadPreviousGeneration {
+                slot,
+                expected_head_generation: second,
+            },
+        )
+        .unwrap(),
+        WorkshopStoreResult::SlotLoaded(before_predecessor)
+    );
+
+    let list = match run(&mut store, WorkshopStoreRequest::ListSlots).unwrap() {
+        WorkshopStoreResult::Slots(list) => list,
+        result => panic!("unexpected list result: {result:?}"),
+    };
+    assert_eq!(list.slots.len(), 1);
+    assert!(!list.slots[0].archived);
+    assert!(list.slots[0].has_previous_generation);
+    assert_eq!(list.slots[0].name.as_str(), "Forge");
+    assert_eq!(list.slots[0].generation, second);
+    assert_eq!(list.selected_continue, None);
+    assert!(!list.slots[0].selected_for_continue);
+
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+    assert!(matches!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::UnarchiveSlot { slot: SlotId(9) }
+        ),
+        Err(WorkshopStoreError::UnknownSlot { slot }) if slot == SlotId(9)
+    ));
+    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+}
+
+/// An aborted unarchive must publish nothing, exactly like an aborted commit.
+#[test]
+fn model_unarchive_abort_leaves_the_slot_archived() {
+    let mut store = IndexedDbTransactionModel::default();
+    let slot = create(&mut store);
+    run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+
+    store.inject_next_failure(IndexedDbModelFailure::Abort);
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }),
+        Err(WorkshopStoreError::IndexedDbTransactionAborted)
+    );
+
+    let list = match run(&mut store, WorkshopStoreRequest::ListSlots).unwrap() {
+        WorkshopStoreResult::Slots(list) => list,
+        result => panic!("unexpected list result: {result:?}"),
+    };
+    assert!(list.slots[0].archived);
+    assert_eq!(&*loaded(&mut store, slot).archive, &*archive("one"));
+}
+
+#[test]
 fn wasm_source_uses_atomic_transactions_and_bounded_diagnostics() {
     // The browser store is split across the host-visible transaction model and
     // the wasm-only implementation, so this contract reads both: a required

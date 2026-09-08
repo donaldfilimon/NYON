@@ -7,11 +7,11 @@ use std::{
 };
 
 use nyon::workshop::store::{
-    MAX_WORKSHOP_ARCHIVE_BYTES, MAX_WORKSHOP_PACKS, MemoryWorkshopStore, NativeStoreFaultInjector,
-    NativeStoreFaultPoint, NativeWorkshopPlatform, NativeWorkshopStore, SaveGeneration, SlotId,
-    SlotList, SlotName, StoreJobClass, StoreJobId, StoreJobState, WorkshopPathEnvironment,
-    WorkshopStore, WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
-    native_workshop_root,
+    LoadedSlot, MAX_WORKSHOP_ARCHIVE_BYTES, MAX_WORKSHOP_PACKS, MemoryWorkshopStore,
+    NativeStoreFaultInjector, NativeStoreFaultPoint, NativeWorkshopPlatform, NativeWorkshopStore,
+    SaveGeneration, SlotId, SlotList, SlotName, StoreJobClass, StoreJobId, StoreJobState,
+    WorkshopPathEnvironment, WorkshopStore, WorkshopStoreError, WorkshopStoreRequest,
+    WorkshopStoreResult, native_workshop_root,
 };
 
 fn archive(version: u32) -> Box<[u8]> {
@@ -66,6 +66,53 @@ fn list(store: &mut dyn WorkshopStore) -> SlotList {
     }
 }
 
+fn head(store: &mut dyn WorkshopStore, slot: SlotId) -> LoadedSlot {
+    match run(store, WorkshopStoreRequest::LoadSlot { slot }).unwrap() {
+        WorkshopStoreResult::SlotLoaded(loaded) => loaded,
+        result => panic!("unexpected load result: {result:?}"),
+    }
+}
+
+fn predecessor(
+    store: &mut dyn WorkshopStore,
+    slot: SlotId,
+    expected_head_generation: SaveGeneration,
+) -> LoadedSlot {
+    match run(
+        store,
+        WorkshopStoreRequest::LoadPreviousGeneration {
+            slot,
+            expected_head_generation,
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotLoaded(loaded) => loaded,
+        result => panic!("unexpected previous load result: {result:?}"),
+    }
+}
+
+/// Builds a slot with a head, a retained predecessor and an explicit Continue
+/// selection, so an archive/unarchive round trip has something to disturb.
+fn slot_with_predecessor_and_continue(store: &mut dyn WorkshopStore) -> (SlotId, SaveGeneration) {
+    let (slot, first) = create(store, "Forge", archive(1)).unwrap();
+    let second = match run(
+        store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: first,
+            archive: archive(2),
+        },
+    )
+    .unwrap()
+    {
+        WorkshopStoreResult::SlotCommitted { generation, .. } => generation,
+        result => panic!("unexpected commit result: {result:?}"),
+    };
+    run(store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    (slot, second)
+}
+
 #[test]
 fn store_is_object_safe_and_continue_is_initially_absent() {
     let mut store: Box<dyn WorkshopStore> = Box::new(MemoryWorkshopStore::default());
@@ -115,6 +162,64 @@ fn memory_store_orders_slots_and_applies_rename_select_archive_deterministically
             WorkshopStoreRequest::SelectContinue { slot: beta }
         ),
         Err(WorkshopStoreError::ArchivedSlot { slot }) if slot == beta
+    ));
+}
+
+#[test]
+fn memory_unarchive_clears_only_the_flag_and_restores_neither_continue_nor_the_open_slot() {
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, second) = slot_with_predecessor_and_continue(&mut store);
+    let before_head = head(&mut store, slot);
+    let before_predecessor = predecessor(&mut store, slot, second);
+
+    run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+
+    // Byte identity: name, both generations, both archives and the recovery
+    // flag are compared as whole values rather than spot-checked fields.
+    assert_eq!(head(&mut store, slot), before_head);
+    assert_eq!(predecessor(&mut store, slot, second), before_predecessor);
+
+    let slots = list(&mut store);
+    assert_eq!(slots.slots.len(), 1);
+    assert!(!slots.slots[0].archived);
+    assert!(slots.slots[0].has_previous_generation);
+    assert_eq!(slots.slots[0].name.as_str(), "Forge");
+    assert_eq!(slots.slots[0].generation, second);
+    // Archiving cleared Continue; unarchiving must not put it back.
+    assert_eq!(slots.selected_continue, None);
+    assert!(!slots.slots[0].selected_for_continue);
+
+    // Unarchiving is idempotent, and an unknown slot is refused the same way
+    // archiving refuses one.
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+    assert_eq!(head(&mut store, slot), before_head);
+    assert!(matches!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::UnarchiveSlot { slot: SlotId(9) }
+        ),
+        Err(WorkshopStoreError::UnknownSlot { slot }) if slot == SlotId(9)
+    ));
+
+    // The flag really is clear: the operations archiving refused now succeed.
+    run(&mut store, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
+    assert!(matches!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: second,
+                archive: archive(3),
+            },
+        ),
+        Ok(WorkshopStoreResult::SlotCommitted { .. })
     ));
 }
 
@@ -674,6 +779,49 @@ fn native_rename_select_and_archive_survive_reopen_without_deleting_the_slot() {
         run(&mut reopened, WorkshopStoreRequest::LoadSlot { slot }),
         Ok(WorkshopStoreResult::SlotLoaded(_))
     ));
+}
+
+#[test]
+fn native_unarchive_clears_only_the_flag_and_survives_reopen_without_restoring_continue() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let (slot, second) = slot_with_predecessor_and_continue(&mut store);
+    let before_head = head(&mut store, slot);
+    let before_predecessor = predecessor(&mut store, slot, second);
+
+    run(&mut store, WorkshopStoreRequest::ArchiveSlot { slot }).unwrap();
+    assert_eq!(
+        run(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+
+    // Reopening re-reads the manifest and re-verifies every generation digest,
+    // so identical loads here prove no archive file was rewritten.
+    let mut reopened = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    assert_eq!(head(&mut reopened, slot), before_head);
+    assert_eq!(predecessor(&mut reopened, slot, second), before_predecessor);
+
+    let slots = list(&mut reopened);
+    assert_eq!(slots.slots.len(), 1);
+    assert!(!slots.slots[0].archived);
+    assert!(slots.slots[0].has_previous_generation);
+    assert_eq!(slots.slots[0].name.as_str(), "Forge");
+    assert_eq!(slots.slots[0].generation, second);
+    assert_eq!(slots.selected_continue, None);
+    assert!(!slots.slots[0].selected_for_continue);
+
+    assert_eq!(
+        run(&mut reopened, WorkshopStoreRequest::UnarchiveSlot { slot }).unwrap(),
+        WorkshopStoreResult::SlotUnarchived { slot }
+    );
+    assert!(matches!(
+        run(
+            &mut reopened,
+            WorkshopStoreRequest::UnarchiveSlot { slot: SlotId(9) }
+        ),
+        Err(WorkshopStoreError::UnknownSlot { slot }) if slot == SlotId(9)
+    ));
+    run(&mut reopened, WorkshopStoreRequest::SelectContinue { slot }).unwrap();
 }
 
 struct FailAfterSecondGeneration {

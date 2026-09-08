@@ -249,6 +249,15 @@ impl MemoryWorkshopStore {
                 }
                 Ok(WorkshopStoreResult::SlotArchived { slot })
             }
+            WorkshopStoreRequest::UnarchiveSlot { slot } => {
+                // Flag only. Generations, name and Continue selection are left
+                // exactly as archiving found them.
+                self.slots
+                    .get_mut(&slot)
+                    .ok_or(WorkshopStoreError::UnknownSlot { slot })?
+                    .archived = false;
+                Ok(WorkshopStoreResult::SlotUnarchived { slot })
+            }
             WorkshopStoreRequest::SelectContinue { slot } => {
                 let record = self
                     .slots

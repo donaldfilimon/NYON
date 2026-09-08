@@ -282,6 +282,9 @@ pub enum WorkshopStoreResult {
     SlotArchived {
         slot: SlotId,
     },
+    SlotUnarchived {
+        slot: SlotId,
+    },
     ContinueSelected {
         slot: SlotId,
     },
@@ -340,6 +343,18 @@ pub enum WorkshopStoreRequest {
     ArchiveSlot {
         slot: SlotId,
     },
+    /// Clears the archived flag and nothing else.
+    ///
+    /// The slot's name, head generation, retained predecessor and archive bytes
+    /// are left byte-identical. It deliberately does not open the slot and does
+    /// not restore Continue selection: a caller that wants either must issue
+    /// [`WorkshopStoreRequest::LoadSlot`] or
+    /// [`WorkshopStoreRequest::SelectContinue`] itself. Like
+    /// [`WorkshopStoreRequest::ArchiveSlot`] it is idempotent, so unarchiving a
+    /// slot that is not archived succeeds without mutating anything.
+    UnarchiveSlot {
+        slot: SlotId,
+    },
     SelectContinue {
         slot: SlotId,
     },
@@ -365,6 +380,7 @@ impl WorkshopStoreRequest {
             | Self::PromoteRecoveredSlot { .. }
             | Self::RenameSlot { .. }
             | Self::ArchiveSlot { .. }
+            | Self::UnarchiveSlot { .. }
             | Self::SelectContinue { .. }
             | Self::PutPack { .. } => StoreJobClass::Commit,
         }

@@ -362,6 +362,20 @@ impl NativeStoreWorker {
                 self.persist_manifest(manifest)?;
                 Ok(WorkshopStoreResult::SlotArchived { slot })
             }
+            WorkshopStoreRequest::UnarchiveSlot { slot } => {
+                // Flag only. The generation descriptors, their digests, the
+                // name and the Continue selection are copied through unchanged,
+                // so no archive file is rewritten and nothing is reordered.
+                let mut manifest = self.manifest.clone();
+                manifest
+                    .slots
+                    .iter_mut()
+                    .find(|record| record.id == slot)
+                    .ok_or(WorkshopStoreError::UnknownSlot { slot })?
+                    .archived = false;
+                self.persist_manifest(manifest)?;
+                Ok(WorkshopStoreResult::SlotUnarchived { slot })
+            }
             WorkshopStoreRequest::SelectContinue { slot } => {
                 let record = self
                     .manifest

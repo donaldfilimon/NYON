@@ -284,6 +284,9 @@ async fn execute_with_database(
         WorkshopStoreRequest::ArchiveSlot { slot } => {
             update_slot_metadata(database, MetadataMutation::Archive { slot }).await
         }
+        WorkshopStoreRequest::UnarchiveSlot { slot } => {
+            update_slot_metadata(database, MetadataMutation::Unarchive { slot }).await
+        }
         WorkshopStoreRequest::SelectContinue { slot } => {
             update_slot_metadata(database, MetadataMutation::Select { slot }).await
         }
@@ -582,6 +585,7 @@ async fn load_previous_generation(
 enum MetadataMutation {
     Rename { slot: SlotId, name: SlotName },
     Archive { slot: SlotId },
+    Unarchive { slot: SlotId },
     Select { slot: SlotId },
 }
 
@@ -614,6 +618,19 @@ async fn update_slot_metadata(
                     write_metadata_sync(store, None)?;
                 }
                 Ok(WorkshopStoreResult::SlotArchived { slot })
+            }
+            MetadataMutation::Unarchive { slot } => {
+                // Flag only. The slot reference carries its own generation
+                // descriptors, so rewriting it leaves every archive record in
+                // the archives store untouched, and the Continue metadata
+                // record is deliberately not written.
+                let reference = references
+                    .slots
+                    .get_mut(&slot)
+                    .ok_or(WorkshopStoreError::UnknownSlot { slot })?;
+                reference.archived = false;
+                write_slot_sync(store, slot, reference)?;
+                Ok(WorkshopStoreResult::SlotUnarchived { slot })
             }
             MetadataMutation::Select { slot } => {
                 let reference = references
