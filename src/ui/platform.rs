@@ -952,6 +952,8 @@ fn icon_for_view_action(action: WorkshopViewAction) -> Option<UiIcon> {
         | WorkshopViewAction::ScrollNext
         | WorkshopViewAction::ScrollInspectorPrevious
         | WorkshopViewAction::ScrollInspectorNext
+        | WorkshopViewAction::ScrollTimelinePrevious
+        | WorkshopViewAction::ScrollTimelineNext
         | WorkshopViewAction::ShowHierarchy
         | WorkshopViewAction::ShowBranches => None,
     }

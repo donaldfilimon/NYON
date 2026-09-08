@@ -35,6 +35,8 @@ pub enum WorkshopViewAction {
     ScrollNext,
     ScrollInspectorPrevious,
     ScrollInspectorNext,
+    ScrollTimelinePrevious,
+    ScrollTimelineNext,
     ShowHierarchy,
     ShowBranches,
     ShowInspector,
@@ -51,6 +53,8 @@ impl WorkshopViewAction {
             Self::ScrollNext => "view.scroll-next",
             Self::ScrollInspectorPrevious => "view.inspector-scroll-previous",
             Self::ScrollInspectorNext => "view.inspector-scroll-next",
+            Self::ScrollTimelinePrevious => "view.timeline-scroll-previous",
+            Self::ScrollTimelineNext => "view.timeline-scroll-next",
             Self::ShowHierarchy => "view.show-hierarchy",
             Self::ShowBranches => "view.show-branches",
             Self::ShowInspector => "view.show-inspector",
@@ -194,6 +198,17 @@ impl WorkshopViewState {
                     -1
                 };
                 self.scroll_inspector(model, layout, delta);
+            }
+            // The timeline lives in the bottom bar rather than in a drawer, so
+            // it needs its own scroll pair for the same reason the inspector
+            // does: `ScrollNext` is already claimed by whatever drawer is open.
+            WorkshopViewAction::ScrollTimelinePrevious | WorkshopViewAction::ScrollTimelineNext => {
+                let maximum = model.timeline.controls.len().saturating_sub(1);
+                self.timeline_start = if action == WorkshopViewAction::ScrollTimelineNext {
+                    self.timeline_start.saturating_add(1).min(maximum)
+                } else {
+                    self.timeline_start.saturating_sub(1)
+                };
             }
         }
     }

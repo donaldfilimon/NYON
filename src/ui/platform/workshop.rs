@@ -145,13 +145,48 @@ pub fn build_workshop_platform_frame_for_view(
     } else {
         0.0
     };
-    for control in model.timeline.controls.iter().skip(view.timeline_start) {
-        let width = if control.action_id.as_str().contains("redo") {
+    let timeline_limit = layout.bottom_bar.max.x - 8.0 - save_width;
+    let timeline_control_width = |control: &crate::ui::workshop::WorkshopControl| {
+        if control.action_id.as_str().contains("redo") {
             112.0 * scale
         } else {
             82.0 * scale
-        };
-        if timeline_x + width > layout.bottom_bar.max.x - 8.0 - save_width {
+        }
+    };
+    // Probe first: the scroll pair only earns its space when the strip cannot
+    // show everything from the current start, or when the user has already
+    // scrolled and needs a way back.
+    let remaining = model
+        .timeline
+        .controls
+        .len()
+        .saturating_sub(view.timeline_start);
+    let mut probe_x = timeline_x;
+    let mut fitted = 0_usize;
+    for control in model.timeline.controls.iter().skip(view.timeline_start) {
+        let width = timeline_control_width(control);
+        if probe_x + width > timeline_limit {
+            break;
+        }
+        probe_x += width + 4.0 * scale;
+        fitted += 1;
+    }
+    let timeline_overflows = view.timeline_start > 0 || fitted < remaining;
+    // Wide enough for the fixed label: the SDF batch refuses a control whose
+    // label cannot be laid out inside its box, so a 44-square button here is
+    // rejected rather than truncated.
+    let scroll_width = 82.0 * scale;
+    let scroll_height = 44.0;
+    let scroll_gap = 4.0;
+    let strip_limit = if timeline_overflows {
+        timeline_limit - (scroll_width * 2.0 + scroll_gap + 8.0)
+    } else {
+        timeline_limit
+    };
+
+    for control in model.timeline.controls.iter().skip(view.timeline_start) {
+        let width = timeline_control_width(control);
+        if timeline_x + width > strip_limit {
             break;
         }
         push_workshop_control(
@@ -166,6 +201,32 @@ pub fn build_workshop_platform_frame_for_view(
             focused,
         );
         timeline_x += width + 4.0 * scale;
+    }
+
+    if timeline_overflows {
+        let scroll_y = layout.bottom_bar.min.y + (layout.bottom_bar.height() - scroll_height) * 0.5;
+        for (index, (action, label)) in [
+            (WorkshopViewAction::ScrollTimelinePrevious, "Older"),
+            (WorkshopViewAction::ScrollTimelineNext, "Newer"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            push_view_control(
+                &mut controls,
+                action,
+                label,
+                PlatformRect::from_xywh(
+                    timeline_limit - scroll_width * 2.0 - scroll_gap
+                        + index as f32 * (scroll_width + scroll_gap),
+                    scroll_y,
+                    scroll_width,
+                    scroll_height,
+                ),
+                focused,
+                false,
+            );
+        }
     }
 
     if let Some(right) = layout.right_panel {

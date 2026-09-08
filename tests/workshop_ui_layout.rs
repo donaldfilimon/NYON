@@ -1175,3 +1175,119 @@ fn workshop_scene_draws_distinct_system_star_world_layers_and_selected_star_ring
         "selection must add one geometric ring rather than recolor the star"
     );
 }
+
+/// Baseline review Finding 5, the timeline half: at the declared capacity the
+/// tail redo choices had no pointer path in any layout.
+///
+/// `view.timeline_start` was written in exactly one place, inside
+/// `reveal_action`, which is the keyboard model. No `WorkshopViewAction`
+/// advanced it, so a pointer-only user could never reach an overflowing redo
+/// choice. Branches were already reachable by pointer through
+/// `OpenNavigator` then `ShowBranches` then `ScrollNext`; the timeline was not.
+///
+/// This drives the frame the way a pointer does: hit-test a control, read the
+/// typed action off it, apply that, rebuild. Nothing here calls
+/// `reveal_action`.
+#[test]
+fn overflowing_redo_choices_are_reachable_by_pointer_alone() {
+    use nyon::ui::platform::PlatformUiAction;
+    use nyon_workshop_core::ids::BatchLocalId;
+    use nyon_workshop_core::ids::GalaxyPointV1;
+    use nyon_workshop_core::ids::WorkshopTick;
+    use nyon_workshop_core::{CreatorBatchV1, CreatorOpV1, WorkshopHistory};
+
+    let mut history = WorkshopHistory::from_seed_u64(core_catalog(), 46);
+    for index in 0..24 {
+        history
+            .submit(CreatorBatchV1 {
+                expected_cursor: None,
+                expected_tick: WorkshopTick(0),
+                operations: vec![CreatorOpV1::CreateSystem {
+                    local: BatchLocalId(0),
+                    name: name(&format!("Alternative {index:02}")),
+                    position: GalaxyPointV1::new(0, 0).unwrap(),
+                }],
+            })
+            .unwrap();
+        history.undo().unwrap();
+    }
+    let redo = history.redo_choices();
+    assert_eq!(redo.len(), 24, "the fixture must overflow the bottom bar");
+
+    let session = nyon::workshop::session::WorkshopSession::new(history);
+    let model = WorkshopUiModel::build(
+        session.snapshot(),
+        WorkshopUiContext {
+            redo_children: &redo,
+            ..WorkshopUiContext::default()
+        },
+    );
+    let last = model
+        .timeline
+        .controls
+        .last()
+        .expect("the timeline always carries controls")
+        .action_id
+        .clone();
+
+    for (width, height, scale) in SDF_QUALIFICATION_MATRIX {
+        let layout = WorkshopLayout::resolve(Vec2::new(width, height), scale).unwrap();
+        let mut view = WorkshopViewState::default();
+
+        let visible = |view: &WorkshopViewState| {
+            build_workshop_platform_frame_for_view(&model, layout.clone(), view, None)
+                .controls
+                .iter()
+                .any(|control| control.action_id == last)
+        };
+        assert!(
+            !visible(&view),
+            "fixture assumes the tail redo choice starts off screen at {width}x{height}@{scale}"
+        );
+
+        // Advance only through controls the frame actually offers, activated
+        // through their own hit-test rectangles, with a bound well above the
+        // 24 steps a one-per-press scroll needs.
+        let mut reached = false;
+        for _ in 0..64 {
+            let frame = build_workshop_platform_frame_for_view(&model, layout.clone(), &view, None);
+            let Some(action) = frame
+                .controls
+                .iter()
+                .find(|control| {
+                    control.enabled
+                        && control.action
+                            == PlatformUiAction::WorkshopView(
+                                WorkshopViewAction::ScrollTimelineNext,
+                            )
+                })
+                .and_then(|control| frame.hit_test(control.bounds.center()))
+                .map(|control| control.action.clone())
+            else {
+                break;
+            };
+            let PlatformUiAction::WorkshopView(action) = action else {
+                unreachable!("the timeline scroll control carries a view action");
+            };
+            view.apply(action, &model, &layout);
+            if visible(&view) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(
+            reached,
+            "no pointer path reaches the tail redo choice at {width}x{height}@{scale}"
+        );
+
+        // The reverse control must exist once scrolled, or the user is stranded.
+        let frame = build_workshop_platform_frame_for_view(&model, layout.clone(), &view, None);
+        assert!(
+            frame.controls.iter().any(|control| {
+                control.action
+                    == PlatformUiAction::WorkshopView(WorkshopViewAction::ScrollTimelinePrevious)
+            }),
+            "no pointer path back at {width}x{height}@{scale}"
+        );
+    }
+}
