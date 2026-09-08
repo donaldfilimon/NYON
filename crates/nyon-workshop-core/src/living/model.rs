@@ -1193,12 +1193,42 @@ impl LivingGalaxyStateV2 {
         Ok(state_digest_v2(&self.canonical_bytes()?))
     }
 
-    /// Check every collection maximum, every intra-state reference, every
-    /// catalog reference, and the declared integer and interval ranges.
+    /// Check the twelve global collection maxima, the per-fleet and total hull
+    /// bounds, every intra-state reference, every catalog reference, and the
+    /// declared integer and interval ranges.
     ///
     /// Ordering and duplicate keys inside one collection are not checked here:
     /// the canonical wire already rejects them, and a second implementation of
     /// the same rule is a second place for it to drift.
+    ///
+    /// # What this deliberately does not check
+    ///
+    /// An earlier version of this comment said "every collection maximum",
+    /// which asserted a strong reading while the code implemented a weak one.
+    /// The bounds below are **reservation accounting**, and section 1 assigns
+    /// them to the creator-operation path rather than to the state schema:
+    /// "Accepting a building or hull job reserves its global entity capacity
+    /// and its destination industry/fleet slot through completion." The
+    /// civilizations plan gives that accounting a home in `civilization.rs`.
+    /// Enforcing it here would put the same rule in two places, which is the
+    /// drift this type avoids everywhere else.
+    ///
+    /// So a state is accepted by this function even when:
+    ///
+    /// - a colony exceeds section 3's six industrial slots, or holds more than
+    ///   one defense battery or shipyard. `LIVING_COLONY_INDUSTRY_SLOTS_V2`
+    ///   lives in `catalog.rs` and is deliberately not imported here. Note the
+    ///   bound applies to colony worlds only: section 3 also permits
+    ///   creator-created noncolonized industry.
+    /// - `construction_jobs` or `hull_jobs` are arbitrarily long. Neither is
+    ///   added to the `facilities` or hull sums, and neither carries an
+    ///   independent bound, so 2,048 facilities plus 2,048 outstanding
+    ///   construction jobs is accepted here.
+    /// - a `hull_jobs` entry with `target_fleet: None` reserves a fleet that is
+    ///   not counted against `LIVING_MAX_FLEETS_V2`.
+    ///
+    /// These are recorded rather than silently deferred, because the previous
+    /// sentence claimed they were covered.
     pub fn validate(
         &self,
         catalog: &ValidatedLivingCatalogPackV2,
