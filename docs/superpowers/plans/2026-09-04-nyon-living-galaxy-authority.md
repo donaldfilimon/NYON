@@ -19,17 +19,30 @@ guard hardening): `src/living/{mod,ids,wire}.rs` plus `tests/living_wire.rs` and
 no `living/catalog.rs`, `living/model.rs`, `living/genesis.rs`, `living/command.rs`,
 `living/receipt.rs`, and no `assets/living/core-pack-v2.json`.
 
-**Two constraints on resuming, both recorded rather than invented.** Task 2
-(catalog) is *not* blocked: none of the three normative gaps in
-`docs/superpowers/reviews/2026-09-06-living-authority-contract-gaps.md` touch it.
-Tasks 3 and 4 may be dispatched but **must not freeze canonical vectors** until
-those three gaps — the undefined `canonical_receipt_bytes` payload, the
-historical-snapshot versus live-allocator conflation of `accepted_sequence` /
-`branch_sequence`, and the ordinal registries and creator-batch limits that no
-document actually publishes — are closed as normative text in
-`docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`. That file is
-`Status: Proposal only`; adopting, amending or rejecting it is a spec decision.
-Vectors must also be derived from spec text, never from running the
+**Task 2 landed on 2026-09-08 as `71e5b6f`** (`living/catalog.rs`,
+`assets/living/core-pack-v2.json`, 24 tests), so this plan's next open task is
+Task 3.
+
+**The three normative gaps that blocked Tasks 3 and 4 are CLOSED as of
+2026-09-08.** They were resolved on the owner's decision and written into
+`docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md` as normative
+text: `canonical_receipt_bytes` now encodes a distinct `LivingReceiptPayloadV2`
+with an explicit derivation order; `accepted_sequence` and `branch_sequence` are
+split into frozen in-state history and durable allocator high-water marks that
+are never inputs to `state_digest`, with two new archive fields; and the phase
+and intent ordinal registries are published, with two new queue limits tied to
+the declared work-unit poll bound. Tasks 3 and 4 may now freeze canonical
+vectors.
+
+Two decisions differ from the review's proposal and matter to anyone reading it:
+**phases are numbered from 1, not 0** (the step list is numbered from 1, and the
+committed vectors label phase 8 as the AI fleet case and phase 9 as the route
+shipment case, which is only correct one-based), and the `LivingEventKindV2`
+ordinal is **deliberately unassigned**, because tagged enums travel the wire as
+snake_case strings and `event_digest` consumes an emission ordinal rather than a
+kind, so no byte or hash depends on it.
+
+Vectors must still be derived from spec text, never from running the
 implementation, as Task 1's were.
 
 ## Global Constraints

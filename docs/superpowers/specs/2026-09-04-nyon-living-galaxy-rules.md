@@ -2,7 +2,13 @@
 
 Date: 2026-09-04
 
-Status: Approved implementation contract on 2026-09-04; not yet implemented or balance-tested
+Status: Approved implementation contract on 2026-09-04; not yet implemented or balance-tested.
+Amended 2026-09-08 on the owner's decision to close the three normative gaps raised in
+`docs/superpowers/reviews/2026-09-06-living-authority-contract-gaps.md`: the receipt payload record and
+its derivation order, the historical-versus-allocator split for `accepted_sequence` and `branch_sequence`
+with two new archive fields, and the published phase and intent ordinal registries with two new queue
+limits. Two amendments differ from that proposal: phases are numbered from 1 rather than 0, and the
+`LivingEventKindV2` ordinal is deliberately left unassigned. No previously frozen vector is invalidated
 
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 
@@ -26,8 +32,12 @@ Proposed authority hard limits:
 | Fleets / total hulls / hulls per fleet | 256 / 2048 / 16 |
 | Active or scheduled hazards | 128 |
 | History branches / creator revisions | 64 / 10000 |
+| Creator-batch operations | 1024 |
+| Pending running-queue depth per boundary | 1024 |
 
 The Living V2 persistence adapter separately allows 64 saved slots, 256 registered catalog packs, 32 MiB per archive, and 2 MiB per pack. These do not alter WorkshopV1's smaller byte/slot limits.
+
+The two queue limits are set to the declared work-unit poll bound rather than to an arbitrary round number, so a single batch or a single boundary's queue can never exceed one poll's budget. Both reject atomically at submission, before any sequence, ordinal, entity ID, queue mutation, or resource is consumed.
 
 Capacity checks are atomic. Accepting a building or hull job reserves its global entity capacity and its destination industry/fleet slot through completion. A hull job names an existing docked fleet or reserves creation of a new docked fleet; the target must still be valid at completion. A fleet with a pending hull-delivery reservation cannot depart, split, merge, or accept another mutually exclusive reservation until completion or cancellation. Validate and reject such an order before changing its existing order, job, credits, or energy. Combat destruction or capture of the target cancels the job using the existing half-refund and atomic capacity-release rule. Cancellation/capture releases reservations atomically. Creator operations count all outstanding reservations. Reject the relevant creation, construction, or dispatch before spending resources; existing objects keep working. Reaching a history limit offers export/new-document guidance, not silent history deletion. An allocation/arithmetic invariant failure preserves the last valid state and pauses with a diagnostic.
 
@@ -38,6 +48,8 @@ Run at 10 authoritative ticks per second. `state.tick` is the number of complete
 Paused creator commands apply synchronously at the current boundary without advancing time and require an empty running-command queue. Running commands apply before simulation phases at the next boundary. Every envelope records `expected_committed_revision`, `expected_tick`, and `expected_pending_sequence`; the last value is zero when the queue is empty. Submission compares all three with the authority's published committed cursor and current queue tail. A mismatch rejects as stale without allocating an ID or changing the queue.
 
 An accepted running envelope receives the next document-global monotonically increasing `accepted_sequence` and is validated against a private projection containing all earlier accepted envelopes for that boundary. The counter is persisted and never reused after queue clearing, a fault, Undo, or branching; a rejected submission consumes no sequence. Its logical parent is the prior accepted envelope, or the committed revision if first. At boundary T, replay the whole accepted sequence into one candidate in sequence order. Each envelope becomes one immutable revision whose parent is the revision produced immediately before it; a multi-operation atomic edit is represented by one batch command/envelope. If any supposedly accepted envelope cannot reproduce its validated result or an invariant fails, commit neither the tick nor any of its queued revisions, retain the queue for diagnosis, and pause with a typed fault. Ordinary validation failures happen at submission and never enter the queue. After a successful boundary commit, clear the applied queue and publish its final revision/tick/tail-zero cursor. This defines enqueue stale checks, same-boundary chaining, and application atomicity without silently rebasing commands.
+
+`accepted_sequence` and `branch_sequence` name two different things and the distinction is normative. The values carried inside `LivingGalaxyStateV2` are **historical**: they are frozen at the moment that state was produced, are never mutated by later activity on sibling branches, and are reproduced exactly on restore and replay, which is what keeps an older branch's `state_digest` reproducible. The engine separately maintains **durable allocator high-water marks** for both counters. Those marks are never part of any single `LivingGalaxyStateV2` and never inputs to `state_digest`; every new submission or fork allocates from them regardless of which branch is currently viewed. They are persisted independently of the committed revision graph, because a faulted-but-retained queue has already spent sequence values that never became committed revisions, and a mark recomputed by scanning the graph would under-count and reissue them.
 
 For revision identity, `tick_u64` is the application boundary: `t+1` for a running envelope accepted at completed tick t, and the unchanged current boundary for a synchronous paused envelope. `ordinal_u64` is that envelope's document-global `accepted_sequence`. A paused envelope also receives the next sequence. These meanings do not change after replay or branch creation.
 
@@ -278,7 +290,7 @@ V2 canonical documents are UTF-8 JSON with no BOM or insignificant whitespace. T
 
 Top-level catalog packs use `kind="NYON_LIVING_GALAXY_DATA"`, `format_version=2`, and `rules_version=2`. Their top-level fields, in order, are `kind`, `format_version`, `rules_version`, `pack_id`, `pack_version`, `star_archetypes`, `world_archetypes`, `resources`, `industry_definitions`, `hull_definitions`, `hazard_definitions`, and `policy_definitions`.
 
-Archives use `kind="NYON_LIVING_GALAXY_ARCHIVE"`, `format_version=2`, and `rules_version=2`. Their top-level fields, in order, are `kind`, `format_version`, `rules_version`, `catalog_hash`, `genesis_seed`, `genesis_generator`, `genesis_manifest`, `revisions`, `branches`, `active_view`, `final_tick`, `final_digest`, and `integrity_sha256`. Integrity hashes the same ordered payload without the final integrity field. `genesis_generator` records an exact generator/starter ID and version for provenance; `genesis_manifest` is the validated source of replay truth. Generators are never rerun when decoding. Revisions contain creator inputs only. Checkpoints are excluded from the canonical archive and treated as discardable derived local caches. The archive references its catalog hash and never embeds a pack. Unknown kind, format, or rules values reject with distinct typed errors.
+Archives use `kind="NYON_LIVING_GALAXY_ARCHIVE"`, `format_version=2`, and `rules_version=2`. Their top-level fields, in order, are `kind`, `format_version`, `rules_version`, `catalog_hash`, `genesis_seed`, `genesis_generator`, `genesis_manifest`, `revisions`, `branches`, `active_view`, `final_tick`, `final_digest`, `accepted_sequence_high_water`, `branch_sequence_high_water`, and `integrity_sha256`. The two high-water fields are `u64` and carry the durable allocator marks defined in section 2; they participate in `archive_integrity` like every other listed field. Integrity hashes the same ordered payload without the final integrity field. `genesis_generator` records an exact generator/starter ID and version for provenance; `genesis_manifest` is the validated source of replay truth. Generators are never rerun when decoding. Revisions contain creator inputs only. Checkpoints are excluded from the canonical archive and treated as discardable derived local caches. The archive references its catalog hash and never embeds a pack. Unknown kind, format, or rules values reject with distinct typed errors.
 
 Use distinct wrapper types `LivingCatalogHashV2`, `LivingStateDigestV2`, `LivingRevisionIdV2`, `LivingEntityIdV2`, `LivingBranchIdV2`, `LivingReceiptDigestV2`, and `LivingEventIdV2`. No API accepts a WorkshopV1 wrapper where a Living V2 identity is required, even though serialized widths may match.
 
@@ -316,9 +328,59 @@ claim_rank = SHA256("NYON-LIVING-CLAIM-V2\0" || rules_u32 || genesis_seed_32 ||
                     world_id_16 || claim_close_tick_u64 || civilization_id_16)
 ```
 
-`genesis_manifest_digest_32` is the Living state digest of the validated tick-zero state materialized from that manifest. In the formulas, `entity_digest` means the creator or autonomous formula appropriate to the provenance. Shipments, AI-created fleets/hulls, and other tick-created objects use the autonomous formula; creator batches use the creator formula. `phase_u16`, `intent_ordinal_u16`, entity kinds, and local IDs come from explicit never-reordered schema tables, not Rust enum layout. The same autonomous identity inputs may be used only once; route dispatch uses the route as actor and its stable per-boundary dispatch ordinal. Optional tags are exactly `0x00` for absent and `0x01` followed by the fixed-width value for present. Batch-local IDs start at zero and are unique within the command.
+`genesis_manifest_digest_32` is the Living state digest of the validated tick-zero state materialized from that manifest. In the formulas, `entity_digest` means the creator or autonomous formula appropriate to the provenance. Shipments, AI-created fleets/hulls, and other tick-created objects use the autonomous formula; creator batches use the creator formula. `phase_u16`, `intent_ordinal_u16`, entity kinds, and local IDs come from the explicit never-reordered schema tables published below, not from Rust enum layout. The same autonomous identity inputs may be used only once; route dispatch uses the route as actor and its stable per-boundary dispatch ordinal. Optional tags are exactly `0x00` for absent and `0x01` followed by the fixed-width value for present. Batch-local IDs start at zero and are unique within the command.
 
 `branch_ordinal_u64` is allocated from a separate document-global monotonically increasing `branch_sequence` only when a fork command validates and is accepted. Rejected or stale forks consume no ordinal. Accepted ordinals remain reserved and are never reused after queue clearing, a fault, Undo, later branch navigation, or archival. The root branch does not consume the fork sequence.
+
+### Receipt payload and derivation order
+
+`canonical_receipt_bytes` encodes `LivingReceiptPayloadV2`, a record distinct from the public `LivingTickReceiptV2`. Its fields, in order, are `tick_u64`, `applied_revisions` (the sorted array of 32-byte revision IDs), `event_payloads`, and `state_digest_32`. Each entry of `event_payloads` is `{ordinal_u16, provenance, kind}` in emission order, using the same provenance and kind encoding `LivingEventV2` carries but omitting `id`.
+
+The derivation order is normative and resolves the circularity in the formula above: compute `receipt_digest` over the payload first, derive each event `id` second from `receipt_digest` and its ordinal, and assemble the public `LivingTickReceiptV2` third. Pending events held inside a step context before commit carry no `id` and no placeholder value; an implementation that hashes a receipt containing its own digest, or that substitutes zeroed identities to break the cycle, is not conformant.
+
+### Ordinal registries
+
+These tables are normative, never reordered, and never reissued. `phase_u16`, `intent_ordinal_u16`, and `entity_kind_u16` are hash inputs to the creator and autonomous entity formulas, so an implementation that renumbers them produces different entity identities for the same history.
+
+Phase ordinals are the ten steps of section 2 numbered as that list numbers them, from 1:
+
+| `phase_u16` | Step |
+| ---: | --- |
+| 1 | Apply queued validated creator interventions |
+| 2 | Expire agreements, truces and wars; update hazard boundaries |
+| 3 | Resolve travel arrivals and freight delivery, return and capture |
+| 4 | Resolve retreat departures, combat rounds, occupation and settlement claims |
+| 5 | Complete construction; run hubs, solar, extraction, processing and repairs |
+| 6 | Refresh civilization observations |
+| 7 | Update diplomacy and resolve proposals |
+| 8 | Generate economic and fleet intents; validate and reserve centrally |
+| 9 | Dispatch scheduled fleet orders and eligible freight routes |
+| 10 | Produce ordered event receipts, update counters, hash and commit |
+
+One-based numbering is deliberate. The step list is already numbered from 1, and the reviewed vectors in `crates/nyon-workshop-core/tests/fixtures/living-v2/vectors.json` label phase 8 as the AI fleet case and phase 9 as the route shipment case, which is only correct under this numbering.
+
+Intent ordinals cover the economic intents of section 7 and then its fleet priorities:
+
+| `intent_ordinal_u16` | Intent |
+| ---: | --- |
+| 1 | Supply an owned colony below its reserve |
+| 2 | Build extractor on an observed usable deposit |
+| 3 | Build foundry with projected inputs |
+| 4 | Build ark for a currently eligible settlement target |
+| 5 | Build escort while below the defense target |
+| 6 | Build solar array |
+| 7 | Build scout while fewer than two exist |
+| 8 | Build missing shipyard for a needed hull job |
+| 9 | Build missing battery at a threatened owned colony |
+| 10 | Defend an attacked owned colony |
+| 11 | Retreat a noncombatant |
+| 12 | Settle |
+| 13 | Authorized attack |
+| 14 | Explore |
+| 15 | Reinforce an undefended owned colony |
+| 16 | Establish or adjust a freight route |
+
+Entity kinds are assigned by the task that fixes the authority entity set, and are not published here yet. The `LivingEventKindV2` discriminant ordinal is deliberately **not** assigned: tagged enums travel the wire as lowercase-snake-case strings, and `event_digest` consumes an emission ordinal rather than a kind, so no byte or hash depends on it. It may be published later without invalidating any frozen vector.
 
 Claim arbitration chooses the lexicographically smallest full 32-byte rank after all higher-level eligibility and strength comparisons. Whole exported-file SHA-256 shown by the UI is an ordinary hash of the final canonical file and is distinct from the domain-separated payload integrity. Strings or variable byte slices included by a future domain formula must be preceded by their `u64` byte length; adding such a field requires a new explicitly documented formula/domain.
 
