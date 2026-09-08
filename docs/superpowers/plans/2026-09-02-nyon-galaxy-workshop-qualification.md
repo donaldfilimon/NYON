@@ -20,6 +20,57 @@ performance, or accessibility qualification artifact has ever been produced for
 Workshop V1. Treat every runtime, accessibility, recovery, offline, performance
 and cross-platform claim about Workshop V1 as unevidenced until this plan runs.
 
+### What is executable today, and what is not
+
+**Task 1 is fully executable now.** All five source gates pass on `main`:
+`fmt`, `clippy --workspace --all-targets --all-features -D warnings`,
+`cargo test --workspace --all-targets` (483 tests, 0 failed, 41 binaries),
+`cargo check -p nyon-workshop-core --target wasm32-unknown-unknown`, and
+`git diff --check`. Task 2's repair loop is headless. So an
+**artifact-qualified checkpoint is reachable**, which Task 6 Step 4 explicitly
+permits committing so long as unavailable rows are labelled pending and no
+release claim is made.
+
+**Task 3 is blocked, and not by anything qualification may fix.**
+`docs/superpowers/reviews/2026-09-04-workshop-v1-baseline-review.md` Finding 2
+(P1, `Status: Open`) still holds: `WorkshopAction::RequestExport`,
+`RequestImport` and `RequestLoad` are declared at
+`src/workshop/session.rs:35-37` and constructed nowhere in `src/`, and
+`WorkshopViewAction` offers only navigation and scroll variants. Two-System
+Forge steps 16-18 therefore cannot be run through the product, which defeats
+Task 3 Steps 1, 2, 5 and 6 and every Task 5 row's mandatory imported/exported
+archive hash field. This plan's own Global Constraints forbid closing it here:
+a product gap returns to the client plan.
+
+**Nine of the fourteen matrix rows cannot be produced on this machine.** The
+five Windows 11 rows and four Ubuntu rows need hosts that do not exist here, and
+this plan already forbids substituting compilation for live evidence. Under its
+own status rules that makes **runtime-qualified and release-qualified
+unreachable from a macOS-only session by design**, not by omission.
+
+### Five stale items in this plan, measured against the tree
+
+1. `./tools/check-workshop.sh`, named by Task 1 Step 4 and Task 6 Step 3, fails
+   until `dist/` is rebuilt; its freshness guard is working as designed. Note
+   `dist/` is gitignored, so Step 4 hashes untracked outputs.
+2. Task 1 Step 3 names a **source-contract** suite that does not exist. The
+   nearest real candidates are `tests/renderer_contracts.rs`,
+   `tests/browser_contract.rs` and `tests/identity.rs`. An executor must pick
+   one and say which.
+3. Task 1 Step 3's list of 16 suites predates `fc38672`, `1c32f26`, `52b8844`
+   and `e0b5235`, which added or split out the `workshop_ui_*`,
+   `workshop_recovery`, `workshop_session`, `workshop_store_web`, `usability`,
+   `ui_assets` and `player_guide` suites.
+4. **Task 4 Steps 1 and 2 are already built**, though this plan writes them as
+   work to do: `tools/benchmark-workshop.sh` and
+   `crates/nyon-workshop-core/examples/workshop_authority_benchmark.rs` landed in
+   `fc38672`. The example populates every declared cap, pins the fixture digest
+   before measuring, and enforces the 5 ms p95 budget. Steps 3 and 4 remain
+   unbuilt: there is no frame-time instrumentation anywhere in `src/`.
+5. `cargo test --workspace` now also sweeps in `living_catalog` and
+   `living_wire`, which belong to Living Galaxy V2, a different program. The
+   evidence report must scope its claims to Workshop V1.
+
 ## Global Constraints
 
 - Begin only after the core and client child plans are source-clean.
