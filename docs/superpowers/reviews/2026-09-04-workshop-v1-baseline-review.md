@@ -4,6 +4,8 @@
 
 **REQUEST CHANGES — do not commit or merge the current Workshop V1 baseline as a completed implementation.** No P0 issue was found, but the current tree has four P1 product/recovery blockers and five P2 correctness or maintainability findings. The source gates are green; that does not compensate for missing or obscured release-acceptance behavior.
 
+**Status note added 2026-09-08.** The verdict paragraph above is the 2026-09-04 verdict and is left as written; its counts describe that day. Current per-finding status lives in each finding below and nowhere else. As of 2026-09-08: Finding 5 is closed by `0afa142` and Finding 8 by `db66c2a`; Finding 7 is superseded in mechanism rather than fixed, with its residuals re-filed as Findings 10-15; Findings 1, 2, 3, 4, 6 and 9 still carry `Open` here. Findings 1, 3, 4 and 6 are addressed by separate acceptance or repair documents in this directory whose outcomes were never reflected in their status lines below, so a reader should consult those before treating this file's `Open` as the whole record for them. Note the wording there is uneven: the recovery review states it closes Findings 3 and 4, at the source/host-test layer only; the star live acceptance is an explicit `ACCEPTED FOR THE WORKSHOP V1 BASELINE` for the work behind Finding 6; but nothing states that Finding 1 is closed — the layout live acceptance reports that the canvas is no longer hidden by an opaque overlay and scopes itself to "the live evidence gap attached to the scoped Foundation Task 1 layout repair" without naming this review's finding.
+
 ## Scope and evidence boundary
 
 - Reviewed the complete current tracked and untracked Workshop implementation in `/Users/donaldfilimon/Public/NYON` against `AGENTS.md`, `.superpowers/sdd/nyon-v2/progress.md`, `docs/superpowers/specs/2026-09-02-nyon-v2-design.md`, and the active `docs/superpowers/plans/2026-09-02-nyon-v2.md` program and client-plan requirements. Newly appearing 2026-09-04 Living Galaxy planning documents were treated as concurrent future-program work, not Workshop V1 implementation authority.
@@ -51,7 +53,8 @@
 - **File:line:** `src/ui/platform.rs:91-103`, `src/ui/platform.rs:391-438`, `src/app.rs:849-869`, `docs/superpowers/specs/2026-09-02-nyon-v2-design.md:211-230`, `docs/superpowers/specs/2026-09-02-nyon-v2-design.md:458-458`
 - **Description:** The platform frame silently takes only 14 outliner entries and four branches, and stops timeline controls when the remaining width is insufficient. `focus_order()` is derived only from those instantiated platform controls and replaces the application's base focus order. At declared caps (64 systems, 512 worlds, 64 branches, and potentially multiple redo children), entities and branch/redo actions beyond these fixed slices have no pointer target and cannot receive keyboard focus. The richer semantic model does not cure this: action lookup is also limited to `frame.controls`. This violates the requirement that every Workshop action remain available without spatial interaction and that keyboard focus reach outliner, timeline, and branch controls.
 - **Suggestion:** Add a single-source virtualized/scrollable, searchable, or explicitly paginated control model for outliner, branch chooser, and redo children. Focus/action resolution must address off-screen logical controls and scroll them into view. Add cap-level keyboard and pointer tests that select a tail entity, the 64th branch, and every redo child.
-- **Status:** Open — required before release acceptance.
+- **Correction (2026-09-08):** The finding as written is both wider and milder than the defect that survived to repair. Wider, because the keyboard half was already remediated: `view.timeline_start` is advanced by `reveal_action`, and the existing overflow regression reaches all 24 branches exclusively through that path, so keyboard focus did reach the tail. What remained was pointer-only. Milder, because the finding treats outliner, branch and timeline overflow as one symptom with one cause, and they were not equivalent: the outliner and the branch chooser both live in a drawer and inherit its unconditional `ScrollPrevious`/`ScrollNext` control pair, so a pointer-only user could reach a tail entity and the 64th branch through `OpenNavigator`/`ShowBranches` plus `Next`. The timeline lives in the bottom bar, `ScrollNext` is claimed by whichever drawer is open, and no `WorkshopViewAction` advanced `timeline_start` at all — so an overflowing redo choice had no pointer path in *any* layout, not merely a truncated one.
+- **Status:** Closed by `0afa142` (2026-09-08). `ScrollTimelinePrevious`/`ScrollTimelineNext` follow the existing `ScrollInspectorPrevious`/`Next` pair; the frame emits them only when the strip cannot show everything from the current start or the user has already scrolled, so a timeline that fits is unchanged. The new regression drives the frame the way a pointer does — hit-test a control, read its typed action, apply, rebuild — without calling `reveal_action`, and asserts the reverse control appears once scrolled so the tail is not a dead end.
 
 ### 6. [P2] The derived and drawn Workshop scene omits stars as visual instances
 
@@ -64,10 +67,12 @@
 ### 7. [P2] The sighted Workshop frame drops nearly all inspector and simulation-observation content
 
 - **Severity:** P2
-- **File:line:** `src/ui/platform.rs:360-598`, `src/ui/platform.rs:105-173`, `docs/superpowers/plans/2026-09-02-nyon-galaxy-workshop-client.md:316-329`
+- **File:line:** `src/ui/platform.rs:360-598`, `src/ui/platform.rs:105-173`, `docs/superpowers/plans/2026-09-02-nyon-galaxy-workshop-client.md:316-329`. Those first two citations are stale: `e0b5235` split `src/ui/platform.rs`, so the frame builder now lives in `src/ui/platform/workshop.rs` and the regions must be located by content. Current locations at `0afa142`: `src/ui/platform/workshop.rs:612`, `src/ui/platform_inspector.rs:33`, `src/ui/platform/workshop.rs:660-711`, `src/ui/platform.rs:333-345`.
 - **Description:** `WorkshopUiModel` builds inspector sections and detailed production/inventory/route/shipment/deposit/hazard information, but `build_workshop_platform_frame` does not turn those rows into visible panel content. It reduces the selected object to one status line and at most three inventory row summaries. `PlatformUiFrame::draw` then renders only the title, first four status lines, and controls; control descriptions and the remainder of the inspector are semantic-only. A sighted player cannot inspect why resources moved or production changed, satisfying neither the Observe pillar nor the client plan's inspector/status checklist.
 - **Suggestion:** Render a dedicated scrollable inspector/status panel from the same model used for semantics, including fields, dependencies, production, inventory, routes, shipments, deposits, and hazards. Add snapshot/layout tests for representative entity kinds and a live Two-System Forge observation check that explains an alloy production change and an ion-storm logistics effect.
-- **Status:** Open — required before release acceptance.
+- **Correction (2026-09-08):** The observation was accurate when written; the mechanism it names no longer describes the code, and two facts replace it. First, the full inspector *is* rendered as sighted text: `src/ui/platform/workshop.rs:612` calls `build_inspector_sighted_text` (`src/ui/platform_inspector.rs:33`), which walks every section heading and every row and wraps them into the body, and those records reach the SDF batch as real glyph runs. Production, inventory, route, shipment, deposit and hazard rows are visible chrome today, not semantic-only content. Second, the status lines the finding describes are still built exactly as reported — a `Selected: {title}` line plus at most three inventory rows, at `src/ui/platform/workshop.rs:660-711` — and are then filtered out entirely: `src/ui/platform.rs:333-345` keeps a status run in a Workshop frame only when it equals `operational_status`, which is set solely by `append_status_line` for the durable-exit pending message, and `workshop_frame` is true whenever the semantic root is `workshop.application`, i.e. always in the Workshop. Absent a pending durable-exit message, zero status lines reach `visible_nodes`, the semantic tree, or the SDF batch; that block is vestigial, 52 lines built every frame and thrown away. So the finding understated one half (the inspector is no longer dropped) and understated the other (the status block is not reduced, it is discarded).
+- **Correction (2026-09-08), what did *not* close this:** `docs/superpowers/reviews/2026-09-04-workshop-inspector-repair-acceptance.md` must not be read as having closed this finding. It adjudicated the three findings of the separate, narrower `2026-09-04-workshop-inspector-review.md` — title/body/footer overlap at short heights, semantic IDs churning on ordinary insertion, and a module extraction — never mentions this finding, the baseline review, or the Observe pillar, states its own scope as clearing "the SDF plan's inspector prerequisite, not whole-product completion," and disclaims all live evidence. This finding's stated acceptance criterion is a live Two-System Forge observation check, which that acceptance does not provide. The content movement was a side effect of a geometry-and-identity repair, and it moved only for the layouts that have an inspector container at all.
+- **Status:** Superseded in mechanism (2026-09-08) — **not closed as fixed**. Re-verdicted against `docs/superpowers/reviews/2026-09-08-workshop-finding-7-reverdict.md`, whose file:line claims were re-verified by hand at `0afa142`. The original mechanism no longer holds, no repair was accepted against this finding, and no live observation evidence exists. Its six residuals are re-filed below as Findings 10-15; this finding is retired in favor of those and does not carry a release-acceptance obligation of its own.
 
 ### 8. [P2] Asynchronous catalog import silently drops a failed requested Workshop transition
 
@@ -75,7 +80,8 @@
 - **File:line:** `src/app/client_runtime.rs:430-435`, `src/app/client_runtime.rs:505-541`, `src/app/client_runtime.rs:550-568`
 - **Description:** `begin_new_workshop_from_catalog` is asynchronous. After pack persistence completes, `poll_catalog_import` calls `install_new_workshop` with `let _ =`, discarding the result. The replaceability predicate is necessarily re-evaluated at completion; if the resident Workshop became dirty, queued work, or entered persistence work while the pack job was pending, installation can fail. The imported catalog is retained, but the requested new Workshop is silently not created and no diagnostic or caller-visible completion result explains the state. This is an error-handling gap across an async state transition.
 - **Suggestion:** Represent catalog import completion and requested Workshop installation as explicit success/failure states, surface `install_new_workshop` rejection as a bounded diagnostic or recoverable result, and keep retry/cancel intent visible. Add a test that dirties the resident Workshop while `PutPack` is pending and asserts a deterministic user-visible outcome without losing either session or catalog.
-- **Status:** Open.
+- **Correction (2026-09-08):** "Silently drops" and "no diagnostic" overstate the defect. The ring buffer *did* receive a `RouteUnavailable` entry, so a diagnostic record existed. What actually vanished was the recovery surface: every other completion branch of `poll_catalog_import` calls `enter_recovery`, and this was the only one that did not. The observed user-visible state — the import completes into nothing, the screen stays on the old Workshop, and `recovery_diagnostic()` stays `None` — is accurate as reported; the mechanism is a missing `enter_recovery` call, not a missing record.
+- **Status:** Closed by `db66c2a` (2026-09-08). The rejection is routed through the existing `enter_recovery` path with the existing `RouteUnavailable` code, which is already what `ensure_resident_workshop_replaceable` reports for this condition; no new error type and no new surface. `Catalog` would have been the wrong code, because the pack validated and persisted correctly. Known wart carried forward: a rejected install now pushes two ring entries for one event, consistent with how `bootstrap_protocol_failure` layers on `enter_recovery`.
 
 ### 9. [P2] The baseline concentrates unrelated responsibilities in several 1,300-2,100-line modules
 
@@ -84,6 +90,57 @@
 - **Description:** The current baseline places 2,144 lines of model construction, creator semantics, outliner/inspector/timeline assembly, and action mapping in `src/ui/workshop.rs`; 1,758 lines of lifecycle, input, shell, Workshop frame assembly, semantics, GPU handling, and durable exit in `src/app.rs`; 1,452 lines of public persistence contracts plus memory/native implementations in `src/workshop/store.rs`; and 1,345 lines of IndexedDB schema, transactions, serialization, and adapter logic in `src/workshop/store/web.rs`. The size and mixed responsibilities make critical ordering and recovery invariants difficult to review and were directly relevant to Findings 1, 3, 4, 5, and 7.
 - **Suggestion:** Before accepting the baseline, split along already-present ownership seams: Workshop UI model/outliner/inspector/timeline/semantics; app shell/frame/actions/accessibility/durable-exit; store contract/memory/native; and browser schema/transactions/serialization. Preserve public paths with narrow re-exports and move tests with their owning modules. Do not use extraction merely to hide line count; each resulting module should own one coherent invariant.
 - **Status:** Open — maintainability blocker under the repository review standard unless explicitly justified and bounded.
+
+### 10. [P2] `WorkshopSceneFrame` production and hazard status are computed and read by nothing
+
+*Findings 10-15 were filed 2026-09-08 from the Finding 7 re-verdict, which retired that finding's mechanism and re-filed its residuals as findings in their own right. Every file:line below was verified by hand at `0afa142`. `1094deb` then split `src/ui/workshop.rs` into five responsibility modules while these were being filed, so citations into that file have already moved: `revision_count` is now declared at `src/ui/workshop.rs:271` and assigned at `:399`, `semantic_announcements` is now produced at `src/ui/workshop/semantics.rs:342` from `:358`, and the free `hazard_status` function named in the trap below is now at `src/ui/workshop.rs:577`. Locate by content, not by line, and expect the same churn again.*
+
+- **Severity:** P2
+- **File:line:** `src/presentation/workshop.rs:152-153`, `src/presentation/workshop.rs:286-288`, `src/presentation/workshop.rs:315-328`, `src/presentation/workshop.rs:351-352`
+- **Description:** `WorkshopSceneFrame.production_status` and `.hazard_status` are declared, populated during extraction, and stored on the frame, and no consumer exists anywhere. The scene's observation channel therefore terminates in the frame. `draw_workshop_scene` compounds it by drawing text labels for `System` entries only, so `WorkshopSemanticEntry.detail` is never painted either. This is the surviving substance of the Observe complaint in Finding 7: the inspector explains the *selected* object, and nothing explains the canvas.
+- **Trap, recorded so it is not re-hit:** `hazard_status` names two unrelated things — the scene-frame field above, and a free function at `src/ui/workshop.rs:1958` that is genuinely used by the inspector (`src/ui/workshop_inspector.rs:349,587`). A grep for the name returns those live call sites and reads as proof the field is consumed. It is not. The field and the function have to be told apart by their module, not their name.
+- **Suggestion:** This one is a decision, not a repair, and should not be taken as a mechanical fix. Surfacing the channel means drawing labels over the canvas, which runs straight into Finding 1, where the overlay already covers the scene, and into Finding 5's capacity and focus model, because any labelled overlay needs a truncation and focus story at the declared caps of 64 systems and 512 worlds. It also forces a choice about whether those labels are focusable semantic nodes, which changes `focus_order` and the materialization assertion in `rebuild_visible_nodes`. Decide the overlay/focus model first; alternatively decide the fields are not the right channel and remove them.
+- **Status:** Open — required before release acceptance, and entangled with Findings 1 and 5. No option is recommended here.
+
+### 11. [P2] `revision_count` has no semantic node and reaches no surface
+
+- **Severity:** P2
+- **File:line:** `src/ui/workshop.rs:262`, `src/ui/workshop.rs:390`, `src/ui/platform/workshop.rs:724`
+- **Description:** `revision_count` is declared on the UI model and assigned from the session snapshot, and is read in exactly one place — inside the `status_lines` block that the Workshop frame filters out (see Finding 7's correction). It therefore reaches no sighted surface and no semantic node.
+- **Suggestion:** Either give it a semantic node and a sighted home in the inspector or navigator status content, or drop the field. Do not treat the existing read as coverage.
+- **Status:** Open — not individually release-blocking; part of the Finding 7 decision.
+
+### 12. [P2] Control `description` is semantic-only
+
+- **Severity:** P2
+- **File:line:** `src/ui/platform.rs:412`
+- **Description:** `control.description` is routed into `semantic_description`; the painted string is `label`. This is unchanged since Finding 7 was written, and is the one part of that finding's original mechanism that still holds exactly as reported.
+- **Suggestion:** Decide whether control descriptions are sighted content (tooltip, help row, or inspector-adjacent text) or are deliberately assistive-only, and record the decision. If deliberate, say so where the field is declared.
+- **Status:** Open — not individually release-blocking; part of the Finding 7 decision.
+
+### 13. [P2] Semantic announcements have no sighted counterpart
+
+- **Severity:** P2
+- **File:line:** `src/ui/workshop.rs:1828`, `src/ui/workshop.rs:1844`
+- **Description:** `semantic_announcements` are produced from the session snapshot and consumed by no sighted path. A change a screen reader announces has no equivalent for a sighted player, which is the same asymmetry Finding 7 raised, in the opposite direction from the inspector.
+- **Suggestion:** Give announcements a bounded sighted presentation (a transient line or log region) sourced from the same producer, or record the decision that announcements are assistive-only.
+- **Status:** Open — not individually release-blocking; part of the Finding 7 decision.
+
+### 14. [P2] The Navigator Status tab draws no controls
+
+- **Severity:** P2
+- **File:line:** `src/ui/platform/workshop.rs:434`
+- **Description:** `NavigatorSection::Status => {}` is empty. The section's content arrives only through the six summary sources, so the tab itself contributes nothing and has no controls of its own.
+- **Suggestion:** Either populate the Status section from the same model the summaries use — the natural home for Findings 10, 11 and 13 — or remove the section rather than leaving a selectable tab that draws nothing.
+- **Status:** Open — not individually release-blocking; part of the Finding 7 decision.
+
+### 15. [P2] Compact has no inspector container
+
+- **Severity:** P2
+- **File:line:** `src/ui/workshop_layout.rs:117-118`
+- **Description:** The Compact layout returns `(canvas, None, None)`, so there is no `right_panel` and no inspector container. The inspector content that Finding 7's correction credits as visible chrome is reachable in Compact only by opening the drawer and selecting its tab. The content repair therefore moved the needle only for the layouts that have a container at all.
+- **Suggestion:** Decide whether Compact's drawer route is the accepted inspector affordance at the 320 floor and record that, or give Compact a container. Any acceptance claim about inspector visibility must name the layout it was measured in.
+- **Status:** Open — required before any inspector-visibility acceptance claim that is not layout-qualified.
 
 ## Commit recommendation
 

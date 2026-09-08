@@ -18,9 +18,27 @@ this plan names exists and is substantial — `src/workshop/session.rs`,
 `src/presentation/workshop.rs`, `src/engine/backend.rs`, `web/loader.js`, and the
 three `tools/` scripts — landed through `fc38672` and refactored by `1c32f26`,
 `52b8844`, `e0b5235`. What is *not* closed is tracked in
-`docs/superpowers/reviews/2026-09-04-workshop-v1-baseline-review.md`, whose
-findings 2, 5, 7, 8 and 9 are still `Status: Open`. Read that review, not these
-boxes.
+`docs/superpowers/reviews/2026-09-04-workshop-v1-baseline-review.md`. Read that
+review, not these boxes.
+
+**That open set moved on 2026-09-08 and this note is reconciled to it.** Finding
+5 is closed by `0afa142` and Finding 8 by `db66c2a`. Finding 7 is *superseded in
+mechanism, not fixed*: its residuals are re-filed in the same review as Findings
+10-15, all P2, of which Finding 10 (the scene frame's production and hazard
+status are computed and read by nothing) is the one that carries a release
+obligation, entangled with Findings 1 and 5, and Finding 15 (Compact has no
+inspector container) gates any inspector-visibility claim that is not
+layout-qualified. Finding 2 is still open; `5ecc6b1` records the product route
+that would close it and explicitly builds nothing. Finding 9 is still open.
+Findings 1, 3, 4 and 6 still carry `Open` in the baseline review's own status
+lines — the earlier version of this note treated them as closed, which the
+review text has never said. They are addressed by the
+layout, recovery and star documents in `docs/superpowers/reviews/`, unevenly: the
+recovery approval closes Findings 3 and 4 at the source/host-test layer only,
+with live IndexedDB recovery still open as Finding 3 of
+`2026-09-04-workshop-recovery-review.md`; the star live acceptance accepts the
+work behind Finding 6; and no document states that Finding 1 is closed, only that
+the canvas is no longer hidden by an opaque overlay.
 
 ## Global Constraints
 
