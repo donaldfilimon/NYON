@@ -541,8 +541,19 @@ where
                     return;
                 }
                 self.imported_catalog = Some((*catalog).clone());
-                if let Some(seed) = start_seed {
-                    let _ = self.install_new_workshop(*catalog, seed);
+                if let Some(seed) = start_seed
+                    && self.install_new_workshop(*catalog, seed).is_err()
+                {
+                    // The resident Workshop became unreplaceable while the pack
+                    // was persisting. The catalog is kept, so surface the
+                    // rejection on the same recovery path every other import
+                    // completion failure uses rather than dropping it.
+                    self.enter_recovery(
+                        ClientDiagnosticCode::RouteUnavailable,
+                        "The imported Workshop catalog was saved, but the resident Workshop \
+                         changed while it was saving. Save the resident Workshop, then start a \
+                         new Workshop from the imported catalog.",
+                    );
                 }
             }
             StoreJobState::Complete(Ok(_)) => self.enter_recovery(

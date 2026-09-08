@@ -617,3 +617,56 @@ fn workshop_is_not_a_rules_v1_app_mode() {
     let enum_end = source[enum_start..].find('}').unwrap() + enum_start;
     assert!(!source[enum_start..=enum_end].contains("Workshop"));
 }
+
+#[test]
+fn catalog_import_surfaces_a_failed_new_workshop_install_at_completion() {
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    let mut runtime = runtime(MemoryWorkshopStore::default());
+    runtime.start_new_workshop(7).unwrap();
+
+    assert_eq!(
+        runtime
+            .begin_new_workshop_from_catalog(&pack_bytes, 0xCA7A10)
+            .unwrap(),
+        expected
+    );
+    assert!(runtime.catalog_import_active());
+
+    // The resident Workshop acquires queued work while `PutPack` is pending, so
+    // the replaceability predicate is false again when the import completes.
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    let batch = CreatorBatchV1 {
+        expected_cursor: snapshot.active_view.view_cursor,
+        expected_tick: snapshot.active_view.tick,
+        operations: vec![CreatorOpV1::CreateSystem {
+            local: BatchLocalId(1),
+            name: ObjectName::new("Pending Forge").unwrap(),
+            position: GalaxyPointV1::new(1_024, 0).unwrap(),
+        }],
+    };
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(batch))
+        .unwrap();
+
+    runtime.update(Duration::ZERO);
+
+    // The rejected install must reach the same recovery surface every other
+    // completion failure in `poll_catalog_import` uses, not vanish.
+    assert_eq!(runtime.screen(), ClientScreen::RecoverableError);
+    assert_eq!(
+        runtime.recovery_diagnostic().unwrap().code,
+        ClientDiagnosticCode::RouteUnavailable
+    );
+
+    // Neither the resident session nor the persisted catalog is lost.
+    assert!(!runtime.catalog_import_active());
+    assert_eq!(runtime.imported_catalog_hash(), Some(expected));
+    let ActiveSession::Workshop(workshop) = runtime.active_session() else {
+        panic!("the resident Workshop did not survive the rejected install");
+    };
+    assert_eq!(workshop.history().genesis_seed()[..8], 7_u64.to_le_bytes());
+
+    runtime.dismiss_recovery();
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+}
