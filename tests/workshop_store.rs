@@ -217,6 +217,65 @@ fn commit_and_load_jobs_have_independent_in_flight_lanes() {
 }
 
 #[test]
+fn an_unpolled_job_holds_its_lane_and_only_the_terminal_poll_frees_it() {
+    // The invariant on `WorkshopStore::start`, made executable. `poll` is the
+    // only thing that frees a lane and there is no abandon in this vocabulary,
+    // so a client that drops a job ID without polling it wedges that lane for
+    // the lifetime of the store. On the Commit lane that starves `CommitSlot`
+    // and `PromoteRecoveredSlot`, meaning the resident Workshop can no longer
+    // save or discharge a recovery obligation. Any client owning a job across
+    // frames must either keep polling it or refuse to reset while one is in
+    // flight; `ClientRuntime::cancel_catalog_import` takes the second route.
+    let mut store = MemoryWorkshopStore::default();
+    let pack = store
+        .start(WorkshopStoreRequest::PutPack {
+            canonical_pack: Box::from(&b"{}"[..]),
+        })
+        .unwrap();
+
+    // Dropping the ID does not release anything, and neither does elapsed work
+    // on the other lane.
+    let list = store.start(WorkshopStoreRequest::ListSlots).unwrap();
+    assert!(matches!(store.poll(list), StoreJobState::Complete(Ok(_))));
+    for _ in 0..4 {
+        assert!(matches!(
+            store.start(WorkshopStoreRequest::CreateSlot {
+                name: SlotName::new("Starved").unwrap(),
+                archive: archive(1),
+            }),
+            Err(WorkshopStoreError::Busy {
+                class: StoreJobClass::Commit
+            })
+        ));
+    }
+
+    // Polling an unknown ID is not an escape hatch: it frees nothing.
+    assert_eq!(store.poll(StoreJobId(u64::MAX)), StoreJobState::Unknown);
+    assert!(matches!(
+        store.start(WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Starved").unwrap(),
+            archive: archive(1),
+        }),
+        Err(WorkshopStoreError::Busy {
+            class: StoreJobClass::Commit
+        })
+    ));
+
+    // The terminal poll, and nothing else, releases the lane. A rejected
+    // request frees it just as a successful one does: what matters is that the
+    // job reached a terminal state, not which one.
+    assert!(matches!(store.poll(pack), StoreJobState::Complete(_)));
+    assert!(
+        store
+            .start(WorkshopStoreRequest::CreateSlot {
+                name: SlotName::new("Recovered").unwrap(),
+                archive: archive(1),
+            })
+            .is_ok()
+    );
+}
+
+#[test]
 fn memory_store_canonicalizes_and_round_trips_validated_packs() {
     let mut store = MemoryWorkshopStore::default();
     let source = include_bytes!("../assets/workshop/core-pack-v1.json");

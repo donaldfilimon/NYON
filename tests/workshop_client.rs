@@ -742,6 +742,7 @@ fn catalog_import_surfaces_a_failed_new_workshop_install_as_start_when_safe() {
         .enqueue_workshop_action(WorkshopAction::Submit(batch))
         .unwrap();
 
+    let diagnostics_before = runtime.diagnostics().len();
     runtime.update(Duration::ZERO);
 
     // The rejected install must still be surfaced rather than dropped, but as
@@ -754,9 +755,22 @@ fn catalog_import_surfaces_a_failed_new_workshop_install_as_start_when_safe() {
     );
     assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
     assert!(runtime.recovery_diagnostic().is_none());
-    assert_eq!(
-        runtime.diagnostics().last().unwrap().code,
-        ClientDiagnosticCode::RouteUnavailable
+
+    // This is the regression guard for the defect that a rejected install was
+    // silently discarded, so it must be attributable to this branch alone.
+    // `install_new_workshop` already pushes its own generic `RouteUnavailable`
+    // refusal through `ensure_resident_workshop_replaceable`, so the last code
+    // by itself proves nothing: it still reads `RouteUnavailable` if the
+    // import-specific push is deleted. Pin the count delta and the message only
+    // this branch can produce.
+    assert_eq!(runtime.diagnostics().len(), diagnostics_before + 2);
+    let blocked = runtime.diagnostics().last().unwrap();
+    assert_eq!(blocked.code, ClientDiagnosticCode::RouteUnavailable);
+    assert!(
+        blocked
+            .message
+            .starts_with("The imported Workshop catalog was saved,"),
+        "the blocked-start diagnostic this branch owns is missing: {blocked:?}"
     );
 
     // Neither the resident session nor the persisted catalog is lost.

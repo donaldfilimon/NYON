@@ -372,10 +372,32 @@ impl WorkshopStoreRequest {
 }
 
 pub trait WorkshopStore {
+    /// Reserves the request's lane and returns its job ID.
+    ///
+    /// There are exactly two lanes, one per [`StoreJobClass`], and a second
+    /// request in an occupied lane is refused with
+    /// [`WorkshopStoreError::Busy`].
+    ///
+    /// **A reserved job must be polled to its terminal state, or its lane
+    /// leaks.** [`Self::poll`] is the only thing that frees a lane, and there
+    /// is no abandon or cancel in this vocabulary, so a caller that drops a job
+    /// ID without polling it wedges that lane for the lifetime of the store.
+    /// For the Commit lane that is not a recoverable inconvenience: it starves
+    /// [`WorkshopStoreRequest::CommitSlot`] and
+    /// [`WorkshopStoreRequest::PromoteRecoveredSlot`], so the resident
+    /// Workshop can no longer save and can no longer discharge a recovery
+    /// obligation.
+    ///
+    /// Consequences for a client that owns a job across frames: a cancel or
+    /// reset must either keep polling the outstanding job to completion or
+    /// refuse while one is in flight. `ClientRuntime::cancel_catalog_import`
+    /// takes the second route.
     fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError>;
 
-    /// Returns a terminal state at most once. Polling a consumed or unknown ID
-    /// returns [`StoreJobState::Unknown`].
+    /// Returns a terminal state at most once, and frees that job's lane when it
+    /// does. Polling a consumed or unknown ID returns
+    /// [`StoreJobState::Unknown`], which does *not* free anything: an unknown
+    /// ID never held a lane, and a consumed one already released it.
     fn poll(&mut self, job: StoreJobId) -> StoreJobState;
 }
 
@@ -394,6 +416,9 @@ struct JobTable {
 }
 
 impl JobTable {
+    /// Occupies the class's lane until [`Self::poll`] returns that job's
+    /// terminal state. Nothing else releases it, so an unpolled job holds its
+    /// lane forever; see the invariant on [`WorkshopStore::start`].
     fn reserve(&mut self, class: StoreJobClass) -> Result<StoreJobId, WorkshopStoreError> {
         let active = match class {
             StoreJobClass::Commit => self.active_commit,
