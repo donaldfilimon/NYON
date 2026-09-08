@@ -10,9 +10,19 @@
 //! `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`; the
 //! reviewed byte vectors are `tests/fixtures/living-v2/vectors.json`.
 
+pub mod catalog;
 pub mod ids;
 pub mod wire;
 
+pub use catalog::{
+    LIVING_COLONY_INDUSTRY_SLOTS_V2, LIVING_CORE_PACK_BYTES_V2, LIVING_PACK_FORMAT_VERSION_V2,
+    LIVING_PACK_KIND_V2, LIVING_RESOURCE_STORAGE_LIMIT_V2, LivingCatalogErrorV2,
+    LivingHazardDefinitionV2, LivingHazardEffectV2, LivingHullDefinitionV2,
+    LivingIndustryDefinitionV2, LivingIndustryEffectV2, LivingIntentKindV2, LivingNameV2,
+    LivingPolicyBonusV2, LivingPolicyDefinitionV2, LivingResourceAmountV2,
+    LivingResourceDefinitionV2, LivingSlugV2, LivingStarArchetypeV2, LivingWorldArchetypeV2,
+    ValidatedLivingCatalogPackV2, decode_living_catalog_pack_v2, living_core_pack_v2,
+};
 pub use ids::{
     LIVING_ARCHIVE_INTEGRITY_DOMAIN_V2, LIVING_AUTO_ENTITY_DOMAIN_V2, LIVING_CLAIM_DOMAIN_V2,
     LIVING_CREATOR_ENTITY_DOMAIN_V2, LIVING_EVENT_DOMAIN_V2, LIVING_FORK_BRANCH_DOMAIN_V2,
