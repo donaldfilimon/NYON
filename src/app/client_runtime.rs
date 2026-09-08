@@ -6,23 +6,27 @@
 
 use std::{collections::VecDeque, time::Duration};
 
+pub mod library;
+
 use crate::{
     app::AppCore,
     preferences::store::PreferencesStore,
     scenario::store::ScenarioStore,
     workshop::{
-        ArchiveDecodeJob, ArchiveDecodeStatus, CatalogHash, ValidatedCatalogPackV1,
-        WorkshopHistory, archive_catalog_hash, decode_catalog_pack, encode_catalog_pack,
+        CatalogHash, ValidatedCatalogPackV1, WorkshopHistory, decode_catalog_pack,
+        encode_catalog_pack,
         session::{
             WorkshopAction, WorkshopSession, WorkshopSessionError, WorkshopSessionSnapshot,
             WorkshopUpdate,
         },
         store::{
-            LoadedSlot, SlotId, StoreJobId, StoreJobState, WorkshopStore, WorkshopStoreError,
-            WorkshopStoreRequest, WorkshopStoreResult,
+            StoreJobId, StoreJobState, WorkshopStore, WorkshopStoreError, WorkshopStoreRequest,
+            WorkshopStoreResult,
         },
     },
 };
+
+use library::{LibraryCandidate, LibraryEvent, LibraryOpen, WorkshopLibraryClient};
 
 const MAX_CLIENT_DIAGNOSTICS: usize = 100;
 const ARCHIVE_REPLAY_UNITS_PER_UPDATE: u64 = 1_024;
@@ -151,36 +155,6 @@ pub enum ClientRuntimeError {
     WorkshopAction(WorkshopSessionError),
 }
 
-struct ContinueCandidate {
-    loaded: LoadedSlot,
-    history: WorkshopHistory,
-}
-
-#[derive(Debug)]
-enum ContinueBootstrap {
-    Idle,
-    Listing(StoreJobId),
-    Loading {
-        job: StoreJobId,
-        selected_slot: SlotId,
-    },
-    LoadingPrevious {
-        job: StoreJobId,
-        selected_slot: SlotId,
-        original_failure: ClientDiagnostic,
-    },
-    LoadingCatalog {
-        job: StoreJobId,
-        selected_slot: SlotId,
-        loaded: LoadedSlot,
-        expected_hash: CatalogHash,
-    },
-    Decoding {
-        loaded: LoadedSlot,
-        decoder: Box<ArchiveDecodeJob>,
-    },
-}
-
 /// Retained retry material for one catalog import. Bounded by the store's
 /// existing pack-size limit, because the canonical bytes are exactly what
 /// `PutPack` already accepted.
@@ -229,8 +203,8 @@ where
     screen: ClientScreen,
     settings_return: ClientScreen,
     bootstrap_return: ClientScreen,
-    continue_bootstrap: ContinueBootstrap,
-    continue_candidate: Option<ContinueCandidate>,
+    library: WorkshopLibraryClient,
+    continue_candidate: Option<LibraryCandidate>,
     catalog_import: CatalogImport,
     imported_catalog: Option<ValidatedCatalogPackV1>,
     diagnostics: VecDeque<ClientDiagnostic>,
@@ -254,7 +228,7 @@ where
             screen: ClientScreen::MainMenu,
             settings_return: ClientScreen::MainMenu,
             bootstrap_return: ClientScreen::MainMenu,
-            continue_bootstrap: ContinueBootstrap::Idle,
+            library: WorkshopLibraryClient::default(),
             continue_candidate: None,
             catalog_import: CatalogImport::Idle,
             imported_catalog: None,
@@ -314,7 +288,7 @@ where
     }
 
     pub const fn continue_bootstrap_active(&self) -> bool {
-        !matches!(&self.continue_bootstrap, ContinueBootstrap::Idle)
+        self.library.is_active()
     }
 
     /// True only while a `PutPack` job is in flight.
@@ -415,14 +389,12 @@ where
             }
             screen => screen,
         };
-        let job = self
-            .workshop_store
-            .start(WorkshopStoreRequest::ListSlots)
+        self.library
+            .begin(&mut self.workshop_store, LibraryOpen::SelectedContinue)
             .map_err(|error| {
                 self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
                 ClientRuntimeError::Store(error)
             })?;
-        self.continue_bootstrap = ContinueBootstrap::Listing(job);
         self.screen = ClientScreen::Loading;
         Ok(())
     }
@@ -897,325 +869,46 @@ where
         Err(ClientRuntimeError::RouteUnavailable)
     }
 
+    /// Translates one [`WorkshopLibraryClient`] outcome into screen policy.
+    ///
+    /// The five continue-bootstrap phases moved to
+    /// [`library`] unchanged; what stayed here is exactly the part the client
+    /// must not own. Every arm below is the disposition the corresponding
+    /// former arm performed inline, which is what makes the extraction
+    /// behavior-preserving rather than merely compiling.
     fn poll_continue_bootstrap(&mut self) {
-        let state = std::mem::replace(&mut self.continue_bootstrap, ContinueBootstrap::Idle);
-        match state {
-            ContinueBootstrap::Idle => {}
-            ContinueBootstrap::Listing(job) => match self.workshop_store.poll(job) {
-                StoreJobState::Pending => {
-                    self.continue_bootstrap = ContinueBootstrap::Listing(job);
-                }
-                StoreJobState::Unknown => self
-                    .bootstrap_protocol_failure("Workshop storage forgot the active slot-list job"),
-                StoreJobState::Complete(Err(error)) => {
-                    self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-                }
-                StoreJobState::Complete(Ok(WorkshopStoreResult::Slots(list))) => {
-                    let Some(selected_slot) = list.selected_continue else {
-                        self.continue_bootstrap = ContinueBootstrap::Idle;
-                        self.screen = self.bootstrap_return;
-                        return;
-                    };
-                    let selected_is_valid = list.slots.iter().any(|summary| {
-                        summary.id == selected_slot
-                            && summary.selected_for_continue
-                            && !summary.archived
-                    });
-                    if !selected_is_valid {
-                        self.bootstrap_protocol_failure(
-                            "The explicitly selected Continue slot is missing or archived",
-                        );
-                        return;
-                    }
-                    match self.workshop_store.start(WorkshopStoreRequest::LoadSlot {
-                        slot: selected_slot,
-                    }) {
-                        Ok(job) => {
-                            self.continue_bootstrap =
-                                ContinueBootstrap::Loading { job, selected_slot };
-                        }
-                        Err(error) => {
-                            self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-                        }
-                    }
-                }
-                StoreJobState::Complete(Ok(_)) => self.bootstrap_protocol_failure(
-                    "Workshop slot-list job returned an unexpected result",
-                ),
-            },
-            ContinueBootstrap::Loading { job, selected_slot } => {
-                match self.workshop_store.poll(job) {
-                    StoreJobState::Pending => {
-                        self.continue_bootstrap = ContinueBootstrap::Loading { job, selected_slot };
-                    }
-                    StoreJobState::Unknown => self.bootstrap_protocol_failure(
-                        "Workshop storage forgot the active Continue load job",
-                    ),
-                    StoreJobState::Complete(Err(error)) => {
-                        self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-                    }
-                    StoreJobState::Complete(Ok(WorkshopStoreResult::SlotLoaded(loaded))) => {
-                        if loaded.slot != selected_slot {
-                            self.bootstrap_protocol_failure(
-                                "Workshop storage loaded a slot other than the selected Continue slot",
-                            );
-                            return;
-                        }
-                        self.prepare_loaded_continue(selected_slot, loaded);
-                    }
-                    StoreJobState::Complete(Ok(_)) => self.bootstrap_protocol_failure(
-                        "Workshop Continue load returned an unexpected result",
-                    ),
-                }
-            }
-            ContinueBootstrap::LoadingPrevious {
-                job,
-                selected_slot,
-                original_failure,
-            } => match self.workshop_store.poll(job) {
-                StoreJobState::Pending => {
-                    self.continue_bootstrap = ContinueBootstrap::LoadingPrevious {
-                        job,
-                        selected_slot,
-                        original_failure,
-                    };
-                }
-                StoreJobState::Unknown => self.bootstrap_protocol_failure(
-                    "Workshop storage forgot the previous-generation load job",
-                ),
-                StoreJobState::Complete(Err(_)) => {
-                    self.enter_recovery(original_failure.code, original_failure.message);
-                }
-                StoreJobState::Complete(Ok(WorkshopStoreResult::SlotLoaded(loaded))) => {
-                    if loaded.slot != selected_slot || !loaded.recovered_from_previous {
-                        self.bootstrap_protocol_failure(
-                            "Workshop storage returned an invalid previous-generation load",
-                        );
-                        return;
-                    }
-                    self.prepare_loaded_continue(selected_slot, loaded);
-                }
-                StoreJobState::Complete(Ok(_)) => self.bootstrap_protocol_failure(
-                    "Workshop previous-generation load returned an unexpected result",
-                ),
-            },
-            ContinueBootstrap::LoadingCatalog {
-                job,
-                selected_slot,
-                loaded,
-                expected_hash,
-            } => match self.workshop_store.poll(job) {
-                StoreJobState::Pending => {
-                    self.continue_bootstrap = ContinueBootstrap::LoadingCatalog {
-                        job,
-                        selected_slot,
-                        loaded,
-                        expected_hash,
-                    };
-                }
-                StoreJobState::Unknown => self.bootstrap_protocol_failure(
-                    "Workshop storage forgot the active catalog load job",
-                ),
-                StoreJobState::Complete(Err(error)) => {
-                    self.recover_previous_or_enter(
-                        loaded,
-                        ClientDiagnosticCode::Store,
-                        error.to_string(),
-                    );
-                }
-                StoreJobState::Complete(Ok(WorkshopStoreResult::PackLoaded {
-                    hash,
-                    canonical_pack,
-                })) => {
-                    if loaded.slot != selected_slot || hash != expected_hash {
-                        self.bootstrap_protocol_failure(
-                            "Workshop storage returned a catalog other than the archive's exact catalog",
-                        );
-                        return;
-                    }
-                    let catalog = match decode_catalog_pack(&canonical_pack) {
-                        Ok(catalog) => catalog,
-                        Err(_) => {
-                            self.recover_previous_or_enter(
-                                loaded,
-                                ClientDiagnosticCode::Catalog,
-                                "The saved Workshop catalog failed validation",
-                            );
-                            return;
-                        }
-                    };
-                    let canonical = match encode_catalog_pack(&catalog) {
-                        Ok(canonical) => canonical,
-                        Err(_) => {
-                            self.recover_previous_or_enter(
-                                loaded,
-                                ClientDiagnosticCode::Catalog,
-                                "The saved Workshop catalog could not be canonicalized",
-                            );
-                            return;
-                        }
-                    };
-                    if catalog.catalog_hash() != expected_hash
-                        || canonical.as_slice() != canonical_pack.as_ref()
-                    {
-                        self.recover_previous_or_enter(
-                            loaded,
-                            ClientDiagnosticCode::Catalog,
-                            "The saved Workshop catalog was noncanonical or had the wrong hash",
-                        );
-                        return;
-                    }
-                    self.begin_continue_replay(loaded, catalog);
-                }
-                StoreJobState::Complete(Ok(_)) => self.bootstrap_protocol_failure(
-                    "Workshop catalog load returned an unexpected result",
-                ),
-            },
-            ContinueBootstrap::Decoding {
-                loaded,
-                mut decoder,
-            } => match decoder.poll(ARCHIVE_REPLAY_UNITS_PER_UPDATE) {
-                Ok(ArchiveDecodeStatus::Pending) => {
-                    self.continue_bootstrap = ContinueBootstrap::Decoding { loaded, decoder };
-                }
-                Ok(ArchiveDecodeStatus::Complete) => match (*decoder).finish() {
-                    Ok(history) => self.finish_continue_replay(loaded, history),
-                    Err(error) => {
-                        self.recover_previous_or_enter(
-                            loaded,
-                            ClientDiagnosticCode::Archive,
-                            error.to_string(),
-                        );
-                    }
-                },
-                Err(error) => {
-                    self.recover_previous_or_enter(
-                        loaded,
+        match self.library.poll(&mut self.workshop_store) {
+            LibraryEvent::Pending => {}
+            LibraryEvent::NoCandidate => self.screen = self.bootstrap_return,
+            LibraryEvent::Ready(candidate) => {
+                let recovered = candidate.loaded.recovered_from_previous;
+                self.continue_candidate = Some(*candidate);
+                if recovered {
+                    self.enter_recovery(
                         ClientDiagnosticCode::Archive,
-                        error.to_string(),
+                        "The latest save was invalid; a previous valid generation is available",
                     );
+                } else {
+                    self.screen = self.bootstrap_return;
                 }
-            },
-        }
-    }
-
-    fn prepare_loaded_continue(&mut self, selected_slot: SlotId, loaded: LoadedSlot) {
-        if loaded.recovered_from_previous != (loaded.generation != loaded.head_generation) {
-            self.bootstrap_protocol_failure(
-                "Workshop storage returned inconsistent loaded and head generations",
-            );
-            return;
-        }
-        let catalog = match decode_catalog_pack(CORE_PACK_V1) {
-            Ok(catalog) => catalog,
-            Err(_) => {
-                self.enter_recovery(
-                    ClientDiagnosticCode::Catalog,
-                    "The built-in Workshop catalog failed validation",
-                );
-                return;
             }
-        };
-        let expected_hash = match archive_catalog_hash(&loaded.archive) {
-            Ok(hash) => hash,
-            Err(error) => {
-                self.recover_previous_or_enter(
-                    loaded,
-                    ClientDiagnosticCode::Archive,
-                    error.to_string(),
-                );
-                return;
+            LibraryEvent::Failed(diagnostic) => {
+                self.enter_recovery(diagnostic.code, diagnostic.message);
             }
-        };
-        if catalog.catalog_hash() == expected_hash {
-            self.begin_continue_replay(loaded, catalog);
-            return;
-        }
-        match self.workshop_store.start(WorkshopStoreRequest::GetPack {
-            hash: expected_hash,
-        }) {
-            Ok(job) => {
-                self.continue_bootstrap = ContinueBootstrap::LoadingCatalog {
-                    job,
-                    selected_slot,
-                    loaded,
-                    expected_hash,
-                };
-            }
-            Err(error) => {
-                self.recover_previous_or_enter(
-                    loaded,
-                    ClientDiagnosticCode::Store,
-                    error.to_string(),
-                );
-            }
-        }
-    }
-
-    fn recover_previous_or_enter(
-        &mut self,
-        loaded: LoadedSlot,
-        code: ClientDiagnosticCode,
-        message: impl Into<String>,
-    ) {
-        let message = message.into();
-        if loaded.recovered_from_previous {
-            self.enter_recovery(code, message);
-            return;
-        }
-        let slot = loaded.slot;
-        match self
-            .workshop_store
-            .start(WorkshopStoreRequest::LoadPreviousGeneration {
-                slot,
-                expected_head_generation: loaded.head_generation,
-            }) {
-            Ok(job) => {
-                self.continue_bootstrap = ContinueBootstrap::LoadingPrevious {
-                    job,
-                    selected_slot: slot,
-                    original_failure: ClientDiagnostic { code, message },
-                };
-            }
-            Err(error) => {
-                self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-            }
-        }
-    }
-
-    fn begin_continue_replay(&mut self, loaded: LoadedSlot, catalog: ValidatedCatalogPackV1) {
-        match ArchiveDecodeJob::new(&catalog, &loaded.archive) {
-            Ok(decoder) => {
-                self.continue_bootstrap = ContinueBootstrap::Decoding {
-                    loaded,
-                    decoder: Box::new(decoder),
-                };
-            }
-            Err(error) => {
-                self.recover_previous_or_enter(
-                    loaded,
-                    ClientDiagnosticCode::Archive,
-                    error.to_string(),
-                );
-            }
-        }
-    }
-
-    fn finish_continue_replay(&mut self, loaded: LoadedSlot, history: WorkshopHistory) {
-        let recovered = loaded.recovered_from_previous;
-        self.continue_candidate = Some(ContinueCandidate { loaded, history });
-        if recovered {
-            self.enter_recovery(
-                ClientDiagnosticCode::Archive,
-                "The latest save was invalid; a previous valid generation is available",
-            );
-        } else {
-            self.screen = self.bootstrap_return;
+            LibraryEvent::ProtocolFailure(message) => self.bootstrap_protocol_failure(message),
+            // Startup Continue reads the store's own marker and never carries a
+            // separately observed generation, so it cannot request either
+            // conflict. Handled rather than asserted away: if one ever arrives
+            // here the store answered a question this route did not ask, which
+            // is the same class of fault as the arms above.
+            LibraryEvent::StaleRow { .. } | LibraryEvent::ContinueConflict { .. } => self
+                .bootstrap_protocol_failure(
+                    "Workshop Continue bootstrap received a generation conflict it never requested",
+                ),
         }
     }
 
     fn bootstrap_protocol_failure(&mut self, message: &'static str) {
-        self.continue_bootstrap = ContinueBootstrap::Idle;
         self.continue_candidate = None;
         self.enter_recovery(ClientDiagnosticCode::StoreProtocol, message);
     }
