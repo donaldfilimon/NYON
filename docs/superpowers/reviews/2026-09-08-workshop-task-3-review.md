@@ -110,3 +110,32 @@ exhaustive, clippy is clean, and the transaction model implements the same
 contract. Not proven: that the IndexedDB transaction commits, that
 `write_metadata_sync` round-trips a record the browser accepts, or that the
 clear and the head advance are genuinely atomic against a real abort.
+
+## Resolved: the implementer was right to extend the result type
+
+The implementer extended `ContinueSelected` to `{ slot, generation }` on the
+addendum's authority, flagged that the dispatch brief had not asked for it, and
+asked the reviewer to confirm. **Confirmed.**
+`docs/superpowers/specs/2026-09-04-nyon-workshop-library-addendum.md` §4 prints
+the result type verbatim:
+
+```rust
+WorkshopStoreResult::ContinueSelected {
+    slot: SlotId,
+    generation: SaveGeneration,
+}
+```
+
+The same section is equally explicit about the behaviour this task was most
+likely to be second-guessed on: "Every successful `CommitSlot` and
+`PromoteRecoveredSlot` atomically clears `selected_continue` when it names the
+mutated slot", and the save sequence is "Commit, validate the returned
+generation, then generation-checked Select Continue." So clear-on-commit is
+**spec-mandated, not an implementer's choice**, and the `commit`-helper rewrite
+in `tests/workshop_recovery.rs` is a fixture correction rather than a weakened
+assertion — the old fixture built a marker/head pairing the addendum forbids
+the product from producing.
+
+Worth stating because the opposite reading is the intuitive one: clearing
+Continue on every save looks like a user-visible regression until §4 is read,
+and the sequence that makes it safe is the mandated re-select immediately after.
