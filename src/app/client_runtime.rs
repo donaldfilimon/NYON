@@ -94,6 +94,39 @@ pub struct ClientDiagnostic {
     pub message: String,
 }
 
+/// The public snapshot of the catalog-import state machine.
+///
+/// Catalog import is an explicit Library-facing state machine, not a Boolean
+/// and not the global recovery screen: the Library has to offer Retry, Cancel,
+/// and Start When Safe over a runtime that is still on its own screen. Only
+/// bounded typed facts appear here. The validated pack, its canonical bytes,
+/// and any requested start seed stay internal retry material, so no raw
+/// imported content can reach a caller through this type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CatalogImportStatus {
+    Idle,
+    Storing {
+        expected_hash: CatalogHash,
+        starts_new_workshop: bool,
+    },
+    Stored {
+        hash: CatalogHash,
+    },
+    /// The store rejected the pack and the import can be retried from retained
+    /// material. Offers Retry and Cancel.
+    StoreFailed {
+        expected_hash: CatalogHash,
+        code: ClientDiagnosticCode,
+        starts_new_workshop: bool,
+    },
+    /// The pack is durably stored, but the resident Workshop was not
+    /// replaceable when the requested new Workshop was due to start. Offers
+    /// Start When Safe and Cancel; the stored pack is never withdrawn.
+    StartBlocked {
+        hash: CatalogHash,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ClientRuntimeError {
     #[error("Continue bootstrap is already active")]
@@ -148,13 +181,37 @@ enum ContinueBootstrap {
     },
 }
 
+/// Retained retry material for one catalog import. Bounded by the store's
+/// existing pack-size limit, because the canonical bytes are exactly what
+/// `PutPack` already accepted.
+#[derive(Clone, Debug)]
+struct ImportMaterial {
+    catalog: Box<ValidatedCatalogPackV1>,
+    canonical_pack: Box<[u8]>,
+    start_seed: Option<u64>,
+}
+
 #[derive(Clone, Debug)]
 enum CatalogImport {
     Idle,
     Storing {
         job: StoreJobId,
+        material: ImportMaterial,
+    },
+    Stored {
+        hash: CatalogHash,
+    },
+    StoreFailed {
+        code: ClientDiagnosticCode,
+        material: ImportMaterial,
+    },
+    /// Carries its own catalog rather than reading back `imported_catalog`, so
+    /// Start When Safe cannot install a different pack than the one that was
+    /// stored for it.
+    StartBlocked {
+        hash: CatalogHash,
+        seed: u64,
         catalog: Box<ValidatedCatalogPackV1>,
-        start_seed: Option<u64>,
     },
 }
 
@@ -260,8 +317,44 @@ where
         !matches!(&self.continue_bootstrap, ContinueBootstrap::Idle)
     }
 
+    /// True only while a `PutPack` job is in flight.
+    ///
+    /// This is deliberately narrower than "the import machine has unresolved
+    /// intent": a retryable failure or a blocked start is *waiting on the user*,
+    /// not on the store. Use [`Self::catalog_import_status`] for the full state.
     pub const fn catalog_import_active(&self) -> bool {
-        !matches!(&self.catalog_import, CatalogImport::Idle)
+        matches!(&self.catalog_import, CatalogImport::Storing { .. })
+    }
+
+    /// The bounded typed facts the Library presents for the import machine.
+    pub fn catalog_import_status(&self) -> CatalogImportStatus {
+        match &self.catalog_import {
+            CatalogImport::Idle => CatalogImportStatus::Idle,
+            CatalogImport::Storing { material, .. } => CatalogImportStatus::Storing {
+                expected_hash: material.catalog.catalog_hash(),
+                starts_new_workshop: material.start_seed.is_some(),
+            },
+            CatalogImport::Stored { hash } => CatalogImportStatus::Stored { hash: *hash },
+            CatalogImport::StoreFailed { code, material } => CatalogImportStatus::StoreFailed {
+                expected_hash: material.catalog.catalog_hash(),
+                code: *code,
+                starts_new_workshop: material.start_seed.is_some(),
+            },
+            CatalogImport::StartBlocked { hash, .. } => {
+                CatalogImportStatus::StartBlocked { hash: *hash }
+            }
+        }
+    }
+
+    /// True while the import machine holds intent only the user can resolve:
+    /// an in-flight store, a retryable failure, or a blocked start.
+    const fn catalog_import_unresolved(&self) -> bool {
+        matches!(
+            &self.catalog_import,
+            CatalogImport::Storing { .. }
+                | CatalogImport::StoreFailed { .. }
+                | CatalogImport::StartBlocked { .. }
+        )
     }
 
     pub fn imported_catalog_hash(&self) -> Option<CatalogHash> {
@@ -464,103 +557,218 @@ where
             .map_err(|_| ClientRuntimeError::InvalidCatalog)
     }
 
+    /// Retries a [`CatalogImportStatus::StoreFailed`] import from its retained
+    /// material, without asking the user to reselect the file.
+    pub fn retry_catalog_import(&mut self) -> Result<CatalogHash, ClientRuntimeError> {
+        match std::mem::replace(&mut self.catalog_import, CatalogImport::Idle) {
+            CatalogImport::StoreFailed { material, .. } => self.start_catalog_store(material),
+            other => {
+                self.catalog_import = other;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No retryable Workshop catalog import is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
+        }
+    }
+
+    /// Clears pending client intent for the import machine and nothing else.
+    ///
+    /// A pack that already reached durable storage stays stored: the store
+    /// request vocabulary has no pack deletion at all, and the recorded
+    /// imported catalog is a fact about what persisted, not pending intent.
+    /// The active session, its digest, its queued work, and its recovery
+    /// obligations are untouched.
+    ///
+    /// Cancel is offered only in the two states that wait on the user. An
+    /// in-flight `PutPack` may not be abandoned: the store frees its Commit
+    /// lane on the terminal poll, so dropping the job would leave that lane
+    /// occupied forever and starve the resident Workshop's own commit and
+    /// recovery-persistence obligation, which must always stay eligible to run.
+    pub fn cancel_catalog_import(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(
+            &self.catalog_import,
+            CatalogImport::StoreFailed { .. } | CatalogImport::StartBlocked { .. }
+        ) {
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "No cancellable Workshop catalog import is waiting",
+            );
+            return Err(ClientRuntimeError::RouteUnavailable);
+        }
+        self.catalog_import = CatalogImport::Idle;
+        Ok(())
+    }
+
+    /// Starts the Workshop a [`CatalogImportStatus::StartBlocked`] import still
+    /// owes, once the resident Workshop has become replaceable again.
+    pub fn start_workshop_from_blocked_import(&mut self) -> Result<(), ClientRuntimeError> {
+        let (hash, seed, catalog) = match &self.catalog_import {
+            CatalogImport::StartBlocked {
+                hash,
+                seed,
+                catalog,
+            } => (*hash, *seed, (**catalog).clone()),
+            _ => {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No stored Workshop catalog is waiting to start a new Workshop",
+                );
+                return Err(ClientRuntimeError::RouteUnavailable);
+            }
+        };
+        self.install_new_workshop(catalog, seed)?;
+        self.catalog_import = CatalogImport::Stored { hash };
+        Ok(())
+    }
+
+    /// A fresh import is accepted from `Idle` and from a terminal `Stored`, and
+    /// refused while the machine holds intent only Retry, Cancel, or Start When
+    /// Safe can resolve. Silently overwriting retained material would discard
+    /// a decision the user has not made yet.
     fn begin_catalog_import_inner(
         &mut self,
         bytes: &[u8],
         start_seed: Option<u64>,
     ) -> Result<CatalogHash, ClientRuntimeError> {
-        if self.catalog_import_active() {
+        if self.catalog_import_unresolved() {
             return Err(ClientRuntimeError::CatalogImportActive);
         }
         if start_seed.is_some() {
             self.ensure_resident_workshop_replaceable()?;
         }
+        // Content that never validates has no retry material and no Library
+        // state: it is a typed rejection that leaves the runtime exactly where
+        // it was, not a recoverable error that replaces the screen.
         let catalog = decode_catalog_pack(bytes).map_err(|_| {
-            self.enter_recovery(
+            self.push_diagnostic(
                 ClientDiagnosticCode::Catalog,
                 "The imported Workshop catalog failed validation",
             );
             ClientRuntimeError::InvalidCatalog
         })?;
         let canonical_pack = encode_catalog_pack(&catalog).map_err(|_| {
-            self.enter_recovery(
+            self.push_diagnostic(
                 ClientDiagnosticCode::Catalog,
                 "The imported Workshop catalog could not be canonicalized",
             );
             ClientRuntimeError::InvalidCatalog
         })?;
-        let expected_hash = catalog.catalog_hash();
-        let job = self
-            .workshop_store
-            .start(WorkshopStoreRequest::PutPack {
-                canonical_pack: canonical_pack.into_boxed_slice(),
-            })
-            .map_err(|error| {
-                self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-                ClientRuntimeError::Store(error)
-            })?;
-        self.catalog_import = CatalogImport::Storing {
-            job,
+        self.start_catalog_store(ImportMaterial {
             catalog: Box::new(catalog),
+            canonical_pack: canonical_pack.into_boxed_slice(),
             start_seed,
-        };
-        Ok(expected_hash)
+        })
+    }
+
+    fn start_catalog_store(
+        &mut self,
+        material: ImportMaterial,
+    ) -> Result<CatalogHash, ClientRuntimeError> {
+        let expected_hash = material.catalog.catalog_hash();
+        match self.workshop_store.start(WorkshopStoreRequest::PutPack {
+            canonical_pack: material.canonical_pack.clone(),
+        }) {
+            Ok(job) => {
+                self.catalog_import = CatalogImport::Storing { job, material };
+                Ok(expected_hash)
+            }
+            Err(error) => {
+                let message = error.to_string();
+                self.retain_failed_catalog_import(ClientDiagnosticCode::Store, message, material);
+                Err(ClientRuntimeError::Store(error))
+            }
+        }
     }
 
     fn poll_catalog_import(&mut self) {
-        let state = std::mem::replace(&mut self.catalog_import, CatalogImport::Idle);
-        let CatalogImport::Storing {
-            job,
-            catalog,
-            start_seed,
-        } = state
-        else {
+        // Only `Storing` polls. Every other state is terminal or waits on the
+        // user, and must survive an arbitrary number of further frames.
+        let CatalogImport::Storing { job, .. } = &self.catalog_import else {
             return;
         };
+        let job = *job;
         match self.workshop_store.poll(job) {
-            StoreJobState::Pending => {
-                self.catalog_import = CatalogImport::Storing {
-                    job,
-                    catalog,
-                    start_seed,
-                };
-            }
-            StoreJobState::Unknown => self.enter_recovery(
+            StoreJobState::Pending => {}
+            StoreJobState::Unknown => self.fail_catalog_import(
                 ClientDiagnosticCode::StoreProtocol,
                 "Workshop storage forgot the active catalog import job",
             ),
             StoreJobState::Complete(Err(error)) => {
-                self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
+                self.fail_catalog_import(ClientDiagnosticCode::Store, error.to_string());
             }
             StoreJobState::Complete(Ok(WorkshopStoreResult::PackStored { hash })) => {
-                if hash != catalog.catalog_hash() {
-                    self.enter_recovery(
-                        ClientDiagnosticCode::StoreProtocol,
-                        "Workshop storage persisted a catalog under the wrong hash",
-                    );
-                    return;
-                }
-                self.imported_catalog = Some((*catalog).clone());
-                if let Some(seed) = start_seed
-                    && self.install_new_workshop(*catalog, seed).is_err()
-                {
-                    // The resident Workshop became unreplaceable while the pack
-                    // was persisting. The catalog is kept, so surface the
-                    // rejection on the same recovery path every other import
-                    // completion failure uses rather than dropping it.
-                    self.enter_recovery(
-                        ClientDiagnosticCode::RouteUnavailable,
-                        "The imported Workshop catalog was saved, but the resident Workshop \
-                         changed while it was saving. Save the resident Workshop, then start a \
-                         new Workshop from the imported catalog.",
-                    );
-                }
+                self.finish_catalog_import(hash);
             }
-            StoreJobState::Complete(Ok(_)) => self.enter_recovery(
+            StoreJobState::Complete(Ok(_)) => self.fail_catalog_import(
                 ClientDiagnosticCode::StoreProtocol,
                 "Workshop catalog import returned an unexpected result",
             ),
         }
+    }
+
+    /// Moves an in-flight import to its retryable failure state, retaining the
+    /// validated pack so Retry never asks the user to reselect the file.
+    fn fail_catalog_import(&mut self, code: ClientDiagnosticCode, message: impl Into<String>) {
+        let CatalogImport::Storing { material, .. } =
+            std::mem::replace(&mut self.catalog_import, CatalogImport::Idle)
+        else {
+            return;
+        };
+        self.retain_failed_catalog_import(code, message, material);
+    }
+
+    fn retain_failed_catalog_import(
+        &mut self,
+        code: ClientDiagnosticCode,
+        message: impl Into<String>,
+        material: ImportMaterial,
+    ) {
+        self.push_diagnostic(code, message);
+        self.catalog_import = CatalogImport::StoreFailed { code, material };
+    }
+
+    fn finish_catalog_import(&mut self, hash: CatalogHash) {
+        let CatalogImport::Storing { material, .. } =
+            std::mem::replace(&mut self.catalog_import, CatalogImport::Idle)
+        else {
+            return;
+        };
+        if hash != material.catalog.catalog_hash() {
+            self.retain_failed_catalog_import(
+                ClientDiagnosticCode::StoreProtocol,
+                "Workshop storage persisted a catalog under the wrong hash",
+                material,
+            );
+            return;
+        }
+        self.imported_catalog = Some((*material.catalog).clone());
+        let Some(seed) = material.start_seed else {
+            self.catalog_import = CatalogImport::Stored { hash };
+            return;
+        };
+        let catalog = material.catalog;
+        if self.install_new_workshop((*catalog).clone(), seed).is_err() {
+            // The resident Workshop became unreplaceable while the pack was
+            // persisting. The pack is durably stored and is never withdrawn, so
+            // this is the addendum's blocked-start state offering Start When
+            // Safe and Cancel, not a dropped failure and not the global
+            // recovery screen.
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "The imported Workshop catalog was saved, but the resident Workshop changed \
+                 while it was saving. Save the resident Workshop, then start a new Workshop \
+                 from the imported catalog.",
+            );
+            self.catalog_import = CatalogImport::StartBlocked {
+                hash,
+                seed,
+                catalog,
+            };
+            return;
+        }
+        self.catalog_import = CatalogImport::Stored { hash };
     }
 
     fn install_new_workshop(

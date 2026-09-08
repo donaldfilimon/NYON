@@ -1,11 +1,11 @@
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use nyon::{
     app::{
         AppCore, AppMode,
         client_runtime::{
-            ActiveSession, ClientDiagnosticCode, ClientRuntime, ClientRuntimeEffect,
-            ClientRuntimeError, ClientScreen, MainMenuRoute,
+            ActiveSession, CatalogImportStatus, ClientDiagnosticCode, ClientRuntime,
+            ClientRuntimeEffect, ClientRuntimeError, ClientScreen, MainMenuRoute,
         },
     },
     game::model::DEFAULT_SEED,
@@ -153,6 +153,78 @@ impl WorkshopStore for FaultyPackStore {
         } else {
             self.inner.start(request)
         }
+    }
+
+    fn poll(&mut self, job: StoreJobId) -> StoreJobState {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            return self.pending.take().unwrap().1;
+        }
+        self.inner.poll(job)
+    }
+}
+
+/// A store the test can still read after the runtime has taken ownership of it.
+#[derive(Clone, Default)]
+struct SharedWorkshopStore(Rc<RefCell<MemoryWorkshopStore>>);
+
+impl WorkshopStore for SharedWorkshopStore {
+    fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
+        self.0.borrow_mut().start(request)
+    }
+
+    fn poll(&mut self, job: StoreJobId) -> StoreJobState {
+        self.0.borrow_mut().poll(job)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PutPackFault {
+    StartRejects,
+    PollFails,
+}
+
+/// Fails the first `PutPack` only, so a retry from retained material succeeds.
+struct FaultyPutPackStore {
+    inner: SharedWorkshopStore,
+    fault: Option<PutPackFault>,
+    pending: Option<(StoreJobId, StoreJobState)>,
+}
+
+impl FaultyPutPackStore {
+    fn new(inner: SharedWorkshopStore, fault: PutPackFault) -> Self {
+        Self {
+            inner,
+            fault: Some(fault),
+            pending: None,
+        }
+    }
+}
+
+impl WorkshopStore for FaultyPutPackStore {
+    fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
+        if matches!(request, WorkshopStoreRequest::PutPack { .. }) {
+            match self.fault.take() {
+                Some(PutPackFault::StartRejects) => {
+                    return Err(WorkshopStoreError::PackCapacity { max_packs: 4 });
+                }
+                Some(PutPackFault::PollFails) => {
+                    let job = StoreJobId(u64::MAX);
+                    self.pending = Some((
+                        job,
+                        StoreJobState::Complete(Err(WorkshopStoreError::QuotaExceeded {
+                            max_bytes: 1,
+                        })),
+                    ));
+                    return Ok(job);
+                }
+                None => {}
+            }
+        }
+        self.inner.start(request)
     }
 
     fn poll(&mut self, job: StoreJobId) -> StoreJobState {
@@ -375,6 +447,27 @@ fn invalid_catalog_import_preserves_a_valid_active_session() {
     );
     assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, before);
     assert!(!runtime.catalog_import_active());
+
+    // Content that never validates is a typed rejection, not a recoverable
+    // error: it holds no retry material, so it leaves the runtime on its own
+    // screen with no recovery obligation and an idle import machine.
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(runtime.catalog_import_status(), CatalogImportStatus::Idle);
+    assert_eq!(
+        runtime.diagnostics().last().unwrap().code,
+        ClientDiagnosticCode::Catalog
+    );
+
+    // The rejection did not consume the import machine either.
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    assert_eq!(runtime.begin_catalog_import(&pack_bytes).unwrap(), expected);
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: expected }
+    );
 }
 
 #[test]
@@ -619,7 +712,7 @@ fn workshop_is_not_a_rules_v1_app_mode() {
 }
 
 #[test]
-fn catalog_import_surfaces_a_failed_new_workshop_install_at_completion() {
+fn catalog_import_surfaces_a_failed_new_workshop_install_as_start_when_safe() {
     let pack_bytes = custom_pack();
     let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
     let mut runtime = runtime(MemoryWorkshopStore::default());
@@ -651,11 +744,18 @@ fn catalog_import_surfaces_a_failed_new_workshop_install_at_completion() {
 
     runtime.update(Duration::ZERO);
 
-    // The rejected install must reach the same recovery surface every other
-    // completion failure in `poll_catalog_import` uses, not vanish.
-    assert_eq!(runtime.screen(), ClientScreen::RecoverableError);
+    // The rejected install must still be surfaced rather than dropped, but as
+    // the addendum's typed blocked-start state offering Start When Safe and
+    // Cancel over a live runtime, not as the global recovery screen, which the
+    // Library cannot present Retry/Cancel on top of.
     assert_eq!(
-        runtime.recovery_diagnostic().unwrap().code,
+        runtime.catalog_import_status(),
+        CatalogImportStatus::StartBlocked { hash: expected }
+    );
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(
+        runtime.diagnostics().last().unwrap().code,
         ClientDiagnosticCode::RouteUnavailable
     );
 
@@ -667,6 +767,306 @@ fn catalog_import_surfaces_a_failed_new_workshop_install_at_completion() {
     };
     assert_eq!(workshop.history().genesis_seed()[..8], 7_u64.to_le_bytes());
 
-    runtime.dismiss_recovery();
+    // Its replacement obligation survives too: the batch it accepted is still
+    // unsaved, so replacement stays blocked exactly as it was.
+    assert!(
+        !runtime
+            .menu_capabilities()
+            .iter()
+            .find(|capability| capability.route == MainMenuRoute::NewWorkshop)
+            .unwrap()
+            .enabled
+    );
+
+    // A blocked start survives further frames rather than being polled away,
+    // and refuses a fresh import until the user resolves it.
+    runtime.update(Duration::ZERO);
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::StartBlocked { hash: expected }
+    );
+    assert_eq!(
+        runtime.begin_catalog_import(&pack_bytes),
+        Err(ClientRuntimeError::CatalogImportActive)
+    );
+
+    // Start When Safe is refused while the resident Workshop still blocks
+    // replacement, and stays retryable.
+    assert_eq!(
+        runtime.start_workshop_from_blocked_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::StartBlocked { hash: expected }
+    );
+
+    // Once the resident Workshop reaches a durable, Continue-selected save it
+    // is replaceable again and the retained start completes.
+    runtime.return_to_main_menu().unwrap();
+    for _ in 0..8 {
+        runtime.update(Duration::ZERO);
+        if runtime.continue_available() {
+            break;
+        }
+    }
+    assert!(runtime.continue_available());
+    runtime.start_workshop_from_blocked_import().unwrap();
     assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: expected }
+    );
+    let ActiveSession::Workshop(workshop) = runtime.active_session() else {
+        panic!("Start When Safe did not install the imported-catalog Workshop");
+    };
+    assert_eq!(
+        workshop.history().genesis_seed()[..8],
+        0xCA7A10_u64.to_le_bytes()
+    );
+}
+
+#[test]
+fn catalog_import_store_start_failure_is_retryable_without_entering_recovery() {
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    let shared = SharedWorkshopStore::default();
+    let mut runtime = ClientRuntime::new(
+        classic(),
+        FaultyPutPackStore::new(shared.clone(), PutPackFault::StartRejects),
+    );
+    runtime.start_new_workshop(11).unwrap();
+    let before = runtime.workshop_snapshot().unwrap().state_digest;
+
+    assert!(matches!(
+        runtime.begin_catalog_import(&pack_bytes),
+        Err(ClientRuntimeError::Store(_))
+    ));
+
+    let failed = CatalogImportStatus::StoreFailed {
+        expected_hash: expected,
+        code: ClientDiagnosticCode::Store,
+        starts_new_workshop: false,
+    };
+    assert_eq!(runtime.catalog_import_status(), failed);
+    assert!(!runtime.catalog_import_active());
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, before);
+    assert!(runtime.imported_catalog_hash().is_none());
+
+    // The failure waits on the user, so further frames must not poll it away,
+    // and a fresh import may not silently discard the retained pack.
+    runtime.update(Duration::ZERO);
+    runtime.update(Duration::ZERO);
+    assert_eq!(runtime.catalog_import_status(), failed);
+    assert_eq!(
+        runtime.begin_catalog_import(&pack_bytes),
+        Err(ClientRuntimeError::CatalogImportActive)
+    );
+
+    // Retry resumes from that retained pack rather than asking for the file.
+    assert_eq!(runtime.retry_catalog_import().unwrap(), expected);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Storing {
+            expected_hash: expected,
+            starts_new_workshop: false,
+        }
+    );
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: expected }
+    );
+    assert_eq!(runtime.imported_catalog_hash(), Some(expected));
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, before);
+}
+
+#[test]
+fn catalog_import_poll_failure_offers_cancel_without_touching_the_session() {
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    let shared = SharedWorkshopStore::default();
+    let mut runtime = ClientRuntime::new(
+        classic(),
+        FaultyPutPackStore::new(shared.clone(), PutPackFault::PollFails),
+    );
+    runtime.start_new_workshop(13).unwrap();
+    let before = runtime.workshop_snapshot().unwrap().state_digest;
+
+    assert_eq!(
+        runtime
+            .begin_new_workshop_from_catalog(&pack_bytes, 0xFA11)
+            .unwrap(),
+        expected
+    );
+    assert!(runtime.catalog_import_active());
+    runtime.update(Duration::ZERO);
+
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::StoreFailed {
+            expected_hash: expected,
+            code: ClientDiagnosticCode::Store,
+            starts_new_workshop: true,
+        }
+    );
+    assert!(!runtime.catalog_import_active());
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, before);
+    assert!(runtime.imported_catalog_hash().is_none());
+    let ActiveSession::Workshop(workshop) = runtime.active_session() else {
+        panic!("the resident Workshop did not survive the failed import");
+    };
+    assert_eq!(workshop.history().genesis_seed()[..8], 13_u64.to_le_bytes());
+
+    // Cancel clears only the pending client intent.
+    runtime.cancel_catalog_import().unwrap();
+    assert_eq!(runtime.catalog_import_status(), CatalogImportStatus::Idle);
+    assert_eq!(
+        runtime.retry_catalog_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, before);
+
+    // With the intent released, a fresh import is accepted again.
+    assert_eq!(runtime.begin_catalog_import(&pack_bytes).unwrap(), expected);
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: expected }
+    );
+}
+
+#[test]
+fn cancelling_a_blocked_catalog_import_never_deletes_the_stored_pack() {
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    let shared = SharedWorkshopStore::default();
+    let mut runtime = ClientRuntime::new(classic(), shared.clone());
+    runtime.start_new_workshop(12).unwrap();
+    assert_eq!(
+        runtime
+            .begin_new_workshop_from_catalog(&pack_bytes, 0xB10C)
+            .unwrap(),
+        expected
+    );
+
+    // The resident Workshop acquires queued work while `PutPack` is pending, so
+    // the requested replacement is refused at import completion.
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    let batch = CreatorBatchV1 {
+        expected_cursor: snapshot.active_view.view_cursor,
+        expected_tick: snapshot.active_view.tick,
+        operations: vec![CreatorOpV1::CreateSystem {
+            local: BatchLocalId(1),
+            name: ObjectName::new("Blocked Forge").unwrap(),
+            position: GalaxyPointV1::new(2_048, 0).unwrap(),
+        }],
+    };
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(batch))
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::StartBlocked { hash: expected }
+    );
+
+    let digest = runtime.workshop_snapshot().unwrap().state_digest;
+    runtime.cancel_catalog_import().unwrap();
+
+    assert_eq!(runtime.catalog_import_status(), CatalogImportStatus::Idle);
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, digest);
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(
+        runtime.start_workshop_from_blocked_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+
+    // The pack that already reached durable storage is still there, byte for
+    // byte, and is still the recorded imported catalog.
+    assert_eq!(runtime.imported_catalog_hash(), Some(expected));
+    let loaded = complete(
+        &mut *shared.0.borrow_mut(),
+        WorkshopStoreRequest::GetPack { hash: expected },
+    );
+    let WorkshopStoreResult::PackLoaded {
+        hash,
+        canonical_pack,
+    } = loaded
+    else {
+        panic!("cancelling the import removed the stored pack: {loaded:?}");
+    };
+    assert_eq!(hash, expected);
+    assert_eq!(canonical_pack.as_ref(), pack_bytes.as_slice());
+}
+
+#[test]
+fn an_in_flight_catalog_import_cannot_be_cancelled_out_of_its_commit_lane() {
+    let pack_bytes = custom_pack();
+    let expected = decode_catalog_pack(&pack_bytes).unwrap().catalog_hash();
+    let mut runtime = runtime(MemoryWorkshopStore::default());
+    runtime.start_new_workshop(14).unwrap();
+    assert_eq!(runtime.begin_catalog_import(&pack_bytes).unwrap(), expected);
+
+    // The store frees a Commit lane only on the terminal poll, so abandoning an
+    // in-flight `PutPack` would starve the resident Workshop's own commit and
+    // its recovery-persistence obligation. Cancel is offered only in the two
+    // states that wait on the user.
+    assert_eq!(
+        runtime.cancel_catalog_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Storing {
+            expected_hash: expected,
+            starts_new_workshop: false,
+        }
+    );
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert!(runtime.recovery_diagnostic().is_none());
+
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: expected }
+    );
+
+    // A terminal `Stored` has no intent left to cancel either, and the resident
+    // Workshop's Commit lane is free: it commits its own save straight after.
+    assert_eq!(
+        runtime.cancel_catalog_import(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    runtime
+        .enqueue_workshop_action(WorkshopAction::RequestSave)
+        .unwrap();
+    for _ in 0..8 {
+        runtime.update(Duration::ZERO);
+        if runtime
+            .workshop_snapshot()
+            .unwrap()
+            .store
+            .generation
+            .is_some()
+        {
+            break;
+        }
+    }
+    assert!(
+        runtime
+            .workshop_snapshot()
+            .unwrap()
+            .store
+            .generation
+            .is_some()
+    );
 }
