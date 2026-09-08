@@ -243,10 +243,20 @@ fn model_keeps_continue_explicit_and_archive_non_destructive() {
 
 #[test]
 fn wasm_source_uses_atomic_transactions_and_bounded_diagnostics() {
-    let source = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/workshop/store/web.rs"),
-    )
-    .unwrap();
+    // The browser store is split across the host-visible transaction model and
+    // the wasm-only implementation, so this contract reads both: a required
+    // substring must appear somewhere in the browser store's source, and a
+    // forbidden one must appear in none of it. Reading a single file would let
+    // a future move silently retire the contract rather than fail it.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = [
+        root.join("src/workshop/store/web.rs"),
+        root.join("src/workshop/store/web/wasm.rs"),
+    ]
+    .into_iter()
+    .map(|path| fs::read_to_string(&path).expect("browser store source is readable"))
+    .collect::<Vec<_>>()
+    .join("\n");
 
     for contract in [
         "open_with_u32(INDEXED_DB_NAME, INDEXED_DB_VERSION)",
