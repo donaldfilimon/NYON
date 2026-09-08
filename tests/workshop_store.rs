@@ -200,6 +200,15 @@ fn continue_selection_is_generation_checked(store: &mut dyn WorkshopStore) {
         None,
         "a commit must clear the Continue marker it invalidated"
     );
+    // ⚠️ THIS ASSERTION IS THE ONLY ONE IN THE REPOSITORY THAT DISTINGUISHES A
+    // COMPARE-AND-SWAP FROM A MEMBERSHIP TEST, established by mutation rather
+    // than by reading: replacing the adapters' head comparison with "is this
+    // generation retained?" leaves every other assertion in this shared body
+    // passing, and fails here alone (plus its hand-copied twin in
+    // tests/workshop_store_web.rs). `observed` is a *retained predecessor*, so
+    // a membership test accepts it and a real CAS refuses it. If you weaken,
+    // reorder or delete this line, the suite still reads like it covers the
+    // race and no longer does.
     assert!(matches!(
         select(store, slot, observed),
         Err(WorkshopStoreError::StaleGeneration {
@@ -242,9 +251,18 @@ fn continue_selection_is_generation_checked(store: &mut dyn WorkshopStore) {
         None,
         "a promotion must clear the Continue marker it invalidated"
     );
+    // Bound rather than left as `..`: an unbound match proves only that *some*
+    // StaleGeneration was raised, not that it named the right pair. This one is
+    // not sensitive to the membership-test mutation above -- `second` is not a
+    // retained generation once promotion has recovered `first` -- so it does
+    // not remove that single point of proof, and is not claimed to.
     assert!(matches!(
         select(store, slot, second),
-        Err(WorkshopStoreError::StaleGeneration { .. })
+        Err(WorkshopStoreError::StaleGeneration {
+            expected,
+            actual,
+            ..
+        }) if expected == second && actual == promoted
     ));
     select(store, slot, promoted).unwrap();
     assert_eq!(list(store).selected_continue, Some(slot));

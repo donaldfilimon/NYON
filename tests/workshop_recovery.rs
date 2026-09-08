@@ -86,8 +86,22 @@ fn create_selected(store: &mut dyn WorkshopStore, archive: Box<[u8]>) -> (SlotId
 /// the returned generation, then issue a generation-checked `SelectContinue`.
 /// A commit clears any Continue marker naming the slot, because the new head
 /// invalidates a marker chosen against the old one, so a fixture that stopped
-/// at the commit would build a store state the product can no longer produce
-/// and these recovery journeys would start with no Continue candidate at all.
+/// at the commit would leave these recovery journeys with no Continue
+/// candidate at all and they would assert against the wrong starting state.
+///
+/// **Not** because the product cannot reach a committed-but-unselected slot —
+/// an earlier version of this comment said so and it was false. §4 states the
+/// opposite for the crash case: "If the process stops between those
+/// operations, startup exposes no selected Continue candidate rather than
+/// opening a generation that was never explicitly selected", and §12 lists
+/// "process failure after Commit or Promote but before Select Continue" among
+/// the races that must be qualified. That state is *more* reachable since
+/// commit began clearing the marker, not less.
+///
+/// What the product genuinely can no longer produce is the different state the
+/// old fixture built: a marker still naming a generation the head has already
+/// superseded. Clearing is atomic with the commit, so that pairing cannot
+/// survive a single mutation.
 fn commit(
     store: &mut dyn WorkshopStore,
     slot: SlotId,

@@ -75,6 +75,40 @@ fn selected_store(archive: Box<[u8]>) -> MemoryWorkshopStore {
     store
 }
 
+/// A store holding a committed slot with a valid head and **no** Continue
+/// marker — the state addendum §12 requires be qualified as
+/// "process failure after Commit or Promote but before Select Continue".
+///
+/// Deliberately distinct from `selected_store`: this one never issues
+/// `SelectContinue`, and it commits so the head has genuinely advanced rather
+/// than resting at creation.
+fn committed_but_unselected_store(archive: Box<[u8]>) -> MemoryWorkshopStore {
+    let mut store = MemoryWorkshopStore::default();
+    let created = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Two-System Forge").unwrap(),
+            archive: archive.clone(),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
+        panic!("unexpected create result: {created:?}");
+    };
+    let committed = complete(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive,
+        },
+    );
+    assert!(
+        matches!(committed, WorkshopStoreResult::SlotCommitted { .. }),
+        "unexpected commit result: {committed:?}"
+    );
+    store
+}
+
 fn custom_pack() -> Vec<u8> {
     let mut value: serde_json::Value =
         serde_json::from_slice(include_bytes!("../assets/workshop/core-pack-v1.json")).unwrap();
@@ -270,6 +304,38 @@ fn continue_remains_disabled_when_storage_has_no_explicit_selection() {
 
     assert_eq!(runtime.screen(), ClientScreen::MainMenu);
     assert!(!runtime.continue_available());
+    assert!(runtime.recovery_diagnostic().is_none());
+}
+
+#[test]
+fn continue_stays_disabled_for_a_committed_slot_that_was_never_selected() {
+    // Addendum §12 names this race explicitly: "process failure after Commit
+    // or Promote but before Select Continue", which "must reject or expose no
+    // selected candidate rather than silently opening an unvalidated
+    // generation". §4 states the same for the crash case.
+    //
+    // `continue_remains_disabled_when_storage_has_no_explicit_selection` looks
+    // like it covers this and does not: it runs against an EMPTY store, so it
+    // only proves "no slots means no Continue". The state that matters here is
+    // the harder one — a slot that exists, whose head is valid and committed,
+    // with the marker absent. Nothing exercised it at the runtime level until
+    // now, and the commit that introduced clear-on-commit made it strictly
+    // easier to reach.
+    let mut runtime = runtime(committed_but_unselected_store(valid_archive(0x5EED)));
+
+    assert_eq!(
+        runtime.select_menu_route(MainMenuRoute::Continue),
+        Err(ClientRuntimeError::ContinueUnavailable)
+    );
+
+    runtime.begin_continue_bootstrap().unwrap();
+    runtime.update(Duration::ZERO);
+
+    // Never silently open the unselected generation.
+    assert!(!runtime.continue_available());
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+    // Not a fault: an unselected slot is an ordinary outcome, not recovery.
     assert!(runtime.recovery_diagnostic().is_none());
 }
 
