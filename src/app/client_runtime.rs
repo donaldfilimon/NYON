@@ -26,7 +26,9 @@ use crate::{
     },
 };
 
-use library::{LibraryCandidate, LibraryEvent, LibraryOpen, WorkshopLibraryClient};
+use library::{
+    LibraryBeginError, LibraryCandidate, LibraryEvent, LibraryOpen, WorkshopLibraryClient,
+};
 
 const MAX_CLIENT_DIAGNOSTICS: usize = 100;
 const ARCHIVE_REPLAY_UNITS_PER_UPDATE: u64 = 1_024;
@@ -389,11 +391,18 @@ where
             }
             screen => screen,
         };
+        // The active check above already refused this case, so `Active` is
+        // unreachable here; it is mapped rather than unwrapped because the
+        // client enforces its own precondition and this route must not
+        // contradict it.
         self.library
             .begin(&mut self.workshop_store, LibraryOpen::SelectedContinue)
-            .map_err(|error| {
-                self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
-                ClientRuntimeError::Store(error)
+            .map_err(|error| match error {
+                LibraryBeginError::Active => ClientRuntimeError::BootstrapActive,
+                LibraryBeginError::Store(error) => {
+                    self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
+                    ClientRuntimeError::Store(error)
+                }
             })?;
         self.screen = ClientScreen::Loading;
         Ok(())

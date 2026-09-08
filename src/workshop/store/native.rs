@@ -715,6 +715,13 @@ impl WorkshopStore for NativeWorkshopStore {
 
     /// Drops the worker's receiver as well as the lane. The thread finishes its
     /// write and its `send` fails silently; nothing is cancelled or undone.
+    ///
+    /// Freeing the lane early is the first thing that lets two Commit-class
+    /// workers overlap inside one process. That composes because
+    /// `NativeStoreWorker::execute` takes the exclusive `store-v1.lock` before
+    /// it reads the manifest and holds it across the whole read-modify-write,
+    /// so an abandoned worker and its successor serialize on that lock exactly
+    /// as two store instances over one root already do.
     fn abandon(&mut self, job: StoreJobId) -> bool {
         self.pending.remove(&job);
         self.jobs.abandon(job)

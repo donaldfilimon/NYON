@@ -59,6 +59,20 @@ pub struct LibraryCandidate {
     pub history: WorkshopHistory,
 }
 
+/// Why a [`WorkshopLibraryClient::begin`] was refused.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum LibraryBeginError {
+    /// An open is already in flight. Starting a second one would overwrite the
+    /// phase holding the first one's job, and nothing would ever poll it: that
+    /// wedges its lane for the store's lifetime, and `Selecting` holds the
+    /// Commit lane specifically. Enforced rather than documented, because this
+    /// is the exact defect class [`WorkshopStore::abandon`] exists to close.
+    #[error("a Workshop Library open is already active")]
+    Active,
+    #[error("Workshop storage rejected the request: {0}")]
+    Store(#[from] WorkshopStoreError),
+}
+
 /// One poll's outcome.
 #[derive(Debug)]
 pub enum LibraryEvent {
@@ -145,13 +159,19 @@ impl WorkshopLibraryClient {
         !matches!(self.phase, Phase::Idle)
     }
 
-    /// Starts one open. The caller owns the failure policy for the initial
-    /// `start`, so a store rejection is returned rather than absorbed.
+    /// Starts one open.
+    ///
+    /// Refused while one is already in flight, so a caller cannot strand the
+    /// job the current phase holds. The caller owns the failure policy for the
+    /// initial `start`, so a store rejection is returned rather than absorbed.
     pub fn begin(
         &mut self,
         store: &mut impl WorkshopStore,
         open: LibraryOpen,
-    ) -> Result<(), WorkshopStoreError> {
+    ) -> Result<(), LibraryBeginError> {
+        if self.is_active() {
+            return Err(LibraryBeginError::Active);
+        }
         match open {
             LibraryOpen::SelectedContinue => {
                 let job = store.start(WorkshopStoreRequest::ListSlots)?;

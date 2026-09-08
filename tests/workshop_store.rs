@@ -570,7 +570,7 @@ fn commit_and_load_jobs_have_independent_in_flight_lanes() {
 }
 
 #[test]
-fn an_unpolled_job_holds_its_lane_and_only_the_terminal_poll_frees_it() {
+fn an_unpolled_job_holds_its_lane_and_no_incidental_action_frees_it() {
     // The invariant on `WorkshopStore::start`, made executable. A client that
     // drops a job ID without reaching a terminal state wedges that lane for the
     // lifetime of the store. On the Commit lane that starves `CommitSlot` and

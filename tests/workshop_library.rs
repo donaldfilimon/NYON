@@ -7,7 +7,9 @@
 //! exactly what `WorkshopLibraryClient` is for.
 
 use nyon::{
-    app::client_runtime::library::{LibraryEvent, LibraryOpen, WorkshopLibraryClient},
+    app::client_runtime::library::{
+        LibraryBeginError, LibraryEvent, LibraryOpen, WorkshopLibraryClient,
+    },
     workshop::{
         WorkshopHistory, decode_catalog_pack, encode_archive,
         store::{
@@ -309,4 +311,122 @@ fn a_slot_with_no_continue_marker_reports_no_candidate_rather_than_guessing() {
     ));
     assert!(!client.is_active());
     assert_eq!(list(&mut store).selected_continue, None);
+}
+
+#[test]
+fn a_second_begin_is_refused_rather_than_stranding_the_first_open() {
+    // The precondition is enforced, not documented. Overwriting the phase would
+    // drop the job it holds, and nothing else polls it: that wedges the lane for
+    // the store's lifetime, which is the exact defect `WorkshopStore::abandon`
+    // exists to close. `Selecting` holds the Commit lane specifically, so the
+    // cost would be the resident Workshop's ability to save.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0918);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(&mut store, LibraryOpen::SelectedContinue)
+        .unwrap();
+    assert!(client.is_active());
+    assert_eq!(
+        client.begin(&mut store, LibraryOpen::SelectedContinue),
+        Err(LibraryBeginError::Active)
+    );
+
+    // The refusal is total: the first open is untouched and still completes.
+    let event = drive(&mut client, &mut store, |_, _| {});
+    let candidate = match event {
+        LibraryEvent::Ready(candidate) => candidate,
+        other => panic!("the refused second begin disturbed the first: {other:?}"),
+    };
+    assert_eq!(candidate.loaded.slot, slot);
+    assert_eq!(candidate.loaded.generation, generation);
+
+    // Both lanes are free afterwards, which they would not be had the second
+    // begin replaced a phase holding a job.
+    assert!(
+        store
+            .start(WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: generation,
+                archive: archive(0x0919),
+            })
+            .is_ok()
+    );
+    assert!(store.start(WorkshopStoreRequest::ListSlots).is_ok());
+}
+
+#[test]
+fn a_second_begin_cannot_strand_the_commit_lane_job_that_selecting_holds() {
+    // The refusal that actually matters, and the one the previous test cannot
+    // reach. A second `SelectedContinue` starts `ListSlots` on the *LoadOrImport*
+    // lane, so while the first open sits in `Selecting` -- which holds the
+    // *Commit* lane -- the store has no reason to refuse it. Nothing but the
+    // client's own guard stops the phase being overwritten and that Commit job
+    // stranded, which is precisely the wedge that starves the resident
+    // Workshop's save and its recovery-persistence obligation.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0A18);
+
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(
+            &mut store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        )
+        .unwrap();
+
+    // Poll 1 completes the load and starts the replay; poll 2 completes the
+    // replay and starts the generation-checked selection. Asserted rather than
+    // assumed: if the phase shape ever changes, this fails loudly instead of
+    // quietly testing a different state than it names.
+    assert!(matches!(client.poll(&mut store), LibraryEvent::Pending));
+    assert!(matches!(client.poll(&mut store), LibraryEvent::Pending));
+    assert!(client.is_active());
+    assert!(
+        matches!(
+            store.start(WorkshopStoreRequest::PutPack {
+                canonical_pack: Box::from(
+                    &include_bytes!("../assets/workshop/core-pack-v1.json")[..]
+                ),
+            }),
+            Err(nyon::workshop::store::WorkshopStoreError::Busy { .. })
+        ),
+        "the client must be in Selecting, holding the Commit lane"
+    );
+
+    // The LoadOrImport lane is free, so the store would happily accept the
+    // second open's `ListSlots`. Only the client refuses.
+    assert_eq!(
+        client.begin(&mut store, LibraryOpen::SelectedContinue),
+        Err(LibraryBeginError::Active)
+    );
+
+    // The held Commit job is still reachable and still completes.
+    let event = client.poll(&mut store);
+    assert!(
+        matches!(event, LibraryEvent::Ready(_)),
+        "the selection job was stranded: {event:?}"
+    );
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+    assert!(
+        store
+            .start(WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: generation,
+                archive: archive(0x0A19),
+            })
+            .is_ok(),
+        "the Commit lane must be free once the selection completed"
+    );
 }
