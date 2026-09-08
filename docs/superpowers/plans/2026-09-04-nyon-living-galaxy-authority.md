@@ -12,16 +12,35 @@
 
 ## Checklist status (recorded 2026-09-08)
 
-**84 boxes, none checked. Task 1 is done; Tasks 2, 3 and 4 are not started.**
-Task 1 landed as `1283e55` (canonical V2 wire identities) and `4f3d28e` (isolation
-guard hardening): `src/living/{mod,ids,wire}.rs` plus `tests/living_wire.rs` and
-`tests/fixtures/living-v2/vectors.json`. Tasks 2-4 have no files on disk —
-no `living/catalog.rs`, `living/model.rs`, `living/genesis.rs`, `living/command.rs`,
-`living/receipt.rs`, and no `assets/living/core-pack-v2.json`.
+**⚠️ REWRITTEN 2026-09-08 19:4x. The paragraph that stood here contradicted itself
+and the tree, and it is the first thing an implementer of the next task reads.**
+It said "Tasks 2, 3 and 4 are not started" and "Tasks 2-4 have no files on disk —
+no `living/catalog.rs`, `living/model.rs` … and no `assets/living/core-pack-v2.json`",
+and then stated two lines later that Task 2 had landed. All three of those files
+exist. It also wrote the paths as `src/living/…`; they are under
+`crates/nyon-workshop-core/src/living/`, a different crate from `nyon`.
 
-**Task 2 landed on 2026-09-08 as `71e5b6f`** (`living/catalog.rs`,
-`assets/living/core-pack-v2.json`, 24 tests), so this plan's next open task is
-Task 3.
+Measured against the tree rather than carried forward:
+
+| Task | State | Evidence |
+|---|---|---|
+| 1 — canonical V2 wire identities | **landed** | `1283e55`, plus `4f3d28e` isolation-guard hardening. `crates/nyon-workshop-core/src/living/{mod,ids,wire}.rs`, `tests/living_wire.rs`, `tests/fixtures/living-v2/vectors.json` |
+| 2 — validated rules catalog | **landed** | `71e5b6f`. `living/catalog.rs`, `assets/living/core-pack-v2.json`, 24 tests |
+| 3a — the V2 authority state schema | **landed and reviewed** | `50c50f9` (1,848 lines + 50 integration tests), review `b6f33ab` APPROVE WITH FINDINGS; F1 closed by `2b7bfbc`, F2 by `06873f6`, F3 recorded in the program plan |
+| 3b — `living/genesis.rs` | **open, and is the next task** | no file on disk |
+| 3c — genesis and state vectors | open | derived outside this crate, never from its output |
+| 4 — commands, receipts, events | open | blocked on nothing; owes the spec its entity-kind renumbering note |
+
+**Two things 3b must not re-derive, both of which already exist.**
+`LivingGalaxyStateV2::validate(&ValidatedLivingCatalogPackV2)` landed with 3a —
+roughly 520 lines of referential-integrity and range checking — so **3b's
+"validate" step is a call to that method, not a second implementation**. And
+`LivingGenesisGeneratorV2` is **provenance only**, an ID-and-version record: the
+task wording reads as though it writes a generator and it does not, since the spec
+forbids rerunning generator code on decode. The actual generators are Experience
+Task 4.
+
+The box counts below were never maintained and should be read as intent, not state.
 
 **The three normative gaps that blocked Tasks 3 and 4 are CLOSED as of
 2026-09-08.** They were resolved on the owner's decision and written into
