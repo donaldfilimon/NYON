@@ -12,6 +12,7 @@
 
 pub mod catalog;
 pub mod ids;
+pub mod model;
 pub mod wire;
 
 pub use catalog::{
@@ -34,6 +35,22 @@ pub use ids::{
     autonomous_entity_id_v2, catalog_hash_v2, claim_rank_v2, creator_entity_digest_v2,
     creator_entity_id_v2, event_digest_v2, event_id_v2, fork_branch_digest_v2, fork_branch_id_v2,
     receipt_digest_v2, revision_id_v2, root_branch_digest_v2, root_branch_id_v2, state_digest_v2,
+};
+pub use model::{
+    LIVING_DELIVERY_ACCUMULATOR_BOUND_V2, LIVING_MAX_CIVILIZATIONS_V2, LIVING_MAX_DEPOSITS_V2,
+    LIVING_MAX_FLEETS_V2, LIVING_MAX_HAZARDS_V2, LIVING_MAX_HULLS_PER_FLEET_V2,
+    LIVING_MAX_HULLS_V2, LIVING_MAX_INDUSTRIES_V2, LIVING_MAX_LANES_V2, LIVING_MAX_ROUTES_V2,
+    LIVING_MAX_SHIPMENTS_V2, LIVING_MAX_STARS_V2, LIVING_MAX_SYSTEMS_V2, LIVING_MAX_WORLDS_V2,
+    LIVING_OCCUPATION_TRANSFER_TICKS_V2, LIVING_RELATION_BOUND_V2, LivingAgreementKindV2,
+    LivingAgreementV2, LivingBlockedReasonV2, LivingCivilizationStatusV2, LivingCivilizationV2,
+    LivingColonyV2, LivingConstructionJobV2, LivingCountersV2, LivingDepositV2,
+    LivingFacilityStatusV2, LivingFacilityV2, LivingFleetLocationV2, LivingFleetOrderKindV2,
+    LivingFleetOrderV2, LivingFleetV2, LivingFreightRouteV2, LivingGalaxyStateV2, LivingHazardV2,
+    LivingHubV2, LivingHullJobV2, LivingHullV2, LivingInventoryV2, LivingLaneV2,
+    LivingObservationV2, LivingObservedFacilityV2, LivingObservedHullV2, LivingOccupationV2,
+    LivingPolicyV2, LivingRelationReasonsV2, LivingRelationV2, LivingResourceV2, LivingRouteKindV2,
+    LivingSettlementClaimV2, LivingShipmentDispositionV2, LivingShipmentV2, LivingStarV2,
+    LivingSystemV2, LivingValidationErrorV2, LivingWarV2, LivingWorldV2,
 };
 pub use wire::{
     LIVING_MAX_ARCHIVE_BYTES_V2, LIVING_MAX_CANONICAL_DEPTH_V2, LIVING_MAX_PACK_BYTES_V2,
