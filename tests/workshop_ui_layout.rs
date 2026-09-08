@@ -76,8 +76,8 @@ fn fixed_action_labels_supplement_icons_across_responsive_presentations() {
                         .find(|control| control.action_id == form.submit_control.action_id)
                         .unwrap();
                     assert!(!cancel.bounds.overlaps(submit.bounds));
-                    assert!(cancel.bounds.width() >= 44.0 && cancel.bounds.height() >= 39.99);
-                    assert!(submit.bounds.width() >= 44.0 && submit.bounds.height() >= 39.99);
+                    assert!(cancel.bounds.width() >= 44.0 && cancel.bounds.height() >= 44.0);
+                    assert!(submit.bounds.width() >= 44.0 && submit.bounds.height() >= 44.0);
                 }
                 assert!(
                     build_platform_ui_batch(&frame, &AtlasMetrics::embedded().unwrap()).is_ok(),

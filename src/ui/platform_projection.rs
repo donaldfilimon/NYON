@@ -52,7 +52,7 @@ pub(crate) fn modal_presentation(
                     id: node.id.clone(),
                     action: node.action_id.clone(),
                     text: String::new(),
-                    height: 40.0,
+                    height: 44.0,
                 });
             }
             continue;
@@ -66,7 +66,7 @@ pub(crate) fn modal_presentation(
     }
     let title_height = 18.0 * layout.ui_scale * 1.35;
     let body_height = rows.iter().map(|row| row.height).sum::<f32>();
-    let footer_height = if width < 400.0 { 60.0 } else { 40.0 };
+    let footer_height = if width < 400.0 { 60.0 } else { 44.0 };
     let fixed_height = title_height + 16.0 + footer_height + 16.0;
     let scrolling = body_height + fixed_height > layout.canvas.height();
     let height = (body_height + fixed_height).min(layout.canvas.height());
