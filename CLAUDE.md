@@ -27,8 +27,8 @@ cargo run --release                                         # native app
 
 `tools/` holds the scripted paths: `build-web.sh` (runs both backend builds),
 `check-workshop.sh` (artifact shape, freshness, static contracts, three Rust
-suites), `benchmark-workshop.sh`. `.remember/` and `.superpowers/` at the root are
-session tooling, not project files.
+suites), `benchmark-workshop.sh`. `.claude/`, `.remember/` and `.superpowers/` at
+the root are session tooling, not project files.
 
 ## Layout
 
@@ -49,10 +49,16 @@ session tooling, not project files.
   `platform/shell.rs` and `platform/workshop.rs`; alongside it sit
   `platform_sdf`, `platform_projection`, `platform_inspector`, and the split
   native/web backends `platform_native.rs` / `platform_web.rs`. Workshop screens
-  live in `workshop*.rs`, plus `creator`, `guide`, `accessibility`,
-  `virtual_list`, `start_marker`.
-- `workshop` is the client side of the Workshop: `session` and `store`, with the
-  browser IndexedDB/localStorage path in `store/web.rs`.
+  are `workshop.rs` (the immutable, render-neutral UI model that returns typed
+  intents and never mutates authority) with private builders under
+  `workshop/{creator_defaults,history,outliner,removal,semantics}.rs`, plus the
+  siblings `workshop_inspector`, `workshop_layout`, `workshop_view` and
+  `creator`, `guide`, `accessibility`, `virtual_list`, `start_marker`.
+- `workshop` is the client side of the Workshop. `session.rs` paces it;
+  `store.rs` is the facade holding the `WorkshopStore` trait, the request/result
+  and error taxonomy, `SlotId`/`SlotName`/`SaveGeneration` and the job table,
+  over three adapters: `store/memory.rs` (unconditional), `store/native.rs`
+  (`cfg(not(wasm32))`), and `store/web.rs`. See the wasm split under *Traps*.
 - `app` is the runtime: `core` (and `core/session.rs`), `client_runtime`,
   `input_router`, `durable_exit`, `onboarding`, `settings`.
 - `platform` splits the entry points into `native.rs` and `web.rs`; `main.rs` is
@@ -65,10 +71,12 @@ session tooling, not project files.
 
 ## Living Galaxy V2
 
-`crates/nyon-workshop-core/src/living/` (`mod`, `ids`, `wire`) is the Living
-Galaxy V2 authority island, landed 2026-09-06 in `1283e55` and `4f3d28e`. As of
-2026-09-08 nothing under `src/` consumes it, and the crate root re-exports the V1
-names but not the V2 ones, so callers path through `living::`. Its binding
+`crates/nyon-workshop-core/src/living/` (`mod`, `ids`, `model`, `wire`,
+`catalog`) is the Living Galaxy V2 authority island, landed 2026-09-06 in
+`1283e55` and `4f3d28e`, with the catalog and the frozen V2 state schema added
+2026-09-08 (`50c50f9`). As of 2026-09-08 nothing under `src/` consumes it
+(`grep -rn living src/` is empty), and the crate root re-exports the V1 names but
+not the V2 ones, so callers path through `living::`. Its binding
 contract is `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`; its
 evidence is `crates/nyon-workshop-core/tests/living_wire.rs` read against
 `tests/fixtures/living-v2/vectors.json`. Two rules that suite enforces
@@ -83,9 +91,11 @@ mechanically, and one it cannot:
   cannot catch a conversion whose V1 operand type is never spelled, or one
   written downstream; the test's own doc comment states that boundary.
 - **Adding a module to this crate is a two-place edit.** `CRATE_SOURCES` in
-  `living_wire.rs` `include_str!`s every file, and a companion test resolves
-  every `mod` declaration against that list and asserts the count is exactly 10.
-  A new `pub mod` fails the suite until both are updated.
+  `living_wire.rs` `include_str!`s every file (13 as of 2026-09-08), and a
+  companion test resolves every `mod` declaration against that list, asserting a
+  literal declaration count (12: eight top-level, four under `living`). A new
+  `pub mod` fails the suite on both counts until the array and the number are
+  updated together.
 - **`vectors.json` is not a golden file, and no test can tell you that.** Every
   expected digest was derived independently from section 10 of the rules spec,
   never from this crate's output. The suite only compares against the file, so
@@ -103,9 +113,10 @@ A browser release is a pair of artifacts, not one: `build-web-webgpu.sh` and
 target directory, and emit `dist/webgpu` and `dist/webgl`. `web/loader.js` picks
 between them before graphics initialization, and `?backend=webgl2` forces the
 WebGL2 artifact; `web/` is served beside the artifact rather than compiled into
-it. Everything under `assets/` (shaders, the UI atlas, `workshop/core-pack-v1.json`)
-does reach the wasm, through `include_str!` and `include_bytes!`, which is why it
-counts as a build input for freshness.
+it. Everything under `assets/` (shaders, the UI atlas, and the two catalog
+packs `workshop/core-pack-v1.json` and `living/core-pack-v2.json`) does reach the
+wasm, through `include_str!` and `include_bytes!`, which is why `check-workshop.sh`
+lists the whole directory as a freshness input.
 
 `tools/ui-atlas/` is an independent Cargo project with its own lockfile and its
 own ignored target dir. It runs `tools/build-ui-atlas.rs` to rasterize Inter plus
@@ -126,9 +137,10 @@ recovery, client, presentation, accessibility and the four `workshop_ui_*` UI
 suites. Shared fixtures are in `tests/common/`.
 
 `crates/nyon-workshop-core` has its own `tests/`: `archive`, `creator`,
-`history`, `pack`, `simulation`, `two_system_forge`, `living_wire`, with
-`common/` and `fixtures/living-v2/`. The suite list in the CI workflow comment
-predates `living_wire`; do not read it as complete.
+`history`, `pack`, `simulation`, `two_system_forge`, and the three Living V2
+suites `living_wire`, `living_model`, `living_catalog`, with `common/` and
+`fixtures/living-v2/`. The suite list in the CI workflow comment predates all
+three; do not read it as complete.
 
 ## Docs
 
@@ -165,3 +177,12 @@ any conflict.
   that is not a code problem. Rebuild with `./tools/build-web.sh`, then re-run it.
 - `advisory_gpu` printing `SKIP:` is a pass on a machine without a usable adapter.
   Do not report it as GPU coverage.
+- **A green native gate is zero evidence for the browser store.**
+  `src/workshop/store/web.rs` compiles everywhere and holds the schema constants
+  plus `IndexedDbTransactionModel`, a pure host-testable oracle for the
+  transaction boundary (mutations become visible only after it commits). The
+  real adapter is `store/web/wasm.rs`, ~1,500 lines behind `cfg(wasm32)` that
+  `cargo clippy --all-targets --all-features` never sees. Only the wasm gate in
+  `AGENTS.md` compiles or lints it, so run that sequence after touching it, and
+  do not read a passing `workshop_store_web` suite as coverage of the real
+  IndexedDB path. The same asymmetry applies to `store/native.rs` under wasm.
