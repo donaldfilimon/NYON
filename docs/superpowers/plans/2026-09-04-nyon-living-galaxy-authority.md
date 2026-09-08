@@ -10,6 +10,28 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-design.md`, `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`, `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-experience.md`, and `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-qualification.md`.
 
+## Checklist status (recorded 2026-09-08)
+
+**84 boxes, none checked. Task 1 is done; Tasks 2, 3 and 4 are not started.**
+Task 1 landed as `1283e55` (canonical V2 wire identities) and `4f3d28e` (isolation
+guard hardening): `src/living/{mod,ids,wire}.rs` plus `tests/living_wire.rs` and
+`tests/fixtures/living-v2/vectors.json`. Tasks 2-4 have no files on disk —
+no `living/catalog.rs`, `living/model.rs`, `living/genesis.rs`, `living/command.rs`,
+`living/receipt.rs`, and no `assets/living/core-pack-v2.json`.
+
+**Two constraints on resuming, both recorded rather than invented.** Task 2
+(catalog) is *not* blocked: none of the three normative gaps in
+`docs/superpowers/reviews/2026-09-06-living-authority-contract-gaps.md` touch it.
+Tasks 3 and 4 may be dispatched but **must not freeze canonical vectors** until
+those three gaps — the undefined `canonical_receipt_bytes` payload, the
+historical-snapshot versus live-allocator conflation of `accepted_sequence` /
+`branch_sequence`, and the ordinal registries and creator-batch limits that no
+document actually publishes — are closed as normative text in
+`docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`. That file is
+`Status: Proposal only`; adopting, amending or rejecting it is a spec decision.
+Vectors must also be derived from spec text, never from running the
+implementation, as Task 1's were.
+
 ## Global Constraints
 
 - Preserve `#![forbid(unsafe_code)]`, the two-member workspace, Classic RulesV1, WorkshopV1 byte formats, storage identities, limits, phase order, fixtures, and goldens.

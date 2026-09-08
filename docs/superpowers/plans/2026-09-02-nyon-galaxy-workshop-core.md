@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-02-nyon-v2-design.md`
 
+## Checklist status (recorded 2026-09-08)
+
+**0 of 39 boxes are checked and that does not mean nothing landed.** Every file
+this plan names exists, with matching suites in `crates/nyon-workshop-core/tests/`
+(`pack`, `creator`, `simulation`, `two_system_forge`, `history`, `archive`), and
+21 files under `crates/nyon-workshop-core` were committed in `fc38672`. Two things
+here also postdate this plan and fall outside its file map: the separate fuzz
+workspace at `crates/nyon-workshop-core/fuzz/`, and `src/living/`, which belongs
+to the Living Galaxy V2 program. Believe git; this list was abandoned as a
+tracking mechanism, not completed.
+
 ## Global Constraints
 
 - Complete verified NYON identity restoration before this plan.

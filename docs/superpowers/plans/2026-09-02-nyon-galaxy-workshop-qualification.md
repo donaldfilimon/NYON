@@ -10,6 +10,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-02-nyon-v2-design.md`
 
+## Checklist status (recorded 2026-09-08)
+
+**Unlike the core and client plans, this one is genuinely unexecuted.** 0 of 30
+boxes are checked *and* the Task 1 deliverable does not exist: there is no
+`docs/qualification/` directory and no
+`docs/qualification/2026-09-02-galaxy-workshop-evidence.md`. No live-matrix,
+performance, or accessibility qualification artifact has ever been produced for
+Workshop V1. Treat every runtime, accessibility, recovery, offline, performance
+and cross-platform claim about Workshop V1 as unevidenced until this plan runs.
+
 ## Global Constraints
 
 - Begin only after the core and client child plans are source-clean.

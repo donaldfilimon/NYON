@@ -15,6 +15,14 @@
 - `docs/superpowers/plans/2026-09-04-nyon-living-galaxy-foundation.md`
 - `docs/superpowers/plans/2026-09-04-nyon-living-galaxy-experience.md`
 
+## Checklist status (recorded 2026-09-08)
+
+**42 boxes, none checked, while Program Tasks 0 and 1 are done in git.** Task 0's
+Workshop V1 baseline is the gated recovery point `fc38672`…`02f797f`, `12abd0f`;
+Task 1's five plan documents are tracked and committed (`5b956cc`, `27b91c1`).
+The live record is `.superpowers/sdd/2026-09-04-nyon-living-galaxy-program/progress.md`,
+which flags this exact trap itself. Believe git.
+
 ## Program Invariants
 
 ### Completion-plan approval and resumption, 2026-09-04

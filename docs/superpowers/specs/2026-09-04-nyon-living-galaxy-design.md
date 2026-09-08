@@ -6,7 +6,7 @@ Status: Approved for implementation by the user's explicit NYON Living Galaxy Co
 
 Product direction: Full Living Galaxy approved in conversation; execute through the dependency-ordered program plan and its independent review gates
 
-Canonical checkout: `/Users/donaldfilimon/Public/NYON`
+Canonical checkout: `/Users/donaldfilimon/dev/active/NYON` (moved from `~/Public/NYON` on 2026-09-05)
 
 ## 1. Product promise
 

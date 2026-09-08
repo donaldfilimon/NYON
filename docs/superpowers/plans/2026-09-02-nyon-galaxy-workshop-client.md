@@ -10,6 +10,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-02-nyon-v2-design.md`
 
+## Checklist status (recorded 2026-09-08)
+
+**0 of 39 boxes are checked and that does not mean nothing landed.** Every file
+this plan names exists and is substantial — `src/workshop/session.rs`,
+`src/workshop/store.rs`, `src/workshop/store/web.rs`, `src/app/client_runtime.rs`,
+`src/presentation/workshop.rs`, `src/engine/backend.rs`, `web/loader.js`, and the
+three `tools/` scripts — landed through `fc38672` and refactored by `1c32f26`,
+`52b8844`, `e0b5235`. What is *not* closed is tracked in
+`docs/superpowers/reviews/2026-09-04-workshop-v1-baseline-review.md`, whose
+findings 2, 5, 7, 8 and 9 are still `Status: Open`. Read that review, not these
+boxes.
+
 ## Global Constraints
 
 - Complete the core plan before client integration.

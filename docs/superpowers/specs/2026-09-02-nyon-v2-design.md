@@ -14,7 +14,7 @@ The accepted [Workshop V1 Library and Portable Transfer Addendum](2026-09-04-nyo
 
 This design replaces the prior mega-platform roadmap with one executable product program: an offline creative galaxy sandbox. The historical [Intergalactic Warfare design](2026-09-02-intergalactic-warfare-design.md) remains the source of the frozen RulesV1 contracts, but it is not current execution authority.
 
-The canonical checkout is `/Users/donaldfilimon/Public/NYON` on local `main` with no remote. The verified RulesV1 source tree was reconstructed there, and commit `cdfb903` restored the breaking NYON package, crate, binary, browser, product, and primary-storage identity with read-only legacy fallback. Repository relocation, baseline reconstruction, identity restoration, and promotion are completed historical operations and must not be repeated.
+The canonical checkout is `/Users/donaldfilimon/dev/active/NYON` on local `main` with no remote (moved from `~/Public/NYON` on 2026-09-05). The verified RulesV1 source tree was reconstructed there, and commit `cdfb903` restored the breaking NYON package, crate, binary, browser, product, and primary-storage identity with read-only legacy fallback. Repository relocation, baseline reconstruction, identity restoration, and promotion are completed historical operations and must not be repeated.
 
 The following evidence classes remain distinct:
 
