@@ -188,6 +188,16 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
    transfer strip on the probe pattern.
 9. Library confirmations on the shared modal; rename via a text-input field.
 10. In-Workshop entry control in both placements.
+    **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
+    MAIN-MENU entry control, and the addendum §2 requires main-menu entry.** Task 10 is
+    the in-Workshop control only. Task 6 satisfies the constraint **at the runtime seam
+    only** — `open_library()` succeeds from `MainMenu` and is tested there — but nothing
+    routes to it, so the screen is currently unreachable in the product from the main
+    menu. Task 6 deliberately did not add `MainMenuRoute::Library`, because that drags in
+    `menu_copy` / `menu_slug` / icon arms and every `menu_capabilities()` assertion, and
+    this design assigns entry controls to their own tasks rather than to the runtime.
+    **Assign it to task 8's dispatch or to a new task before the screen ships**, or the
+    two-slice plan below ships a screen no user can open.
 11. Transfer protocol trait, bounded jobs, test adapter, two-stage export wired
     to the existing byte sources.
 12. Enable Open, Import archive, Set Continue and row Export on the library
