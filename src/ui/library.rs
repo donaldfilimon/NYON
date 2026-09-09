@@ -175,7 +175,7 @@ impl LibraryDisabledReason {
 /// control has no reason and a disabled one always has exactly one. Both
 /// constructors enforce it, so no caller can produce a disabled control with
 /// nothing to display.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct LibraryControl {
     pub action_id: SemanticActionId,
     pub label: String,
@@ -191,6 +191,30 @@ pub struct LibraryControl {
     /// therefore name somebody's first save. [`Self::intent`] closes that by
     /// construction rather than by convention.
     intent: LibraryUiIntent,
+}
+
+/// Hand-written so a disabled control's placeholder subject never reaches a log.
+///
+/// The derived form printed `intent` unconditionally, which put
+/// `OpenSlot { slot: SlotId(0), .. }` into any `{:?}` of a disabled action — and
+/// slot 0 is a real save, because the native store mints identifiers from zero
+/// upward. The typed path was already safe; this closes the textual one.
+impl std::fmt::Debug for LibraryControl {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("LibraryControl");
+        debug
+            .field("action_id", &self.action_id)
+            .field("label", &self.label)
+            .field("description", &self.description)
+            .field("enabled", &self.enabled)
+            .field("selected", &self.selected)
+            .field("disabled_reason", &self.disabled_reason);
+        match self.intent() {
+            Some(intent) => debug.field("intent", intent),
+            None => debug.field("intent", &"<disabled>"),
+        };
+        debug.finish()
+    }
 }
 
 impl LibraryControl {
@@ -514,6 +538,13 @@ impl LibraryUiModel {
         }
     }
 
+    /// Every control, in **lexicographic action-identifier order** — which is
+    /// not the traversal order and not the layout order.
+    ///
+    /// `library.slot.10` precedes `library.slot.2` here, and every action
+    /// precedes every row. Use [`Self::focus_order`] for traversal and for
+    /// anything a user perceives as a sequence; this iterator is for lookups
+    /// and for whole-model assertions.
     pub fn controls(&self) -> impl ExactSizeIterator<Item = &LibraryControl> {
         self.controls.values()
     }
@@ -736,10 +767,29 @@ fn row_description(summary: &SlotSummary, resident: bool) -> String {
 /// which is the defect this screen was told not to repeat.
 ///
 /// Open, Use for Continue and row Export do not take the lane reason: §4 routes
-/// them through the exact-catalog client instead of the slot-request lane. Once
-/// that client is wired, §6's replacement and persistence gate has to be added
-/// to them here — the `LibraryClientUnavailable` reason is what stands in for
-/// it today, and it is not a substitute.
+/// them through the exact-catalog client instead of the slot-request lane.
+///
+/// **§6's replacement-and-persistence gate, item by item, so task 12 adds it
+/// where it belongs rather than where an earlier summary of this list said.**
+/// §6 names exactly four things that "remain disabled until replacement and
+/// persistence invariants are safe":
+///
+/// 1. **Library Open** — this function. Gate it here when the client is wired.
+/// 2. **Workshop Archive import** — *not here*. That is `ImportArchive` in
+///    [`build_transfer`], which carries a matching note. `ImportPack` is exempt:
+///    §6 explicitly permits content-pack storage that requests no session
+///    replacement.
+/// 3. **Use for Continue** — this function. Gate it here.
+/// 4. **Recovery of another slot** — **not modelled at all.** No recovery or
+///    repair control exists in this model, and none of §4's recovery offers
+///    appear. Tasks 9 and 12 own them; this note exists so the §6 list does not
+///    read as complete while a quarter of it is out of scope.
+///
+/// **Row Export is deliberately absent from that list.** §6 does not name it and
+/// §4 states it "does not mutate storage, select Continue, or install/replace a
+/// session", so there is no replacement gate to add to it. It needs the
+/// exact-catalog client and nothing more, which is why
+/// [`LibraryDisabledReason::LibraryClientUnavailable`] is its whole story today.
 fn build_actions(
     row: Option<&LibraryRow>,
     request: &LibraryRequestModel,
@@ -838,6 +888,13 @@ fn build_actions(
 }
 
 /// The four transfer controls, live with no adapter installed.
+///
+/// **`ImportArchive` needs §6's replacement-and-persistence gate and does not
+/// have it.** It is §6's "Workshop Archive import", gated today only on
+/// [`LibraryDisabledReason::TransferUnavailable`], which is a capability
+/// deferral and not that invariant. `ImportPack` needs no such gate: §6
+/// explicitly permits content-pack storage that requests no session
+/// replacement. See [`build_actions`] for the whole four-item disposition.
 fn build_transfer(context: LibraryUiContext<'_>) -> LibraryTransferModel {
     let transfer =
         (!context.transfer_available).then_some(LibraryDisabledReason::TransferUnavailable);
@@ -894,10 +951,32 @@ fn semantic_control(control: &LibraryControl, role: SemanticRole) -> SemanticNod
     node
 }
 
-const fn content_message(content: LibraryContent) -> &'static str {
+/// The content line, whose only conditional arm is [`LibraryContent::NotListed`].
+///
+/// `NotListed` is one state with three causes, and they do not share a remedy.
+/// Refresh takes the one slot-request lane, so it is disabled whenever that lane
+/// is busy or holds a failure — and the unconditional copy told the user to
+/// press it anyway. That is reachable on the **first visit**: `open_library`
+/// dispatches `ListSlots` from `Idle`, and a store that refuses leaves
+/// `Failed { List }` with no cached list at all.
+///
+/// The failed arm deliberately does not restate [`request_message`] verbatim.
+/// The content line says what is on screen; the request line owns the decision,
+/// and they are emitted as two separate announcements, so two identical
+/// sentences would be its own defect.
+const fn content_message(
+    content: LibraryContent,
+    lane: Option<LibraryDisabledReason>,
+) -> &'static str {
     match content {
         LibraryContent::Loading => "Listing saved galaxies.",
-        LibraryContent::NotListed => "Saved galaxies have not been listed. Refresh to list them.",
+        LibraryContent::NotListed => match lane {
+            None => "Saved galaxies have not been listed. Refresh to list them.",
+            Some(LibraryDisabledReason::DecisionPending) => {
+                "Saved galaxies have not been listed. Resolve the failed request first."
+            }
+            Some(_) => "Saved galaxies have not been listed. Waiting for the current request.",
+        },
         LibraryContent::Empty => "No saved galaxies yet.",
         LibraryContent::Slots => "Saved galaxies listed.",
     }
@@ -967,7 +1046,7 @@ fn build_semantic_tree(
         "library.content",
         SemanticRole::Status,
         "Saved galaxies",
-        content_message(content),
+        content_message(content, lane_reason(request)),
     )];
     for section in [LibrarySection::Active, LibrarySection::Archived] {
         let section_rows: Vec<&LibraryRow> =
@@ -1021,7 +1100,7 @@ fn build_semantic_tree(
     let mut announcements = vec![SemanticAnnouncement {
         kind: AnnouncementKind::Status,
         code: "library-content",
-        message: content_message(content).to_owned(),
+        message: content_message(content, lane_reason(request)).to_owned(),
     }];
     if request.decision_pending() {
         announcements.push(SemanticAnnouncement {

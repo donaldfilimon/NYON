@@ -219,10 +219,39 @@ fn an_idle_lane_offers_neither_retry_nor_cancel() {
 // Contract 3: failure never leaves this screen
 // ---------------------------------------------------------------------------
 
-/// The only intent that leaves the Library is Close.
+/// Whether an intent takes the user off the Library screen.
 ///
-/// §6 forbids collapsing a Library failure into `RecoverableError`. There is no
-/// recovery intent to emit, and this pins that there is no other exit either.
+/// Exhaustive on purpose, with **no wildcard arm**: adding a variant to
+/// `LibraryUiIntent` must fail to compile here rather than default quietly to
+/// "stays". §6 forbids collapsing a Library failure into `RecoverableError`, and
+/// a future variant that did so would otherwise be invisible.
+const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
+    match intent {
+        LibraryUiIntent::Close => true,
+        LibraryUiIntent::RefreshSlots
+        | LibraryUiIntent::RetrySlotRequest
+        | LibraryUiIntent::CancelSlotRequest
+        | LibraryUiIntent::SelectSlot(_)
+        | LibraryUiIntent::OpenSlot { .. }
+        | LibraryUiIntent::RenameSlot { .. }
+        | LibraryUiIntent::ArchiveSlot { .. }
+        | LibraryUiIntent::UnarchiveSlot { .. }
+        | LibraryUiIntent::UseForContinue { .. }
+        | LibraryUiIntent::ExportSlot { .. }
+        | LibraryUiIntent::ImportArchive
+        | LibraryUiIntent::ImportPack
+        | LibraryUiIntent::ExportActiveArchive
+        | LibraryUiIntent::ExportActivePack => false,
+    }
+}
+
+/// Exactly one control leaves the Library, and it is Close.
+///
+/// The earlier form of this test counted controls emitting `Close` and asserted
+/// one — which proves Close exists once and says nothing about whether some
+/// *other* control leaves. Pointing an existing control at a leaving intent,
+/// keeping its identifier and its label, passed it. This form checks the
+/// property the name claims: for every control, leaving iff it is Close.
 #[test]
 fn a_store_failure_offers_no_intent_that_leaves_the_screen() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
@@ -239,11 +268,27 @@ fn a_store_failure_offers_no_intent_that_leaves_the_screen() {
         selected_slot: Some(SlotId(1)),
         ..LibraryUiContext::default()
     });
-    let leaving = built
-        .controls()
-        .filter(|control| matches!(control.intent(), Some(LibraryUiIntent::Close)))
-        .count();
-    assert_eq!(leaving, 1, "Close is the only route off the Library");
+    let mut leaving = Vec::new();
+    for control in built.controls() {
+        let Some(intent) = control.intent() else {
+            continue;
+        };
+        let is_close = control.action_id.as_str() == "library.close";
+        assert_eq!(
+            leaves_screen(intent),
+            is_close,
+            "{} leaves the Library but is not Close",
+            control.action_id
+        );
+        if leaves_screen(intent) {
+            leaving.push(control.action_id.as_str().to_owned());
+        }
+    }
+    assert_eq!(
+        leaving,
+        vec!["library.close".to_owned()],
+        "Close is the only route off the Library"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -493,35 +538,73 @@ fn the_resident_slot_cannot_be_archived_and_says_why_in_the_runtimes_words() {
     assert!(control(&neighbour, "library.action.archive").enabled);
 }
 
-/// An archived row swaps Archive for Unarchive and blocks Open and Continue.
+/// The Archive control's two directions, read together, plus archived Export.
+///
+/// Both halves matter and the suite previously had only one. The identifier is
+/// shared so focus survives the toggle, which means the **intent** is the only
+/// thing distinguishing Archive from Unarchive: an Archive button that submits
+/// `UnarchiveSlot` keeps its label, its id and every gate, and nothing else in
+/// the suite would notice. Task 9 puts a confirmation modal in front of this
+/// exact control and will choose its wording from the label while the store
+/// receives the intent, so the pairing is the whole argument.
+///
+/// Export of an archived row is asserted here too. §3 and §10 forbid *opening*
+/// and *selecting for Continue* an archived slot; neither forbids reading bytes
+/// out of one, and §4 makes row Export non-mutating. Permitting it is a reading
+/// of the spec, so it gets a witness rather than a silence.
 #[test]
-fn an_archived_row_offers_unarchive_and_refuses_open_and_continue() {
-    let listed = list(vec![summary(9, "Bode", true)]);
-    let built = model(LibraryUiContext {
-        slots: Some(&listed),
+fn the_archive_control_submits_each_direction_under_one_stable_identifier() {
+    let active = list(vec![summary(9, "Bode", false)]);
+    let archived = list(vec![summary(9, "Bode", true)]);
+    let built_active = model(LibraryUiContext {
+        slots: Some(&active),
         selected_slot: Some(SlotId(9)),
         library_client_available: true,
         ..LibraryUiContext::default()
     });
-    let archive = &built.actions.archive;
+    let built_archived = model(LibraryUiContext {
+        slots: Some(&archived),
+        selected_slot: Some(SlotId(9)),
+        library_client_available: true,
+        ..LibraryUiContext::default()
+    });
+
     assert_eq!(
-        archive.action_id.as_str(),
-        "library.action.archive",
+        built_active.actions.archive.action_id, built_archived.actions.archive.action_id,
         "the identifier is stable across the toggle; only the label and intent flip"
     );
-    assert_eq!(archive.label, "Unarchive");
-    assert!(archive.enabled);
     assert_eq!(
-        archive.intent(),
-        Some(&LibraryUiIntent::UnarchiveSlot { slot: SlotId(9) })
+        built_active.actions.archive.action_id.as_str(),
+        "library.action.archive"
     );
+
+    assert_eq!(built_active.actions.archive.label, "Archive");
+    assert!(built_active.actions.archive.enabled);
     assert_eq!(
-        built.actions.open.disabled_reason,
+        built_active.actions.archive.intent(),
+        Some(&LibraryUiIntent::ArchiveSlot { slot: SlotId(9) }),
+        "the Archive label must not submit Unarchive"
+    );
+
+    assert_eq!(built_archived.actions.archive.label, "Unarchive");
+    assert!(built_archived.actions.archive.enabled);
+    assert_eq!(
+        built_archived.actions.archive.intent(),
+        Some(&LibraryUiIntent::UnarchiveSlot { slot: SlotId(9) }),
+        "the Unarchive label must not submit Archive"
+    );
+
+    assert_eq!(
+        built_archived.actions.open.disabled_reason,
         Some(LibraryDisabledReason::ArchivedSlot)
     );
     assert_eq!(
-        built.actions.use_for_continue.disabled_reason,
+        built_archived.actions.use_for_continue.disabled_reason,
         Some(LibraryDisabledReason::ArchivedSlot)
+    );
+    assert!(
+        built_archived.actions.export.enabled,
+        "an archived save must still be exportable: §3 forbids opening it, not reading it"
     );
 }
 
@@ -665,6 +748,26 @@ fn exporting_the_active_workshop_requires_an_active_workshop() {
         "library.transfer.import-pack",
     ] {
         assert!(control(&built, id).enabled, "{id}");
+    }
+
+    // Neither a session nor an adapter: the shape a user with no adapter and no
+    // open Workshop actually sees, and the only one where the documented
+    // precedence — subject facts before capability deferrals — is observable on
+    // the transfer strip.
+    let neither = model(LibraryUiContext {
+        transfer_available: false,
+        workshop_active: false,
+        ..LibraryUiContext::default()
+    });
+    for id in [
+        "library.transfer.export-active-archive",
+        "library.transfer.export-active-pack",
+    ] {
+        assert_eq!(
+            control(&neither, id).disabled_reason,
+            Some(LibraryDisabledReason::WorkshopInactive),
+            "{id}: the missing subject outranks the missing adapter"
+        );
     }
 }
 
@@ -1024,4 +1127,247 @@ fn a_disabled_control_hands_out_no_intent_because_its_subject_is_a_real_slot_id(
             control.action_id
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Payloads: every control, not just the ones an earlier test happened to name
+// ---------------------------------------------------------------------------
+
+/// Every control's exact intent, in one fully-enabled shape.
+///
+/// Six of the fifteen intent variants had no witness at all — `RefreshSlots`,
+/// `ArchiveSlot`, `ImportArchive`, `ImportPack`, `ExportActiveArchive` and
+/// `ExportActivePack`. For those controls the suite asserted identity,
+/// enablement and disabled reason, but never the payload the runtime acts on,
+/// so two controls could swap intents and stay green. This pins the payload of
+/// all fifteen at once; it deliberately overlaps the Archive-direction test,
+/// because redundancy about which button submits what is the right direction to
+/// be redundant in.
+#[test]
+fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
+    let listed = list(vec![summary(4, "Andromeda", false)]);
+    let built = model(LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(4)),
+        library_client_available: true,
+        transfer_available: true,
+        workshop_active: true,
+        status: LibrarySlotsStatus::Idle,
+        resident_slot: None,
+    });
+    let generation = listed.slots[0].generation;
+    let expected: Vec<(&str, LibraryUiIntent)> = vec![
+        ("library.close", LibraryUiIntent::Close),
+        ("library.refresh", LibraryUiIntent::RefreshSlots),
+        ("library.slot.4", LibraryUiIntent::SelectSlot(SlotId(4))),
+        (
+            "library.action.open",
+            LibraryUiIntent::OpenSlot {
+                slot: SlotId(4),
+                generation,
+            },
+        ),
+        (
+            "library.action.rename",
+            LibraryUiIntent::RenameSlot { slot: SlotId(4) },
+        ),
+        (
+            "library.action.archive",
+            LibraryUiIntent::ArchiveSlot { slot: SlotId(4) },
+        ),
+        (
+            "library.action.use-for-continue",
+            LibraryUiIntent::UseForContinue {
+                slot: SlotId(4),
+                generation,
+            },
+        ),
+        (
+            "library.action.export",
+            LibraryUiIntent::ExportSlot {
+                slot: SlotId(4),
+                generation,
+            },
+        ),
+        (
+            "library.transfer.import-archive",
+            LibraryUiIntent::ImportArchive,
+        ),
+        ("library.transfer.import-pack", LibraryUiIntent::ImportPack),
+        (
+            "library.transfer.export-active-archive",
+            LibraryUiIntent::ExportActiveArchive,
+        ),
+        (
+            "library.transfer.export-active-pack",
+            LibraryUiIntent::ExportActivePack,
+        ),
+    ];
+    for (action, intent) in &expected {
+        let found = control(&built, action);
+        assert!(found.enabled, "{action} must be enabled in this shape");
+        assert_eq!(found.intent(), Some(intent), "{action}");
+    }
+    assert_eq!(
+        built.controls().len(),
+        expected.len(),
+        "the table must cover every control in this shape"
+    );
+}
+
+/// The two decision controls' payloads, in the shape that produces them.
+///
+/// They cannot appear in the fully-enabled table above, because an idle lane
+/// emits neither.
+#[test]
+fn the_decision_controls_submit_retry_and_cancel() {
+    let built = model(LibraryUiContext {
+        status: LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Rename,
+            slot: Some(SlotId(1)),
+            code: ClientDiagnosticCode::Store,
+        },
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        control(&built, "library.request.retry").intent(),
+        Some(&LibraryUiIntent::RetrySlotRequest)
+    );
+    assert_eq!(
+        control(&built, "library.request.cancel").intent(),
+        Some(&LibraryUiIntent::CancelSlotRequest)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The content line must name the route that is actually live
+// ---------------------------------------------------------------------------
+
+/// Returns the content status line the screen shows.
+fn content_line(built: &LibraryUiModel) -> String {
+    built
+        .semantics
+        .node("library.content")
+        .expect("content node")
+        .description
+        .clone()
+}
+
+/// A first-visit listing failure must not point at the disabled Refresh.
+///
+/// `open_library` dispatches `ListSlots` from `Idle`; a store that refuses
+/// leaves `Failed { List }` with no cached list, so this is the **first-run**
+/// failure path. Refresh is disabled with `DecisionPending` there and Retry is
+/// the live route, but the content line told the user to press Refresh.
+#[test]
+fn a_failed_first_listing_does_not_tell_the_user_to_press_disabled_refresh() {
+    let built = model(LibraryUiContext {
+        slots: None,
+        status: LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::List,
+            slot: None,
+            code: ClientDiagnosticCode::Store,
+        },
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(built.content, LibraryContent::NotListed);
+    assert_eq!(
+        control(&built, "library.refresh").disabled_reason,
+        Some(LibraryDisabledReason::DecisionPending),
+        "the premise: Refresh is not the live route here"
+    );
+    let line = content_line(&built);
+    assert!(
+        !line.contains("Refresh"),
+        "content line points at a disabled control: {line}"
+    );
+    assert!(line.contains("failed request"), "{line}");
+    let request_line = built
+        .semantics
+        .node("library.request.status")
+        .expect("request node")
+        .description
+        .clone();
+    assert_ne!(
+        line, request_line,
+        "two announcements must not carry the identical sentence"
+    );
+}
+
+/// A mutation still in flight must not point at the disabled Refresh either.
+///
+/// The transient sibling of the case above: Refresh is disabled with
+/// `RequestInFlight`, so the same instruction is equally wrong, just briefly.
+#[test]
+fn a_listing_pending_behind_a_mutation_does_not_point_at_disabled_refresh() {
+    let built = model(LibraryUiContext {
+        slots: None,
+        status: LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Rename,
+            slot: Some(SlotId(1)),
+        },
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(built.content, LibraryContent::NotListed);
+    assert_eq!(
+        control(&built, "library.refresh").disabled_reason,
+        Some(LibraryDisabledReason::RequestInFlight)
+    );
+    let line = content_line(&built);
+    assert!(
+        !line.contains("Refresh"),
+        "content line points at a disabled control: {line}"
+    );
+    assert!(line.contains("Waiting"), "{line}");
+}
+
+/// With the lane free, Refresh really is the route, and the line says so.
+///
+/// The third arm, and the one that stops the conditional from collapsing into
+/// "never mention Refresh".
+#[test]
+fn an_idle_unlisted_library_does_point_at_refresh() {
+    let built = model(LibraryUiContext::default());
+    assert_eq!(built.content, LibraryContent::NotListed);
+    assert!(control(&built, "library.refresh").enabled);
+    let line = content_line(&built);
+    assert!(line.contains("Refresh to list them"), "{line}");
+}
+
+/// A disabled control's `Debug` never prints its placeholder subject.
+///
+/// The typed path was already closed by `intent()`, but the derived `Debug`
+/// printed `OpenSlot { slot: SlotId(0), .. }` for a disabled action — and slot 0
+/// is a real save, because the native store mints identifiers from zero upward.
+/// A log line or a panic message is a way out of the type system.
+#[test]
+fn a_disabled_controls_debug_output_names_no_slot() {
+    let built = model(LibraryUiContext {
+        slots: Some(&list(vec![summary(0, "Andromeda", false)])),
+        selected_slot: None,
+        library_client_available: true,
+        ..LibraryUiContext::default()
+    });
+    let rendered = format!("{:?}", built.actions.open);
+    assert!(!built.actions.open.enabled);
+    assert!(
+        rendered.contains("<disabled>"),
+        "disabled intent must be elided: {rendered}"
+    );
+    assert!(
+        !rendered.contains("SlotId"),
+        "disabled Debug must not name a slot: {rendered}"
+    );
+
+    let enabled = model(LibraryUiContext {
+        slots: Some(&list(vec![summary(0, "Andromeda", false)])),
+        selected_slot: Some(SlotId(0)),
+        library_client_available: true,
+        ..LibraryUiContext::default()
+    });
+    let rendered = format!("{:?}", enabled.actions.open);
+    assert!(
+        rendered.contains("SlotId(0)"),
+        "an enabled control still prints its intent: {rendered}"
+    );
 }
