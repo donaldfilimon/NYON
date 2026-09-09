@@ -156,7 +156,7 @@ pub fn preflight_import(bytes: &[u8])
 - [ ] Write failing exact-byte and identity tests for command, revision, receipt, event, and tagged-enum ordering.
 - [ ] Implement `LivingCommandV2::CreatorBatch` and typed operations covering system/star/world/lane/deposit, inventory/colony/facility/jobs, civilization/policy/relations/diplomacy, fleets/orders, routes, hazards, shipment disposal, and explicit cascades.
 - [ ] Require unique backward-only `batch_local_id` references and complete exact cascade dispositions.
-- [ ] Implement `LivingAcceptedCommandV2`, `LivingRevisionV2`, `LivingTickReceiptV2`, provenance, and the frozen event kinds from the rules spec with explicit `u16` ordinals.
+- [x] Implement `LivingAcceptedCommandV2`, `LivingRevisionV2`, `LivingTickReceiptV2`, provenance, and the frozen event kinds from the rules spec. **Landed 2026-09-08 (`bbc3da6`, `ab1f081`).** ⚠️ **This line used to end "with explicit `u16` ordinals", and that was wrong** — the rules spec at line 469 *deliberately leaves* `LivingEventKindV2`'s ordinal unassigned, and this plan's own prose at lines 56-62 says so too, so line 159 contradicted its own document. The implementer followed the spec over the plan, correctly, and the review confirmed the plan was the stale half.
 - [ ] Centralize event and autonomous identity allocation in `LivingStepContextV2`; subsystem code cannot fabricate IDs.
 - [ ] Test unknown variants, wrong field order, forward/duplicate local IDs, oversized batches, V1 bytes, stable ordering, and authority-only digest fields.
 - [ ] Run command, wasm, fmt, and clippy gates.
