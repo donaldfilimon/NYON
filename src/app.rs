@@ -1691,7 +1691,7 @@ fn wheel_logical_delta(delta: MouseScrollDelta, scale_factor: f64) -> Vec2 {
     }
 }
 
-const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'static str {
+pub(crate) const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'static str {
     match code {
         ClientDiagnosticCode::Store => "Workshop storage is temporarily unavailable.",
         ClientDiagnosticCode::StoreProtocol => {

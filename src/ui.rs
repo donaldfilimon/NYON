@@ -5,6 +5,7 @@ use serde::Deserialize;
 pub mod accessibility;
 pub mod creator;
 pub mod guide;
+pub mod library;
 pub mod platform;
 pub mod platform_inspector;
 #[cfg(not(target_arch = "wasm32"))]
