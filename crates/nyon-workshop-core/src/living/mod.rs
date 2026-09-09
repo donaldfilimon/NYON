@@ -11,6 +11,7 @@
 //! reviewed byte vectors are `tests/fixtures/living-v2/vectors.json`.
 
 pub mod catalog;
+pub mod command;
 pub mod genesis;
 pub mod ids;
 pub mod model;
@@ -25,6 +26,11 @@ pub use catalog::{
     LivingPolicyBonusV2, LivingPolicyDefinitionV2, LivingResourceAmountV2,
     LivingResourceDefinitionV2, LivingSlugV2, LivingStarArchetypeV2, LivingWorldArchetypeV2,
     ValidatedLivingCatalogPackV2, decode_living_catalog_pack_v2, living_core_pack_v2,
+};
+pub use command::{
+    LIVING_MAX_CREATOR_BATCH_OPERATIONS_V2, LivingAcceptedCommandV2, LivingCascadeDispositionV2,
+    LivingCommandEnvelopeV2, LivingCommandErrorV2, LivingCommandModeV2, LivingCommandTargetV2,
+    LivingCommandV2, LivingCreatorOperationV2, LivingRevisionV2,
 };
 pub use genesis::{
     LIVING_GENESIS_FORMAT_VERSION_V2, LIVING_GENESIS_KIND_V2, LIVING_HUB_ENERGY_PERIOD_TICKS_V2,

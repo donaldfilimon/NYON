@@ -690,7 +690,7 @@ fn v2_wrapper_hex_rejects_uppercase_short_long_and_non_hex_text() {
 /// Every source file the crate compiles, compiled in so the scan cannot resolve
 /// a stale path after the checkout moves. `crate_module_scan_covers_every_file`
 /// proves this list is complete.
-const CRATE_SOURCES: [(&str, &str); 15] = [
+const CRATE_SOURCES: [(&str, &str); 16] = [
     ("lib.rs", include_str!("../src/lib.rs")),
     ("archive.rs", include_str!("../src/archive.rs")),
     ("command.rs", include_str!("../src/command.rs")),
@@ -703,6 +703,10 @@ const CRATE_SOURCES: [(&str, &str); 15] = [
     (
         "living/catalog.rs",
         include_str!("../src/living/catalog.rs"),
+    ),
+    (
+        "living/command.rs",
+        include_str!("../src/living/command.rs"),
     ),
     (
         "living/genesis.rs",
@@ -862,8 +866,8 @@ fn crate_module_scan_covers_every_file() {
         }
     }
     assert_eq!(
-        declarations, 14,
-        "the crate declares eight top-level modules and six living submodules"
+        declarations, 15,
+        "the crate declares eight top-level modules and seven living submodules"
     );
     // `lib.rs` legitimately spells the word once, in `#![forbid(unsafe_code)]`.
     let (_, crate_root) = CRATE_SOURCES[0];

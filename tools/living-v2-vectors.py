@@ -265,6 +265,24 @@ def verify(path: pathlib.Path) -> int:
         report.check(f"event ordinal {row['event_ordinal']} digest", row["event_digest"], digest)
         report.check(f"event ordinal {row['event_ordinal']} id", row["event_id"], digest[:32])
 
+    batch = corpus["creator_command"]
+    batch_revision = revision_id(
+        batch["catalog_hash"],
+        batch["genesis_seed"],
+        batch["parent"],
+        batch["tick"],
+        batch["ordinal"],
+        batch["command_bytes_hex"],
+    )
+    report.check("creator command revision", batch["revision_id"], batch_revision)
+    for row in batch["created_entities"]:
+        digest = creator_entity_digest(
+            batch["revision_id"], row["entity_kind"], row["batch_local_id"]
+        )
+        label = f"creator command local {row['batch_local_id']}"
+        report.check(f"{label} digest", row["entity_digest"], digest)
+        report.check(f"{label} id", row["entity_id"], digest[:32])
+
     receipt = corpus["receipt_payload"]
     payload = {
         "tick": receipt["tick"],
@@ -329,6 +347,25 @@ def main(argv: list[str]) -> int:
         )
         print(f"entity_digest {digest}")
         print(f"entity_id     {digest[:32]}")
+        return 0
+    if command == "revision":
+        catalog, seed, parent, tick, ordinal = argv[2], argv[3], argv[4], int(argv[5]), int(argv[6])
+        document = json.loads(pathlib.Path(argv[7]).read_text())
+        canonical = json.dumps(document, separators=(",", ":"), ensure_ascii=False)
+        body = canonical.encode("utf-8")
+        print(f"canonical_bytes {canonical}")
+        print(f"canonical_hex   {body.hex()}")
+        print(
+            "revision_id     "
+            + revision_id(
+                catalog,
+                seed,
+                None if parent == "none" else parent,
+                tick,
+                ordinal,
+                body.hex(),
+            )
+        )
         return 0
     if command == "receipt":
         payload = json.loads(pathlib.Path(argv[2]).read_text())

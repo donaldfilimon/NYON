@@ -206,6 +206,36 @@
       "event_id": "a48154fe8d515d5df4fde55230a4d516"
     }
   ],
+  "creator_command": {
+    "note": "One creator batch: two systems and a lane joining them by backward batch-local reference. The canonical bytes were written from the operation schema declared in `living/command.rs` and hashed outside that crate with `python3 tools/living-v2-vectors.py revision <catalog> <seed> none 7 3 <batch.json>`; the three created identities follow from that revision and the published entity-kind registry (System 1, Lane 4) via `python3 tools/living-v2-vectors.py creator <revision> <kind> <local>`.",
+    "catalog_hash": "fb53ddfe7525550e3eda1e6eed938928e6350c7b6bb5b66ca16f3d74350e020c",
+    "genesis_seed": "1111111111111111111111111111111111111111111111111111111111111111",
+    "parent": null,
+    "tick": 7,
+    "ordinal": 3,
+    "command_bytes_hex": "7b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b7b2274797065223a226372656174655f73797374656d222c226c6f63616c223a302c226e616d65223a2256616c65227d2c7b2274797065223a226372656174655f73797374656d222c226c6f63616c223a312c226e616d65223a22436f6e666c75656e6365227d2c7b2274797065223a226372656174655f6c616e65222c226c6f63616c223a322c2273797374656d5f61223a7b2274797065223a226c6f63616c222c226c6f63616c223a307d2c2273797374656d5f62223a7b2274797065223a226c6f63616c222c226c6f63616c223a317d2c2264697374616e63655f756e697473223a3130317d5d7d",
+    "revision_id": "7a68db6c231f162d4ebee7c5595f78ec1eb34327d6d333cd5eaea5913ccb36c2",
+    "created_entities": [
+      {
+        "batch_local_id": 0,
+        "entity_kind": 1,
+        "entity_digest": "b4b8058932ff80aeef7909b71e28bc03ecba2439eea7cedf49c3fc04e449b299",
+        "entity_id": "b4b8058932ff80aeef7909b71e28bc03"
+      },
+      {
+        "batch_local_id": 1,
+        "entity_kind": 1,
+        "entity_digest": "9ee4995caeafbcc3ce1bc962f661703f6a8600e47fcff2877826b3bf3fedf027",
+        "entity_id": "9ee4995caeafbcc3ce1bc962f661703f"
+      },
+      {
+        "batch_local_id": 2,
+        "entity_kind": 4,
+        "entity_digest": "6a5c6d26f779c7f2c0bfb522854937322a9a56aa57c669566b7c75e600a68c15",
+        "entity_id": "6a5c6d26f779c7f2c0bfb52285493732"
+      }
+    ]
+  },
   "receipt_payload": {
     "note": "The distinct `LivingReceiptPayloadV2` record of section 10: the four fields below in the spec's order, whose canonical bytes `receipt_digest` is taken over. Each event entry is {ordinal_u16, provenance, kind} in emission order and carries no identity, because the identities are derived FROM this digest. Derived with `python3 tools/living-v2-vectors.py receipt <payload.json>`, never from Rust output.",
     "tick": 50,
