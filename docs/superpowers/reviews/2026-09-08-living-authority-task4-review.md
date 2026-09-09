@@ -69,14 +69,41 @@ mutation that they are load-bearing rather than decorative.
 
 ### Verified by reading
 
-I compared every formula in `tools/living-v2-vectors.py:88-152` field by field against the
-normative block at `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:329-359`.
+I compared every formula in `tools/living-v2-vectors.py:86-153` field by field against the
+normative block at `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:321-358`.
 All eleven transcribe correctly, including the two asymmetries a mirror of the Rust would
 be just as likely to get right and a careless transcription would get wrong:
 `creator_entity_digest` and `fork_branch_digest` take **no** `rules_u32`, while
 `revision_id`, `autonomous_entity_digest`, `root_branch_digest` and `claim_rank` do.
 Little-endian widths, the `0x00`/`0x01` optional tag, the `command_length_u64` prefix, and
 the 16-byte identity truncation all match.
+
+### Inferred, not directly verified
+
+Stated separately because the task asks for this boundary explicitly.
+
+- **That all 26 event kinds map to behaviours sections 3-8 require a boundary to report.**
+  I read section 8 (`rules.md:252-268`) and section 10 in full, and judged the kind list
+  against the variant doc comments in `receipt.rs:84-135` rather than against sections 3-7
+  clause by clause. The list is coherent and I found no kind without an evident referent,
+  but this is a judgement from the module's own descriptions, not a section-by-section
+  audit.
+- **That the absence of an archetype-editing operation is correct by design.** Section 8
+  (`rules.md:254`) names "topology and archetypes" among creator-editable things and none of
+  the 28 operations edits an archetype. My reading is that archetypes live in the validated
+  built-in catalog pack, which section 10 says ships as one validated pack rather than
+  remotely fetched content, so editing them is a different mechanism. That is an inference
+  about intent; the spec does not say it.
+- **That section 8's "distinguishes a direct creator grant from a resource-funded
+  civilization order" is a preview or UI concern outside the authority schema.** `grep` for
+  `grant`/`funded`/`funding` in `command.rs` returns nothing, so the distinction is not in
+  the envelope. Whether it belongs there is a judgement I am not in a position to settle.
+- **That the wasm build is unaffected.** Reasoned from the crate's dependency set
+  (`serde`, `serde_json`, `sha2`, `thiserror`) having no platform surface. Not measured; see
+  below.
+- **That `LivingEventKindV2::as_wire_str` has no non-test consumer.** From `grep` across the
+  crate, distinguishing the same-named methods in `catalog.rs` and `model.rs` by hand. A
+  reflective or macro-generated call site would not have shown up.
 
 ### Could not check
 
@@ -102,10 +129,10 @@ extracted from the `failures:` blocks, not from a summary line.
 
 | Mutation | Implementer reported | **Measured** | Failing tests |
 | --- | ---: | ---: | --- |
-| `LivingEntityKindV2::Fleet` ordinal `10 → 11` (`ids.rs:449`) | 3 | **4** | `every_published_entity_kind_ordinal_is_pinned_individually`, `the_entity_kind_registry_table_is_total_and_gap_free`, `the_reviewed_entity_vectors_carry_registry_kinds`, `the_creating_operations_cover_the_entity_kind_registry_exactly` |
+| `LivingEntityKindV2::Fleet` ordinal `10 → 11` (`ids.rs:226`) | 3 | **4** | `every_published_entity_kind_ordinal_is_pinned_individually`, `the_entity_kind_registry_table_is_total_and_gap_free`, `the_reviewed_entity_vectors_carry_registry_kinds`, `the_creating_operations_cover_the_entity_kind_registry_exactly` |
 | Corpus `ai_fleet_phase_8.entity_kind` left stale at `4` | 3 | **3** | `autonomous_entity_framing_including_a_shipment_matches_reviewed_vectors`, `every_autonomous_identity_field_changes_the_identity`, `the_reviewed_entity_vectors_carry_registry_kinds` |
-| `LivingReceiptPayloadV2` fields 3/4 swapped (`receipt.rs:232-235`) | 2 | **3** | `the_receipt_payload_encodes_to_the_reviewed_canonical_bytes`, `sealing_derives_the_reviewed_event_identities`, `the_public_receipt_field_order_is_pinned_against_literal_bytes` |
-| Zeroed event ids in `seal_living_tick_receipt_v2` (`receipt.rs:366`) | 4 | **5** | `sealing_derives_the_reviewed_event_identities`, `hashing_the_public_receipt_instead_of_the_payload_yields_a_different_digest`, `the_public_receipt_round_trips_through_the_canonical_wire`, `two_identical_events_differ_only_by_ordinal_and_still_receive_distinct_identities`, `the_public_receipt_field_order_is_pinned_against_literal_bytes` |
+| `LivingReceiptPayloadV2` fields 3/4 swapped (`receipt.rs:233-235`) | 2 | **3** | `the_receipt_payload_encodes_to_the_reviewed_canonical_bytes`, `sealing_derives_the_reviewed_event_identities`, `the_public_receipt_field_order_is_pinned_against_literal_bytes` |
+| Zeroed event ids in `seal_living_tick_receipt_v2` (`receipt.rs:380`) | 4 | **5** | `sealing_derives_the_reviewed_event_identities`, `hashing_the_public_receipt_instead_of_the_payload_yields_a_different_digest`, `the_public_receipt_round_trips_through_the_canonical_wire`, `two_identical_events_differ_only_by_ordinal_and_still_receive_distinct_identities`, `the_public_receipt_field_order_is_pinned_against_literal_bytes` |
 | Drop `declarer` from the reference walk (`command.rs:599`) | exactly 1 | **exactly 1** | `every_reference_bearing_field_is_validated` |
 | `LivingTickReceiptV2` `state_digest`/`digest` swapped, at HEAD | 1 | **1** | `the_public_receipt_field_order_is_pinned_against_literal_bytes` |
 | Same swap, with the pre-`78072b9` test files (`git checkout 7d51a5b -- …/tests/living_*.rs`) | green | **229 passed / 0 failed, exit 0** | — |
@@ -125,16 +152,16 @@ order really was pinned by nothing before it, and really is pinned by exactly on
 
 ### Authorized: the entity-kind and phase registries
 
-Spec line 382 (pre-change wording) delegated entity-kind assignment to "the task that fixes
-the authority entity set, numbered freely", and line 397 makes the published tables
+The pre-change spec text now at `rules.md:394-400` delegated entity-kind assignment to "the task that fixes
+the authority entity set, numbered freely", and the same passage makes the published tables
 normative. Publishing them here is squarely within that grant.
 
 Verified by reading:
 
-- The published entity-kind table (`rules.md:450-467`) and `LIVING_ENTITY_KIND_REGISTRY_V2`
-  (`ids.rs:187-202`) and `LivingEntityKindV2::ordinal` (`ids.rs:206-223`) agree row for row,
+- The published entity-kind table (`rules.md:450-469`) and `LIVING_ENTITY_KIND_REGISTRY_V2`
+  (`ids.rs:196-211`) and `LivingEntityKindV2::ordinal` (`ids.rs:214-231`) agree row for row,
   1..14, no gaps, no duplicates.
-- The registry order tracks the state schema's own field order (`rules.md:414-429`), which
+- The registry order tracks the state schema's own field order (`rules.md:368-382`), which
   is the rationale the spec text gives. Consistent.
 - The exclusion argument is coherent: colony, relation, agreement, war, observation,
   settlement claim and occupation are keyed by the identities they relate, so neither entity
@@ -142,10 +169,10 @@ Verified by reading:
   record in the state schema — that is not a contradiction, because nesting concerns storage
   while the registry concerns identity, and a hull is destroyed individually
   (`HullDestroyed`), so it needs one.
-- **Line 343's prohibition is honoured.** `ordinal()` and `from_ordinal()` are explicit
-  per-variant match arms; there is no `as u16` cast on a discriminant anywhere in
-  `living/ids.rs`, and no `#[repr]` attribute on either enum. `living_registry_serde_v2!`
-  (`ids.rs:340-364`) serializes through `ordinal()` and deserializes through
+- **The `rules.md:355` prohibition is honoured.** `ordinal()` and `from_ordinal()` are explicit
+  per-variant match arms; `grep -n 'as u16\|repr(' living/ids.rs` returns nothing across
+  all 665 lines, so there is no discriminant cast and no `#[repr]` on either enum. `living_registry_serde_v2!`
+  (`ids.rs:341-367`) serializes through `ordinal()` and deserializes through
   `from_ordinal()`, refusing an unpublished value rather than guessing.
 - The phase registry's one-based numbering is forced by the pre-existing corpus labels
   (`ai_fleet_phase_8`, `route_shipment_phase_9`) and matches section 2's numbered step list.
@@ -161,7 +188,7 @@ The implementer flags `provenance` and `LivingEventKindV2` as its own decisions.
 that the *authorization* is thinner than for the registries but real, and that the *scope*
 of what got frozen is larger than the report says. See F2.
 
-- Spec `rules.md:439` says each `event_payloads` entry uses "the same provenance and kind
+- Spec `rules.md:404` says each `event_payloads` entry uses "the same provenance and kind
   encoding `LivingEventV2` carries but omitting `id`". That is delegation by reference to
   the implementation, not a published table. Thin, but it is authorization.
 - Spec `rules.md:469` explicitly leaves `LivingEventKindV2`'s discriminant ordinal
@@ -193,7 +220,7 @@ The plan's Task 4 checklist at `2026-09-04-nyon-living-galaxy-authority.md:159` 
 "the frozen event kinds from the rules spec with explicit `u16` ordinals". The spec at
 `rules.md:469` deliberately leaves that ordinal unassigned. **The implementer followed the
 spec, and that is right** — the spec is the binding contract, the plan states targets, and
-the plan's *own prose* at lines 59-62 already records the deliberate non-assignment. The
+the plan's *own prose* at lines 56-62 already records the deliberate non-assignment. The
 plan therefore contradicts itself, and line 159 is the stale half. See F4.
 
 ### Deferrals
@@ -201,8 +228,8 @@ plan therefore contradicts itself, and line 159 is the stale half. See F4.
 **`LivingStepContextV2` → Task 5: sound, and half of its obligation is already discharged.**
 The plan bullet is "centralize event and autonomous identity allocation in
 `LivingStepContextV2`; subsystem code cannot fabricate IDs." The event half is delivered
-structurally, not by convention: `LivingPendingEventsV2::record` (`receipt.rs:315-330`) is
-the only place an ordinal is assigned, and `LivingPendingEventV2` (`receipt.rs:189-202`) has
+structurally, not by convention: `LivingPendingEventsV2::record` (`receipt.rs:317-332`) is
+the only place an ordinal is assigned, and `LivingPendingEventV2` (`receipt.rs:197-202`) has
 no identity field to fill in correctly or otherwise, so the non-conformant
 zeroed-placeholder implementation the spec names is unrepresentable rather than merely
 discouraged. The autonomous-identity half genuinely needs a step context and correctly
@@ -220,15 +247,16 @@ publishing the intent table makes a pre-existing corpus value visibly unpublishe
 - **Two-place module edit:** `CRATE_SOURCES` grew `14 → 16` with `living/command.rs` and
   `living/receipt.rs` under their `living/` prefixes (`living_wire.rs:693-720`), and the
   declaration-count assertion moved `13 → 15` with its message updated to "seven living
-  submodules" (`living_wire.rs:868-871`). Both places, correct prefixes, message kept
+  submodules" (`living_wire.rs:869-870`). Both places, correct prefixes, message kept
   truthful. ✓
 - **V1/V2 isolation guard:** green in the measured run; the two new files are inside
   `CRATE_SOURCES`, so they are scanned, doc comments included. ✓
 - **No `unsafe` outside `lib.rs`:** green. ✓
 - **`#[serde(deny_unknown_fields)]` on every serialized struct:** verified by reading all
-  eleven new serialized types in `receipt.rs` and `command.rs`. The only two without it are
-  `LivingEventKindV2` (`receipt.rs:83`) and `LivingCommandModeV2` (`command.rs:645`), both
-  unit-variant enums where the attribute has nothing to deny. ✓
+  fourteen new serialized types (six in `receipt.rs`, eight in `command.rs`; the two
+  `thiserror` error enums are not serialized). Twelve carry the attribute. The only two
+  without it are `LivingEventKindV2` (`receipt.rs:84`) and `LivingCommandModeV2`
+  (`command.rs:646`), both unit-variant enums where the attribute has nothing to deny. ✓
 - **Three field-order pins added by `78072b9`:** `the_revision_field_order_…`,
   `the_accepted_envelope_field_order_…`, `the_public_receipt_field_order_…`, each decoding a
   declared-order literal and refusing a swapped one. The pattern is right — a round-trip
@@ -242,14 +270,14 @@ publishing the intent table makes a pre-existing corpus value visibly unpublishe
 
 `crates/nyon-workshop-core/tests/living_command.rs:412-465`
 (`every_reference_bearing_field_is_validated`), against
-`crates/nyon-workshop-core/src/living/command.rs:455-618`.
+`crates/nyon-workshop-core/src/living/command.rs:437-621`.
 
 The test constructs six operations (`SetWorldOwner`, `SetRelationBase`, `SetFleetOrder`,
 `ForceWar`, `RemoveEntity`, `CreateHullJob`). It is a hand-enumerated list, not a total
 scan, so its name overclaims by more than four times.
 
 **Reproduced:** I dropped `lane` from the `CreateHazard` arm of the reference walk
-(`command.rs:562`, `Self::CreateHazard { lane, .. } => push_local(lane, out)` →
+(`command.rs:563`, `Self::CreateHazard { lane, .. } => push_local(lane, out)` →
 `{ lane: _, .. } => {}`) and the crate suite stayed **233 passed / 0 failed, exit 0**. The
 mutation survives completely.
 
@@ -261,10 +289,12 @@ four, `CreateShipment`'s four, `CreateFacility.world/owner`, `CreateHazard.lane`
 `SetShipmentDisposition.shipment`, `CreateHull.fleet`, the `SetAgreement`/`RemoveAgreement`/
 `ForcePeace` participants, and more.
 
-The consequence if one is dropped is not cosmetic. That single walk feeds **both**
-`UnknownLocalReference` and `ForwardLocalReference`, so an omission disables both structural
-checks for that operation, and spec section 8 requires that "free editing does not allow
-illegal IDs". No identity is affected — `revision_id` hashes the bytes either way — so this
+The consequence if one is dropped is not cosmetic. Verified by reading
+`command.rs:770-801`: `LivingCommandV2::validate` calls `local_references` once and derives
+**both** `ForwardLocalReference` and `UnknownLocalReference` from what that single walk
+returns, so an omission disables both structural checks for that operation, and spec
+section 8 (`rules.md:254`) requires that "free editing does not allow illegal IDs". No
+identity is affected — `revision_id` hashes the bytes either way — so this
 is a validation-coverage defect, not a corpus problem.
 
 **Suggestion:** make the guard total rather than enumerated. Build one batch containing every
@@ -279,11 +309,11 @@ to compile. Rename the test if it is going to stay a sample. Do not simply add
 
 `crates/nyon-workshop-core/tests/fixtures/living-v2/vectors.json` (`creator_command.
 command_bytes_hex`, `receipt_payload.event_payloads`), against
-`crates/nyon-workshop-core/src/living/command.rs:109-630` and
+`crates/nyon-workshop-core/src/living/command.rs:111-627` and
 `crates/nyon-workshop-core/src/living/receipt.rs:64-135`.
 
 The implementer names `provenance` and the 26 event kinds as its own frozen decisions. I
-agree those qualify, and I judge them **low severity**: spec `rules.md:439` delegates the
+agree those qualify, and I judge them **low severity**: spec `rules.md:404` delegates the
 encoding by reference, `rules.md:469` makes adding a kind explicitly not a format break, and
 only two kind strings are in a vector at all.
 
@@ -318,10 +348,10 @@ vectors freeze.
 
 ### F3 — LOW — `every_event_kind_round_trips_through_its_wire_string` covers 4 of 26
 
-`crates/nyon-workshop-core/src/living/receipt.rs:459-474`.
+`crates/nyon-workshop-core/src/living/receipt.rs:470-486`.
 
 The test iterates a hand-picked four (`AgreementExpired`, `CreatorIntervention`,
-`ShipmentWaiting`, `WarEnded`). `LivingEventKindV2::as_wire_str` (`receipt.rs:137-166`)
+`ShipmentWaiting`, `WarEnded`). `LivingEventKindV2::as_wire_str` (`receipt.rs:141-170`)
 duplicates what `#[serde(rename_all = "snake_case")]` derives, so the two can drift for the
 other 22 arms undetected. Verified by grep: `as_wire_str` on this type has **no non-test
 consumer** anywhere in the crate (the hits in `catalog.rs` and `model.rs` are unrelated
@@ -337,16 +367,16 @@ unused. Either way the test's name should stop claiming "every".
 ### F4 — LOW — The plan contradicts itself and the spec on event-kind ordinals
 
 `docs/superpowers/plans/2026-09-04-nyon-living-galaxy-authority.md:159` versus the same
-file's lines 59-62 and `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:469`.
+file's lines 56-62 and `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:469`.
 
 Line 159 still asks for "the frozen event kinds from the rules spec with explicit `u16`
-ordinals"; lines 59-62 of the same plan already record that the ordinal is deliberately
+ordinals"; lines 56-62 of the same plan already record that the ordinal is deliberately
 unassigned. The implementer followed the spec. Confirmed correct.
 
-Separately, every Task 4 checklist box at lines 158-165 is still `- [ ]` while the status
+Separately, every Task 4 checklist box at lines 156-163 is still `- [ ]` while the status
 table at line 32 records the task as **landed**.
 
-**Suggestion:** strike the `u16` clause from line 159 with a pointer to lines 59-62, and
+**Suggestion:** strike the `u16` clause from line 159 with a pointer to lines 56-62, and
 tick the boxes the task actually completed (leaving the `LivingStepContextV2` and wasm-gate
 boxes honestly open).
 
@@ -371,7 +401,7 @@ written into a plan goes stale on the next commit.
 ### F6 — LOW — The "hand-written, never dumped" claim is unverifiable from the artifacts
 
 `crates/nyon-workshop-core/tests/fixtures/living-v2/vectors.json` (the `creator_command`
-and `receipt_payload` notes), `tools/living-v2-vectors.py:340-387`.
+and `receipt_payload` notes), `tools/living-v2-vectors.py:351-380`.
 
 The corpus notes cite `python3 tools/living-v2-vectors.py revision <catalog> <seed> none 7 3
 <batch.json>` and `… receipt <payload.json>`, but neither `batch.json` nor `payload.json` is
@@ -399,9 +429,9 @@ small files.
 
 `crates/nyon-workshop-core/tests/fixtures/living-v2/vectors.json`
 (`autonomous_entities[0]`, label `ai_fleet_phase_8`), against
-`docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:428-446` and line 343.
+`docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md:429-447` and line 343.
 
-Spec line 343 says `intent_ordinal_u16` comes from the published tables, with one written
+Spec `rules.md:355` says `intent_ordinal_u16` comes from the published tables, with one written
 exception: "route dispatch uses the route as actor and its stable per-boundary dispatch
 ordinal". The intent registry published here runs 1..16, so **0 is not a published intent**.
 
@@ -450,7 +480,7 @@ longer matches any row would pre-empt a future well-meant correction.
 
 ### F9 — INFO — Unknown-field rejection inside the internally tagged `provenance` is untested but correct
 
-`crates/nyon-workshop-core/tests/living_receipt.rs:374-397`.
+`crates/nyon-workshop-core/tests/living_receipt.rs:375-398`.
 
 `receipt_records_reject_unknown_and_reordered_fields` exercises an unknown field at the
 payload level, a reordered payload, and a tag-not-first provenance — but never an unknown
