@@ -287,5 +287,19 @@ any conflict.
   content. The file looks restored, `git status` can look clean, and **the suite goes
   green while testing the wrong tree** — the same false-green direction as the stale
   artifact and the wrapper exit code. `git restore --staged --worktree <path>` is the
-  correct undo. Relevant here because reverting one file to an older revision is exactly
-  how you prove a test could not have caught a defect before a commit.
+  correct undo *for that specific case*. Relevant here because reverting one file to an
+  older revision is exactly how you prove a test could not have caught a defect before a
+  commit.
+  **⚠️ CORRECTED 2026-09-09 02:5x — the advice above is incomplete and the incomplete
+  form caused a real contamination.** `git restore --staged --worktree <path>` restores
+  to **HEAD**, so running it to undo a mutation while your own fixes to that file are
+  **uncommitted silently deletes them**. Observed: four source fixes vanished, and the
+  next mutation run killed **five** tests instead of two — three of the kills were the
+  deleted fixes rather than the mutation. It was caught only because the failing test
+  *names* did not match what the mutation should have broken.
+  **The general rule, of which the `checkout`-index case is one instance: restore-to-HEAD
+  is a correct mutation-undo only when HEAD is the baseline you want.** When you have
+  uncommitted work in the file you are mutating, either commit first and mutate against
+  the committed tree, or back the file up outside git (`/bin/cp -f`) and restore from
+  that. **Then check that the tests which failed are the ones the mutation should have
+  broken** — a count alone will not tell you the run was contaminated.
