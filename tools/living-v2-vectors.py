@@ -265,6 +265,24 @@ def verify(path: pathlib.Path) -> int:
         report.check(f"event ordinal {row['event_ordinal']} digest", row["event_digest"], digest)
         report.check(f"event ordinal {row['event_ordinal']} id", row["event_id"], digest[:32])
 
+    receipt = corpus["receipt_payload"]
+    payload = {
+        "tick": receipt["tick"],
+        "applied_revisions": receipt["applied_revisions"],
+        "event_payloads": receipt["event_payloads"],
+        "state_digest": receipt["state_digest"],
+    }
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    report.check("receipt payload canonical bytes", receipt["canonical_bytes_hex"], body.hex())
+    digest = sha(DOMAINS["receipt"], body)
+    report.check("receipt payload digest", receipt["receipt_digest"], digest)
+    for row in receipt["events"]:
+        derived = event_digest(digest, row["ordinal"])
+        report.check(
+            f"receipt event ordinal {row['ordinal']} digest", row["event_digest"], derived
+        )
+        report.check(f"receipt event ordinal {row['ordinal']} id", row["event_id"], derived[:32])
+
     ranks = {}
     for row in corpus["claims"]:
         rank = claim_rank(
