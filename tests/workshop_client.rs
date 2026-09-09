@@ -1524,6 +1524,7 @@ fn slot_archived<W: WorkshopStore>(
 enum SlotFault {
     List,
     Rename,
+    Archive,
 }
 
 /// Fails the first matching Library slot request only, so a Retry from the
@@ -1554,6 +1555,10 @@ impl WorkshopStore for FaultySlotStore {
                 | (
                     WorkshopStoreRequest::RenameSlot { .. },
                     Some(SlotFault::Rename)
+                )
+                | (
+                    WorkshopStoreRequest::ArchiveSlot { .. },
+                    Some(SlotFault::Archive)
                 )
         );
         if matched {
@@ -2131,4 +2136,155 @@ fn a_library_request_still_in_flight_survives_closing_the_library() {
 
     assert_eq!(slot_named(&runtime, first), "Closed Forge");
     assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+}
+
+/// A store holding one slot already selected for Continue, so a bootstrap
+/// produces a validated candidate naming it.
+fn selected_single_slot_store(name: &str, seed: u64) -> (MemoryWorkshopStore, SlotId) {
+    let mut store = MemoryWorkshopStore::default();
+    let created = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new(name).unwrap(),
+            archive: valid_archive(seed),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
+        panic!("unexpected create result: {created:?}");
+    };
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+    (store, slot)
+}
+
+#[test]
+fn cancelling_an_in_flight_archive_still_withdraws_the_continue_candidate() {
+    // `abandon` drops the outcome, not the work, so a cancelled Archive still
+    // lands. A candidate withdrawn only on the success edge therefore survives
+    // exactly the path that most needs it withdrawn, and §10's "no archived
+    // slot is opened or selected for Continue" is violated by an ordinary
+    // Cancel.
+    let (store, slot) = selected_single_slot_store("Cancelled Archive", 61);
+    let mut runtime = runtime(store);
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+    assert!(runtime.continue_available());
+
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+    runtime.archive_library_slot(slot).unwrap();
+    runtime.cancel_library_slot_request().unwrap();
+
+    // The control: the archive really did land despite the cancel. Without
+    // this the test could pass on a store that never performed the write.
+    runtime.refresh_library_slots().unwrap();
+    settle_library(&mut runtime);
+    assert!(
+        slot_archived(&runtime, slot),
+        "the abandoned Archive still reached the store"
+    );
+
+    assert!(!runtime.continue_available());
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    assert_eq!(
+        runtime.select_menu_route(MainMenuRoute::Continue),
+        Err(ClientRuntimeError::ContinueUnavailable)
+    );
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+}
+
+#[test]
+fn a_retried_archive_is_refused_once_its_slot_has_become_resident() {
+    // The §3 refusal cannot be attached to the first attempt alone: residency
+    // changes between a failure and its Retry by an entirely ordinary path.
+    let (inner, slot) = selected_single_slot_store("Retried Archive", 62);
+    let mut runtime =
+        ClientRuntime::new(classic(), FaultySlotStore::new(inner, SlotFault::Archive));
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    // Fails while the slot is not resident, so the first attempt is legal.
+    runtime.archive_library_slot(slot).unwrap();
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Archive,
+            slot: Some(slot),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+
+    // The user leaves, opens that very slot through Continue, and comes back.
+    runtime.close_library();
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+    runtime.select_menu_route(MainMenuRoute::Continue).unwrap();
+    assert_eq!(runtime.workshop_snapshot().unwrap().store.slot, Some(slot));
+    runtime.open_library().unwrap();
+
+    assert_eq!(
+        runtime.retry_library_slot_request(),
+        Err(ClientRuntimeError::ResidentSlot)
+    );
+    // A refusal that starts nothing must not swallow the pending decision
+    // either: Retry and Cancel are still on offer over the same request.
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Archive,
+            slot: Some(slot),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    runtime.refresh_library_slots().unwrap_err();
+    runtime.cancel_library_slot_request().unwrap();
+    runtime.refresh_library_slots().unwrap();
+    settle_library(&mut runtime);
+    assert!(
+        !slot_archived(&runtime, slot),
+        "the resident Workshop's own slot must be left un-archived"
+    );
+}
+
+#[test]
+fn a_retained_failure_survives_closing_and_reopening_the_library() {
+    // `open_library` auto-lists only from `Idle`, so a decision the user has
+    // not made yet is preserved across a visit rather than being replaced by a
+    // fresh list. Finding 2's exploit path depends on this, and task 7 has to
+    // render it as the pending decision it is.
+    let (inner, first, _) = two_slot_store();
+    let mut runtime = ClientRuntime::new(classic(), FaultySlotStore::new(inner, SlotFault::Rename));
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Survives").unwrap())
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    let failed = LibrarySlotsStatus::Failed {
+        kind: SlotRequestKind::Rename,
+        slot: Some(first),
+        code: ClientDiagnosticCode::Store,
+    };
+    assert_eq!(runtime.library_slots_status(), failed);
+
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    runtime.open_library().unwrap();
+
+    assert_eq!(
+        runtime.library_slots_status(),
+        failed,
+        "re-entry must not dispatch a list over a retained decision"
+    );
+    runtime.retry_library_slot_request().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Survives");
 }

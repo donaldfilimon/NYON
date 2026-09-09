@@ -491,6 +491,7 @@ fn shell_chrome_qualifies_at_every_required_viewport_and_scale() {
             for (screen, credits_visible) in [
                 (ClientScreen::MainMenu, false),
                 (ClientScreen::Settings, false),
+                (ClientScreen::Library, false),
                 (ClientScreen::MainMenu, true),
                 (ClientScreen::RecoverableError, false),
             ] {
@@ -594,6 +595,7 @@ fn shell_actions_use_the_same_exact_label_and_typed_icon_contract() {
     for screen in [
         ClientScreen::MainMenu,
         ClientScreen::Settings,
+        ClientScreen::Library,
         ClientScreen::RecoverableError,
     ] {
         for credits_visible in [false, true] {

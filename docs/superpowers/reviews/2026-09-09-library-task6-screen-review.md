@@ -1,6 +1,11 @@
 # Review — `6e0cec9` Library task 6: the Library screen, its return handling, and its slot machine
 
-**Status: REQUEST CHANGES**
+**Status: REQUEST CHANGES — addressed in `e0bd3be`.** Findings 1, 2, 4, 5, 6 and 7 are
+fixed; Finding 3 is fixed as documentation and `wontfix` as behavior, with the reasoning
+recorded against it; Finding 8 is INFO and needs no change. Per-finding `Response` and
+`Status` lines are inline below, and the implementation summary is at the end of this
+file. Statuses were edited by the implementer; the review's findings and evidence above
+each `Response` are the reviewer's and are unmodified.
 
 Two witnessed violations of the addendum's own safety invariants, both in code this
 commit introduces, both the *same defect the commit set out to close* reappearing on a
@@ -123,7 +128,20 @@ arm **and** from the `Working { request: ArchiveSlot { slot }, .. }` arm of
 `StoreJobState::Unknown` deserves the same conservative treatment, since the store forgetting
 a job says nothing about whether the write landed.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed, at the lifecycle level rather than by
+adding a second point guard. The withdrawal moved to `dispatch_slot_request`, on the `Ok`
+arm of `workshop_store.start` — the moment the request reaches the store is the last
+moment at which the outcome is still knowable, so it is the only edge that covers success,
+cancellation and a forgotten job at once. `finish_slot_request`'s archive arm keeps an
+idempotent repeat call, deliberately not a `debug_assert`, because
+`begin_continue_bootstrap` is not gated on this machine and an adapter with real
+asynchrony can install a fresh candidate between the two points. Withdrawing on a request
+the store later rejects is accepted over-correction. Witnessed by
+`cancelling_an_in_flight_archive_still_withdraws_the_continue_candidate`, which carries the
+reviewer's control asserting the archive really landed; mutation R2 (withdraw on success
+only) fails exactly that test.
+
+**Status:** fixed.
 
 ### 2. HIGH — `retry_library_slot_request` bypasses the §3 resident-slot refusal, so a retried Archive can archive the resident Workshop's own slot
 
@@ -155,7 +173,18 @@ path — first attempt, auto-relist, and retry — passes through it. A retry th
 illegal should not silently succeed *or* silently vanish; refusing it back to the caller
 with `ResidentSlot` and leaving the row un-archived is the honest answer.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed as suggested — the residency check moved into
+`dispatch_slot_request`, so the first attempt, the auto-relist and Retry pass one gate. The
+comment that assumed residency cannot change is gone. One thing beyond the suggestion: a
+refusal that starts nothing would also have destroyed the retained request, since
+`retry_library_slot_request` takes the state by `mem::replace` before dispatching, so the
+pending decision would have vanished silently — the review asked for neither silent success
+nor silent vanishing. The retained `Failed` is now put back on a refusal. Witnessed by
+`a_retried_archive_is_refused_once_its_slot_has_become_resident`; mutation R1b (the guard
+restored to `archive_library_slot` alone) fails exactly that test, and R3 (drop the retained
+request on refusal) fails it too.
+
+**Status:** fixed.
 
 ### 3. MEDIUM — A catalog import completing inside `update()` replaces the Library screen
 
@@ -190,7 +219,19 @@ Severity is MEDIUM rather than HIGH only because nothing routes to `open_library
 `open_library`'s doc comment should name the third screen-writing machine so the next
 reader does not re-derive the same incomplete list.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Split deliberately. The documentation half is
+**fixed**: `open_library`'s comment now names the seeded catalog import as the third
+screen-writing machine, so the incomplete enumeration the review objected to is gone. The
+behavior half is **wontfix**. A seeded import is the user asking for a new Workshop from
+that pack; arriving in that Workshop when the pack stores is the honest outcome, and the
+two suggested alternatives are both worse. Refusing `open_library` while
+`catalog_import_active()` blocks a lateral route on an unrelated background job, which is
+the coupling this screen exists to avoid. Writing `library_return` instead of `screen`
+would leave the user in a Library whose return screen describes a session that no longer
+exists. The mechanism is inherited from `install_new_workshop` and is unchanged by this
+commit; the review agrees no data is lost. Recorded rather than altered.
+
+**Status:** fixed (documentation) / wontfix (behavior).
 
 ### 4. MEDIUM — The new shell arm ships with zero UI qualification coverage
 
@@ -210,7 +251,14 @@ inherits it.
 **Suggestion:** add `ClientScreen::Library` to both screen lists. Two lines, and it converts
 the commit message's claim into evidence.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed. `ClientScreen::Library` added to both
+hand-enumerated sweeps in `tests/workshop_ui_layout.rs`. The review predicted a low
+probability of an actual defect and that held — both suites pass unchanged. The value is
+the evidence: mutation R4 shrinks the Library arm's control to 20 px high and
+`shell_chrome_qualifies_at_every_required_viewport_and_scale` now fails, where before this
+commit the same mutation would have passed silently.
+
+**Status:** fixed.
 
 ### 5. LOW — `library_slots() == None` with status `Idle` now has two meanings, and the documented one is stated as if exclusive
 
@@ -229,7 +277,14 @@ the three cases is a defect worth fixing now rather than after the panel is buil
 request and cannot contend with the `Commit` lane the cancel just released — or amend both
 doc comments to name the second case.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed by amending both doc comments rather than by
+dispatching a re-list from the cancel path; cancel should clear intent, not start new work,
+and leaving the machine `Working` immediately after the user pressed Cancel would be its own
+defect. Both comments now state the single meaning a caller acts on — there is no list to
+render, ask for one — and name all three ways it is reached, flagging that only two are
+followed by an automatic re-list so `None` with `Idle` is a real resting state.
+
+**Status:** fixed.
 
 ### 6. LOW — The resident-slot refusal reports a diagnostic code that contradicts its error
 
@@ -244,7 +299,12 @@ refused route.
 **Suggestion:** a distinct code, or at minimum a note explaining why the collision is
 acceptable.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed. Added `ClientDiagnosticCode::ResidentSlot`
+and its arm in `safe_client_diagnostic` (`src/app.rs`), whose user-visible text is "Close the
+Workshop using that slot before archiving it." — materially different from the wrong-screen
+message, which was the objection.
+
+**Status:** fixed.
 
 ### 7. LOW — The "a `Failed` survives a visit" contract task 7 must honour has no test
 
@@ -257,7 +317,12 @@ exploits, so it is worth pinning in both directions.
 **Suggestion:** one test: fail a rename, `close_library`, `open_library`, assert the status is
 still `Failed { Rename, .. }` and that no list was dispatched.
 
-**Status:** open.
+**Response (implementer, `e0bd3be`):** Fixed. `a_retained_failure_survives_closing_and_reopening_the_library`
+fails a rename, closes the Library, reopens it, and asserts the status is still
+`Failed { Rename, .. }` rather than a fresh list, then retries to completion. This is the
+contract Finding 2's exploit path depends on, so it is now pinned rather than inferred.
+
+**Status:** fixed.
 
 ### 8. INFO — The main-menu entry deferral is correctly deferred and correctly disclosed
 
@@ -387,3 +452,86 @@ would exercise a different arm.
 - **The claim that an archived resident slot's next save actually fails** (the harm behind
   Finding 2) is taken from addendum §3 and from `SelectContinue`'s documented
   `ArchivedSlot` ordering; the failing commit itself was not exercised.
+
+---
+
+## Implementation summary (implementer, `e0bd3be`, parent `c9f274a`)
+
+### The shape of the fix
+
+The review's framing was the load-bearing part: both HIGH findings are the same defect —
+an archive rule attached to **one transition** instead of to the request's lifecycle —
+appearing on two different edges. So neither was fixed where it was found. Both moved to
+`dispatch_slot_request`, which `grep` confirms is the only `workshop_store.start` call for
+slot requests (the file has two `start` call sites; the other is `PutPack`, a different
+machine). Guarding and compensating there covers every edge by construction rather than by
+enumeration:
+
+| Edge that reaches the store with an `ArchiveSlot` | Before | After |
+|---|---|---|
+| First attempt | guarded, withdrawn on success | guarded and withdrawn at dispatch |
+| Retry from a retained `Failed` | **ungated** (Finding 2) | same gate as the first attempt |
+| Cancel of an in-flight job | archive lands, **candidate kept** (Finding 1) | withdrawn before the job existed |
+| `StoreJobState::Unknown` | archive may have landed, candidate kept | withdrawn before the job existed |
+
+The fourth row is the third edge the review's suggestion anticipated ("a `Failed`
+`ArchiveSlot` produced by `Unknown` deserves the same conservative treatment"). It needs no
+guard of its own: a forgotten job says nothing about whether the write landed, and
+dispatch-time withdrawal already assumed the worst.
+
+The general rule this settles, for tasks 7 through 12: **the moment a request reaches the
+store is the last moment its effect is knowable.** `abandon` drops the outcome, not the
+work. Any compensation for a mutation therefore belongs at dispatch, not at success.
+
+### Beyond the review's suggestions
+
+A refusal inside `dispatch_slot_request` would have destroyed the retained request, because
+`retry_library_slot_request` takes the machine by `mem::replace` before dispatching. The
+review asked that an illegal retry neither silently succeed nor silently vanish; only the
+first was covered by moving the guard. The retained `Failed` is now restored on a refusal,
+so Retry and Cancel stay on offer over the same decision.
+
+`finish_slot_request`'s archive arm keeps an idempotent repeat of the withdrawal. It was
+briefly a `debug_assert!`, which was wrong: it asserted a cross-machine invariant the
+runtime does not enforce, since `begin_continue_bootstrap` is not gated on this machine and
+an adapter with real asynchrony can install a fresh candidate between the two points. A
+panic path is a worse answer than an idempotent call.
+
+### Gates
+
+Exit codes read from inside each log, never from a pipe, a trailing `echo`, or a background
+wrapper's status.
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | `FMT_EXIT: 0` |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `CLIPPY_EXIT: 0`, 0 warnings |
+| `cargo test --workspace --all-targets` | `TEST_EXIT: 0`, **654 passed / 46 suites** |
+| `cargo test --workspace` | `TEST_EXIT: 0`, **657 passed / 47 suites** (with the 3 doc-tests) |
+
+Baseline was 651 / 654; **+3 tests**, one per fixed finding that needed a witness.
+
+### Mutation evidence
+
+Every run confirmed `Compiling nyon` in its output, so no result rests on a stale artifact.
+Each was reverted with `git checkout --` and the tree verified clean.
+
+| # | Mutation | Tests failed | Note |
+|---|---|---|---|
+| R1 | residency guard skips the retry edge | 2 | Sloppy: the predicate also disabled the first-attempt edge, so it proves both are gated but isolates neither. Superseded by R1b. |
+| R1b | guard restored to `archive_library_slot` alone — the exact pre-fix arrangement | 1 | `a_retried_archive_is_refused_once_its_slot_has_become_resident`. The isolating one: it proves the new test pins the retry edge specifically. |
+| R2 | candidate withdrawn on success only | 1 | `cancelling_an_in_flight_archive_still_withdraws_the_continue_candidate` |
+| R3 | refused retry drops the retained request | 1 | Same test, at the restored-`Failed` assertion |
+| R4 | Library shell control shrunk to 20 px high | 1 | `shell_chrome_qualifies_at_every_required_viewport_and_scale`. **Before this commit the same mutation passed silently** — that is Finding 4's evidence, not the passing suite. |
+
+### Left undone, deliberately
+
+- **Finding 3's behavior half** (`wontfix`, reasoning recorded against the finding).
+- **Finding 8** stands: `open_library` still has no caller under `src/`, so neither HIGH
+  defect was reachable in the product. The condition that would make the deferral a defect
+  is unchanged — the screen must not ship without an entry control — and is for review of
+  task 8 or 10 to enforce.
+- The Library machine is still measured only against `MemoryWorkshopStore` and the two test
+  doubles. The review notes that a real adapter's asynchrony **widens** the cancel window
+  Finding 1 depends on; the dispatch-time fix is insensitive to that window by construction,
+  but that is reasoning, not measurement.

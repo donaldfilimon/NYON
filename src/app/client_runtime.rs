@@ -102,6 +102,11 @@ pub enum ClientDiagnosticCode {
     ContinueUnavailable,
     WorkshopInactive,
     RouteUnavailable,
+    /// A Library action was refused because the resident Workshop occupies the
+    /// slot it named. Distinct from [`Self::RouteUnavailable`] because the
+    /// user-visible reason is a different one: the row is not wrong, the
+    /// timing is.
+    ResidentSlot,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,8 +173,9 @@ pub enum SlotRequestKind {
 pub enum LibrarySlotsStatus {
     /// Nothing in flight and nothing waiting on the user. The cached list, if
     /// any, is readable through [`ClientRuntime::library_slots`]; `None` there
-    /// with `Idle` here means the Library has not listed yet, which is
-    /// distinct from having listed an empty store.
+    /// with `Idle` here means there is no list to render and the caller must
+    /// ask for one, which is distinct from having listed an empty store. It is
+    /// reached both before the first list and after a cancelled mutation.
     Idle,
     /// A request is in flight. Offers Cancel.
     Working {
@@ -947,6 +953,17 @@ where
     /// make the Library its own return screen and strand the user; the two
     /// transient screens are owned by machines that write `self.screen`
     /// themselves, so a Library opened from either would be silently replaced.
+    ///
+    /// That enumeration is not the whole set of screen-writing machines, and
+    /// refusing those two screens does not make the Library immune to the rest.
+    /// A catalog import started *with a seed* calls `install_new_workshop` from
+    /// inside [`Self::update`] when its pack lands, which writes
+    /// `ClientScreen::GalaxyWorkshop` over whatever is on screen, the Library
+    /// included. That is inherited behavior and is left as it is: the user
+    /// asked for a new Workshop from that pack, and arriving in it when the
+    /// pack stores is the honest answer rather than parking them in a Library
+    /// whose `library_return` no longer describes anything. It is recorded here
+    /// so the next reader does not re-derive the incomplete list above.
     pub fn open_library(&mut self) -> Result<(), ClientRuntimeError> {
         if !matches!(
             self.screen,
@@ -980,12 +997,20 @@ where
         }
     }
 
-    /// The listed slots, or `None` when the Library has not completed a list.
+    /// The listed slots, or `None` when there is no list worth trusting.
     ///
-    /// `None` is not "no slots": an empty store lists as `Some` with an empty
-    /// `slots`. It is also the state left behind by a successful mutation,
-    /// whose cached list is definitively stale until the automatic re-list
-    /// lands.
+    /// **`None` is never "no slots"**: an empty store lists as `Some` with an
+    /// empty `slots`, and that is the only representation of emptiness. `None`
+    /// has exactly one meaning for a caller — there is no list to render, ask
+    /// for one — reached three ways: the Library has not listed yet; a
+    /// successful mutation dropped a list that now misstates a name, an
+    /// archived flag or the Continue marker; or a cancelled mutation dropped
+    /// one whose generations the abandoned write may have invalidated.
+    ///
+    /// Only the first two are followed by an automatic re-list, so `None` with
+    /// [`LibrarySlotsStatus::Idle`] is a real resting state after a cancel and
+    /// not a frame in flight. Pair this with
+    /// [`Self::library_slots_status`] rather than reading either alone.
     pub const fn library_slots(&self) -> Option<&SlotList> {
         self.slot_list.as_ref()
     }
@@ -1024,20 +1049,12 @@ where
         self.start_slot_request(WorkshopStoreRequest::RenameSlot { slot, name })
     }
 
-    /// Archives one slot, refusing the resident Workshop's own slot.
+    /// Archives one slot.
     ///
-    /// §3: archiving the slot a live authoritative session occupies would leave
-    /// that session's next save failing as archived. This is a gating refusal
-    /// at request time, not a retryable store failure — no retry cures it while
-    /// the session is still resident.
+    /// §3's refusal of the resident Workshop's own slot is enforced in
+    /// [`Self::dispatch_slot_request`], not here, so that Retry is gated by the
+    /// same rule as the first attempt.
     pub fn archive_library_slot(&mut self, slot: SlotId) -> Result<(), ClientRuntimeError> {
-        if self.resident_slot() == Some(slot) {
-            self.push_diagnostic(
-                ClientDiagnosticCode::RouteUnavailable,
-                "The resident Workshop's own slot cannot be archived",
-            );
-            return Err(ClientRuntimeError::ResidentSlot);
-        }
         self.start_slot_request(WorkshopStoreRequest::ArchiveSlot { slot })
     }
 
@@ -1048,9 +1065,21 @@ where
 
     /// Retries a [`LibrarySlotsStatus::Failed`] request from its retained
     /// request, without asking the user to re-pick the row.
+    ///
+    /// A retry that has become illegal in the meantime — an Archive whose slot
+    /// is now resident — is refused by [`Self::dispatch_slot_request`] without
+    /// starting anything. That refusal must not also swallow the decision the
+    /// user still has to resolve, so the retained request is put back and the
+    /// Library keeps offering Retry and Cancel over it.
     pub fn retry_library_slot_request(&mut self) -> Result<(), ClientRuntimeError> {
         match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
-            LibrarySlots::Failed { request, .. } => self.dispatch_slot_request(request),
+            LibrarySlots::Failed { request, code } => {
+                let outcome = self.dispatch_slot_request(request.clone());
+                if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
+                    self.slot_requests = LibrarySlots::Failed { request, code };
+                }
+                outcome
+            }
             other => {
                 self.slot_requests = other;
                 self.push_diagnostic(
@@ -1100,6 +1129,22 @@ where
         }
     }
 
+    /// Drops a validated Continue candidate that names `slot`.
+    ///
+    /// Called when an `ArchiveSlot` reaches the store, because from that moment
+    /// the archive lands whether or not its outcome is ever observed. The store
+    /// clears its own Continue marker, but it cannot reach a candidate this
+    /// runtime is already holding in memory.
+    fn withdraw_continue_candidate(&mut self, slot: SlotId) {
+        if self
+            .continue_candidate
+            .as_ref()
+            .is_some_and(|candidate| candidate.loaded.slot == slot)
+        {
+            self.continue_candidate = None;
+        }
+    }
+
     /// The slot a resident Workshop currently occupies, if any.
     fn resident_slot(&self) -> Option<SlotId> {
         match &self.active_session {
@@ -1121,12 +1166,53 @@ where
         self.dispatch_slot_request(request)
     }
 
+    /// The one point at which any Library slot request reaches the store.
+    ///
+    /// Both archive-related invariants live here rather than on the individual
+    /// transitions that reach them, because attaching either to one transition
+    /// leaves the others open. Three edges dispatch an `ArchiveSlot`: the first
+    /// attempt, a Retry from a retained failure, and — for the compensation
+    /// below — every way the request's outcome can afterwards be lost.
+    ///
+    /// **The residency refusal (§3).** Guarding only the first attempt assumes
+    /// residency cannot change between a failure and its Retry. It can, by an
+    /// ordinary path: the archive fails while the slot is not resident, the
+    /// user closes the Library, opens that slot through Continue, and returns
+    /// to a retained `Failed` that [`Self::open_library`] deliberately
+    /// preserves. Refusing here gates every edge with one rule.
+    ///
+    /// **The candidate withdrawal (§10).** Once `start` returns `Ok` the
+    /// archive is going to land, and no later observation can take that back:
+    /// [`WorkshopStore::abandon`] drops the outcome, not the work, and a
+    /// [`StoreJobState::Unknown`] says nothing about whether the write
+    /// happened. So the validated Continue candidate has to be withdrawn at the
+    /// moment the request reaches the store, not when a success is observed —
+    /// otherwise cancelling an in-flight Archive leaves a candidate that
+    /// [`Self::continue_selected_workshop`] would install as resident, which is
+    /// "no archived slot is opened or selected for Continue" verbatim.
+    ///
+    /// Withdrawing on a request the store later rejects is deliberate
+    /// over-correction. It costs one bootstrap to rebuild a purely in-memory
+    /// artifact; the opposite error installs an archived slot whose next save
+    /// must fail as archived.
     fn dispatch_slot_request(
         &mut self,
         request: WorkshopStoreRequest,
     ) -> Result<(), ClientRuntimeError> {
+        if let WorkshopStoreRequest::ArchiveSlot { slot } = &request
+            && self.resident_slot() == Some(*slot)
+        {
+            self.push_diagnostic(
+                ClientDiagnosticCode::ResidentSlot,
+                "The resident Workshop's own slot cannot be archived",
+            );
+            return Err(ClientRuntimeError::ResidentSlot);
+        }
         match self.workshop_store.start(request.clone()) {
             Ok(job) => {
+                if let WorkshopStoreRequest::ArchiveSlot { slot } = &request {
+                    self.withdraw_continue_candidate(*slot);
+                }
                 self.slot_requests = LibrarySlots::Working { job, request };
                 Ok(())
             }
@@ -1207,18 +1293,16 @@ where
                 WorkshopStoreRequest::ArchiveSlot { slot },
                 WorkshopStoreResult::SlotArchived { slot: answered },
             ) if *slot == answered => {
-                // The store cleared its own Continue marker for this slot, but
-                // a validated candidate the runtime is already holding would
-                // survive that and could still be installed as resident — an
-                // archived slot whose next save must fail as archived, which
-                // §10 forbids opening at all.
-                if self
-                    .continue_candidate
-                    .as_ref()
-                    .is_some_and(|candidate| candidate.loaded.slot == answered)
-                {
-                    self.continue_candidate = None;
-                }
+                // Dispatch already withdrew the candidate, which is the edge
+                // that covers cancellation and a forgotten job as well as
+                // success. This repeat is not redundant and must not be
+                // asserted away: `begin_continue_bootstrap` is not gated on
+                // this machine, so against an adapter with real asynchrony a
+                // bootstrap can list a slot the worker has not archived yet,
+                // pass the library client's own archived-slot check, and
+                // install a fresh candidate between dispatch and this arm.
+                // The call is idempotent.
+                self.withdraw_continue_candidate(answered);
             }
             _ => {
                 self.retain_failed_slot_request(

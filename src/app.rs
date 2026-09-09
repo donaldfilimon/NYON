@@ -1703,6 +1703,9 @@ const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'static str {
             "No explicitly selected valid Workshop save is available."
         }
         ClientDiagnosticCode::WorkshopInactive => "Galaxy Workshop is not currently active.",
+        ClientDiagnosticCode::ResidentSlot => {
+            "Close the Workshop using that slot before archiving it."
+        }
         ClientDiagnosticCode::RouteUnavailable => {
             "That product route is unavailable from the current screen."
         }
