@@ -29,7 +29,7 @@ Measured against the tree rather than carried forward:
 | 3a — the V2 authority state schema | **landed and reviewed** | `50c50f9` (1,848 lines + 50 integration tests), review `b6f33ab` APPROVE WITH FINDINGS; F1 closed by `2b7bfbc`, F2 by `06873f6`, F3 recorded in the program plan |
 | 3b — `living/genesis.rs` | **open, and is the next task** | no file on disk |
 | 3c — genesis and state vectors | open | derived outside this crate, never from its output |
-| 4 — commands, receipts, events | open | blocked on nothing; owes the spec its entity-kind renumbering note |
+| 4 — commands, receipts, events | **landed** | `2f6561a` publishes the entity-kind and phase registries in `living/ids.rs` and the rules spec, and re-derives the five affected corpus rows outside this crate with `tools/living-v2-vectors.py`; `bbc3da6` adds `living/receipt.rs` (the distinct payload record, the normative derivation order, 26 event kinds); `ab1f081` adds `living/command.rs` (28 creator operations, envelope, revision). The entity-kind renumbering note the spec asked for is in its status block. 633 tests / 46 suites |
 
 **Two things 3b must not re-derive, both of which already exist.**
 `LivingGalaxyStateV2::validate(&ValidatedLivingCatalogPackV2)` landed with 3a —
