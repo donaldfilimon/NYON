@@ -241,3 +241,21 @@ any conflict.
   `cargo check --target wasm32-unknown-unknown --lib` exits non-zero *with that
   message*, then remove it. That is how `df2457c`'s wasm evidence was
   established, and a fast pass on that target should not be believed otherwise.
+- **⚠️ A restore that preserves mtime can make Cargo skip the rebuild, and the dangerous
+  direction is a FALSE GREEN.** Found 2026-09-08 while mutation-testing. `sed -i.bak`
+  *renames* the original file — keeping its old mtime — and writes a new one in its
+  place. Moving the `.bak` back therefore leaves the source **older** than the compiled
+  artifact, so Cargo's mtime fingerprint decides nothing changed and reuses the stale
+  binary. Observed as a false **red**: restored source, `git status` clean, `grep`
+  confirming the mutation gone, and the mutant's failures still reported.
+  **The symmetric case is the one that matters.** Any restore-style edit — `sed -i.bak`
+  + `mv`, `git stash pop`, `cp` from an older copy, `git checkout` of an older blob —
+  can leave a *mutation* uncompiled, so a mutation that appears to **survive** may
+  simply never have been built. That silently converts "this test does not catch the
+  defect" into a wrong conclusion, which is precisely backwards for a technique used to
+  prove a test discriminates. Mutation evidence is only as good as the rebuild.
+  **Mitigation: `touch` the file after any restore, or verify the rebuild happened**
+  (a genuinely-rebuilt run is not instant). Writing the file fresh — as `cp src dst` or
+  a script that opens and writes — sets a current mtime and is safe. Same family as the
+  `env!("CARGO_MANIFEST_DIR")` trap above: the build system's cache disagreeing with the
+  source you are looking at.
