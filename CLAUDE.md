@@ -78,10 +78,15 @@ the root are session tooling, not project files.
 
 ## Living Galaxy V2
 
-`crates/nyon-workshop-core/src/living/` (`mod`, `ids`, `model`, `wire`,
-`catalog`) is the Living Galaxy V2 authority island, landed 2026-09-06 in
-`1283e55` and `4f3d28e`, with the catalog and the frozen V2 state schema added
-2026-09-08 (`50c50f9`). As of 2026-09-08 nothing under `src/` consumes it
+`crates/nyon-workshop-core/src/living/` (`mod`, `ids`, `wire`, `catalog`,
+`model`, `genesis`, `command`, `receipt` — **eight files as of 2026-09-08**) is
+the Living Galaxy V2 authority island, landed 2026-09-06 in `1283e55` and
+`4f3d28e`. The authority plan's four tasks all landed on 2026-09-08: the catalog
+(`71e5b6f`), the frozen state schema (`50c50f9`), genesis (`f569437`), and
+commands/receipts/events with the entity-kind and phase registries (`2f6561a`,
+`bbc3da6`, `ab1f081`). Its test suites are `living_wire`, `living_catalog`,
+`living_model`, `living_genesis`, `living_command`, `living_receipt`.
+As of 2026-09-08 nothing under `src/` consumes any of it
 (`grep -rn living src/` is empty), and the crate root re-exports the V1 names but
 not the V2 ones, so callers path through `living::`. Its binding
 contract is `docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md`; its
@@ -98,14 +103,22 @@ mechanically, and one it cannot:
   cannot catch a conversion whose V1 operand type is never spelled, or one
   written downstream; the test's own doc comment states that boundary.
 - **Adding a module to this crate is a two-place edit.** `CRATE_SOURCES` in
-  `living_wire.rs` `include_str!`s every file (13 as of 2026-09-08), and a
-  companion test resolves every `mod` declaration against that list, asserting a
-  literal declaration count (12: eight top-level, four under `living`). A new
-  `pub mod` fails the suite on both counts until the array and the number are
-  updated together.
+  `living_wire.rs` `include_str!`s every file (**16 as of 2026-09-08 22:4x**),
+  and a companion test resolves every `mod` declaration against that list,
+  asserting a literal declaration count (**15**). A new `pub mod` fails the suite
+  on both counts until the array and the number are updated together, and the
+  child label must carry the `living/` prefix or path resolution fails. **Both
+  numbers moved four times on 2026-09-08 — measure them, do not quote this
+  line.**
 - **`vectors.json` is not a golden file, and no test can tell you that.** Every
   expected digest was derived independently from section 10 of the rules spec,
-  never from this crate's output. The suite only compares against the file, so
+  never from this crate's output. **The tool that does it is now checked in:
+  `tools/living-v2-vectors.py`.** Its `verify` mode re-derives every stored digest
+  from the spec formulas, and the discipline that makes it evidence is running
+  that control on the *unmodified* corpus first — Task 4 reproduced all 52 stored
+  digests before changing five of them, so the transcription was validated against
+  frozen values rather than trusted. Use it, and never regenerate a vector from
+  the implementation. The suite only compares against the file, so
   regenerating it from a changed implementation passes while destroying the
   evidence. A digest that moves means the spec moved or the code is wrong.
 
