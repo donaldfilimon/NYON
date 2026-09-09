@@ -1207,6 +1207,48 @@ fn cancelling_an_in_flight_catalog_import_frees_the_commit_lane_it_held() {
         runtime.cancel_catalog_import(),
         Err(ClientRuntimeError::RouteUnavailable)
     );
+
+    // ...and neither does a terminal `Stored`. This half was asserted by the
+    // test this one replaced, and was lost in the inversion. Restored because
+    // nothing else pins it: moving `CatalogImport::Stored` into
+    // `cancel_catalog_import`'s `Ok(())` arm -- making a stored import silently
+    // cancellable -- passed workshop_client, workshop_library,
+    // workshop_recovery and workshop_session in full.
+    //
+    // The distinction the branch encodes: cancelling an *in-flight* import
+    // abandons an outcome that has not been consumed, while a `Stored` import
+    // has already completed. There is no pack deletion in the request
+    // vocabulary, so "cancelling" it could only mean forgetting a pack that is
+    // still on disk -- a lie about storage rather than an undo.
+    //
+    // Drain first: the save above is a two-step sequence -- commit, then the
+    // addendum-mandated generation-checked SelectContinue -- and that second
+    // job is Commit-class too, so beginning an import before it retires fails
+    // with `Busy { class: Commit }` rather than testing anything.
+    for _ in 0..8 {
+        runtime.update(Duration::ZERO);
+    }
+    let stored_pack = custom_pack();
+    let stored_hash = decode_catalog_pack(&stored_pack).unwrap().catalog_hash();
+    assert_eq!(
+        runtime.begin_catalog_import(&stored_pack).unwrap(),
+        stored_hash
+    );
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: stored_hash }
+    );
+    assert_eq!(
+        runtime.cancel_catalog_import(),
+        Err(ClientRuntimeError::RouteUnavailable),
+        "a terminal Stored import has no intent left to cancel"
+    );
+    assert_eq!(
+        runtime.catalog_import_status(),
+        CatalogImportStatus::Stored { hash: stored_hash },
+        "a refused cancel must not disturb the stored import"
+    );
 }
 
 /// The exact-catalog open algorithm's own protocol messages, pinned before the

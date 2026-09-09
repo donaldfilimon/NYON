@@ -208,11 +208,19 @@ any conflict.
   this is safe rather than corrupting is that every head-dependent mutation
   compare-and-swaps, so the next commit, promotion or selection receives
   `StaleGeneration` instead of writing over a generation nobody observed.
-  **That argument was under review when this line was written
-  (`docs/superpowers/reviews/2026-09-08-workshop-task4-library-client-review.md`);
-  read the verdict before relying on it, and if you find a head-dependent
-  mutation that does not compare-and-swap, treat it as a corruption path rather
-  than a lane-management detail.**
+  **That argument was reviewed and found SOUND** (`5e066ce`,
+  `docs/superpowers/reviews/2026-09-08-workshop-task4-library-client-review.md`):
+  the reviewer enumerated the whole request vocabulary and found no
+  head-dependent mutation that skips its compare-and-swap in any adapter —
+  `memory.rs:145/205/277`; `native.rs:250/308/409`, all under the exclusive
+  `store-v1.lock` taken at `native.rs:190` before the manifest read and held
+  across the entire read-modify-write; `wasm.rs:400/488/690`, each inside one
+  readwrite transaction. **The safety property is therefore a consequence of
+  universal CAS, not of anything `abandon` itself does — so if you ever add a
+  head-dependent mutation, it must compare-and-swap or this becomes a
+  corruption path.** Note what remains unverified by execution rather than by
+  reading: browser transaction serialization is inferred from the spec and the
+  scopes read, never run.
 - **A fast "Finished" from the wasm target may be a cached green.** The wasm
   commands are the only thing that compiles `store/web/wasm.rs` at all, so a
   cached pass is indistinguishable from real coverage. Force the question:
