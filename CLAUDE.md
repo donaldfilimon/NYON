@@ -59,8 +59,15 @@ the root are session tooling, not project files.
   and error taxonomy, `SlotId`/`SlotName`/`SaveGeneration` and the job table,
   over three adapters: `store/memory.rs` (unconditional), `store/native.rs`
   (`cfg(not(wasm32))`), and `store/web.rs`. See the wasm split under *Traps*.
-- `app` is the runtime: `core` (and `core/session.rs`), `client_runtime`,
-  `input_router`, `durable_exit`, `onboarding`, `settings`.
+- `app` is the runtime: `core` (and `core/session.rs`), `client_runtime` (and
+  `client_runtime/library.rs`), `input_router`, `durable_exit`, `onboarding`,
+  `settings`. **`client_runtime/library.rs` holds `WorkshopLibraryClient`, the
+  exact-catalog open algorithm extracted from `poll_continue_bootstrap` in
+  `75cf146`.** The split is deliberate and load-bearing: the client owns the
+  five phases and returns events, while `client_runtime.rs` keeps *screen
+  policy* — the client never enters recovery, never picks a screen and never
+  installs a session. Startup Continue runs on it, so there is one
+  implementation rather than two.
 - `platform` splits the entry points into `native.rs` and `web.rs`; `main.rs` is
   native only, and `src/lib.rs` is also the cdylib the wasm build exports.
 - `scenario` (`codec`, `store`) and `preferences` (`store`) own versioned,
@@ -132,9 +139,10 @@ seeds and digest in `AGENTS.md`), `campaign`, `scenario`, `scenario_editor`,
 `presentation`, `renderer_contracts`, `shaders`, `ui_assets`, `advisory`,
 `advisory_gpu` (SKIP-tolerant, not parity evidence), `app`, `identity`,
 `preferences`, `usability`, `player_guide`, `browser_contract`, `workshop_web`,
-`workshop_store_web`, and the `workshop_*` family covering session, store,
-recovery, client, presentation, accessibility and the four `workshop_ui_*` UI
-suites. Shared fixtures are in `tests/common/`.
+`workshop_store_web`, `workshop_library` (added 2026-09-08 with the library
+client), and the `workshop_*` family covering session, store, recovery, client,
+presentation, accessibility and the four `workshop_ui_*` UI suites. Shared
+fixtures are in `tests/common/`.
 
 `crates/nyon-workshop-core` has its own `tests/`: `archive`, `creator`,
 `history`, `pack`, `simulation`, `two_system_forge`, and the three Living V2
@@ -186,3 +194,29 @@ any conflict.
   `AGENTS.md` compiles or lints it, so run that sequence after touching it, and
   do not read a passing `workshop_store_web` suite as coverage of the real
   IndexedDB path. The same asymmetry applies to `store/native.rs` under wasm.
+- **A store job has exactly two lanes, and dropping a job ID used to wedge one
+  for the store's lifetime.** `WorkshopStore::abandon` (added 2026-09-08 in
+  `df2457c`) frees a lane and forgets the job; it is implemented once on the
+  shared `JobTable` and delegated by all four adapters plus
+  `RuntimeWorkshopStore`. Before it existed, a caller that dropped a job without
+  polling starved `CommitSlot` and `PromoteRecoveredSlot`, so the resident
+  Workshop could no longer save or discharge a recovery obligation.
+  **⚠️ `abandon` abandons the OUTCOME, not the WORK, and the distinction is the
+  whole risk.** Memory and the browser model have already executed by the time
+  `start` returns; native's thread and a live IndexedDB transaction run to
+  completion. Nothing is cancelled and nothing is rolled back. The argument that
+  this is safe rather than corrupting is that every head-dependent mutation
+  compare-and-swaps, so the next commit, promotion or selection receives
+  `StaleGeneration` instead of writing over a generation nobody observed.
+  **That argument was under review when this line was written
+  (`docs/superpowers/reviews/2026-09-08-workshop-task4-library-client-review.md`);
+  read the verdict before relying on it, and if you find a head-dependent
+  mutation that does not compare-and-swap, treat it as a corruption path rather
+  than a lane-management detail.**
+- **A fast "Finished" from the wasm target may be a cached green.** The wasm
+  commands are the only thing that compiles `store/web/wasm.rs` at all, so a
+  cached pass is indistinguishable from real coverage. Force the question:
+  append a temporary `compile_error!` to that file, confirm
+  `cargo check --target wasm32-unknown-unknown --lib` exits non-zero *with that
+  message*, then remove it. That is how `df2457c`'s wasm evidence was
+  established, and a fast pass on that target should not be believed otherwise.
