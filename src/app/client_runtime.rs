@@ -20,8 +20,8 @@ use crate::{
             WorkshopUpdate,
         },
         store::{
-            StoreJobId, StoreJobState, WorkshopStore, WorkshopStoreError, WorkshopStoreRequest,
-            WorkshopStoreResult,
+            SlotId, SlotList, SlotName, StoreJobId, StoreJobState, WorkshopStore,
+            WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
         },
     },
 };
@@ -41,6 +41,16 @@ pub enum ClientScreen {
     ClassicSector,
     GalaxyWorkshop,
     Settings,
+    /// Workshop slot management and portable transfer. A sibling of
+    /// [`ClientScreen::Settings`] rather than a Workshop drawer section,
+    /// because the addendum requires main-menu entry and there is no Workshop
+    /// frame to hang a drawer on there.
+    ///
+    /// Opening it is a **lateral** route: it never prepares a durable
+    /// transition, so the resident session keeps its dirty state, its queued
+    /// actions and its recovery obligations untouched. Gating happens per
+    /// action inside the Library, not at the door.
+    Library,
     Loading,
     RecoverableError,
 }
@@ -133,12 +143,58 @@ pub enum CatalogImportStatus {
     },
 }
 
+/// Which of the four Library slot requests a machine state names.
+///
+/// The Library submits exactly these four and nothing else. Open, row Export
+/// and Use for Continue go through [`WorkshopLibraryClient`] instead, because
+/// §4 assigns them the exact-catalog resolution this machine deliberately does
+/// not perform.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlotRequestKind {
+    List,
+    Rename,
+    Archive,
+    Unarchive,
+}
+
+/// The bounded typed facts the Library presents for its slot-request machine.
+///
+/// Failure is a state here, never the global recovery screen: §6 forbids
+/// collapsing Library failures into `RecoverableError`, and a panel offering
+/// Retry and Cancel cannot exist over a runtime that has already replaced the
+/// screen. The retained request stays internal, so nothing a caller reads can
+/// carry a slot name or archive bytes back out.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LibrarySlotsStatus {
+    /// Nothing in flight and nothing waiting on the user. The cached list, if
+    /// any, is readable through [`ClientRuntime::library_slots`]; `None` there
+    /// with `Idle` here means the Library has not listed yet, which is
+    /// distinct from having listed an empty store.
+    Idle,
+    /// A request is in flight. Offers Cancel.
+    Working {
+        kind: SlotRequestKind,
+        slot: Option<SlotId>,
+    },
+    /// The store rejected the request and it can be retried from the retained
+    /// request. Offers Retry and Cancel.
+    Failed {
+        kind: SlotRequestKind,
+        slot: Option<SlotId>,
+        code: ClientDiagnosticCode,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ClientRuntimeError {
     #[error("Continue bootstrap is already active")]
     BootstrapActive,
     #[error("a Workshop catalog import is already active")]
     CatalogImportActive,
+    #[error("a Workshop Library slot request is already waiting")]
+    LibraryRequestActive,
+    #[error("the resident Workshop occupies that slot")]
+    ResidentSlot,
     #[error("Continue is unavailable until its selected save validates")]
     ContinueUnavailable,
     #[error("Galaxy Workshop is not the active session")]
@@ -191,6 +247,61 @@ enum CatalogImport {
     },
 }
 
+/// The Library's one slot-request lane, as a poll-driven machine.
+///
+/// It retains the whole [`WorkshopStoreRequest`] as retry material for the same
+/// reason [`ImportMaterial`] retains the validated pack: Retry must not ask the
+/// user to retype a slot name or re-pick a row. All four requests are small and
+/// already `Clone`, so there is no bound to argue about.
+///
+/// Exactly one request is outstanding at a time. Starting a second would
+/// overwrite the state holding the first one's job, and nothing would ever poll
+/// it — the wedged-lane defect [`WorkshopStore::abandon`] exists to close, and
+/// three of the four requests sit in the Commit lane the resident Workshop
+/// needs to save.
+#[derive(Clone, Debug)]
+enum LibrarySlots {
+    Idle,
+    Working {
+        job: StoreJobId,
+        request: WorkshopStoreRequest,
+    },
+    Failed {
+        request: WorkshopStoreRequest,
+        code: ClientDiagnosticCode,
+    },
+}
+
+/// The typed identity of a slot request, for the public status only.
+///
+/// Deliberately total over the request vocabulary rather than partial: a
+/// request this machine never submits would be a construction defect, and
+/// `List` is the honest answer for a state that cannot exist rather than a
+/// panic in a product path.
+fn slot_request_kind(request: &WorkshopStoreRequest) -> SlotRequestKind {
+    match request {
+        WorkshopStoreRequest::RenameSlot { .. } => SlotRequestKind::Rename,
+        WorkshopStoreRequest::ArchiveSlot { .. } => SlotRequestKind::Archive,
+        WorkshopStoreRequest::UnarchiveSlot { .. } => SlotRequestKind::Unarchive,
+        _ => SlotRequestKind::List,
+    }
+}
+
+fn slot_request_slot(request: &WorkshopStoreRequest) -> Option<SlotId> {
+    match request {
+        WorkshopStoreRequest::RenameSlot { slot, .. }
+        | WorkshopStoreRequest::ArchiveSlot { slot }
+        | WorkshopStoreRequest::UnarchiveSlot { slot } => Some(*slot),
+        _ => None,
+    }
+}
+
+/// Whether a request advances a slot's observable state, and therefore
+/// invalidates any generation a caller is holding from an earlier list.
+const fn slot_request_mutates(request: &WorkshopStoreRequest) -> bool {
+    !matches!(request, WorkshopStoreRequest::ListSlots)
+}
+
 /// Owns the unchanged RulesV1 client, the Workshop persistence adapter, and
 /// exactly one selected product session.
 pub struct ClientRuntime<S, P, W>
@@ -205,7 +316,10 @@ where
     screen: ClientScreen,
     settings_return: ClientScreen,
     bootstrap_return: ClientScreen,
+    library_return: ClientScreen,
     library: WorkshopLibraryClient,
+    slot_requests: LibrarySlots,
+    slot_list: Option<SlotList>,
     continue_candidate: Option<LibraryCandidate>,
     catalog_import: CatalogImport,
     imported_catalog: Option<ValidatedCatalogPackV1>,
@@ -230,7 +344,10 @@ where
             screen: ClientScreen::MainMenu,
             settings_return: ClientScreen::MainMenu,
             bootstrap_return: ClientScreen::MainMenu,
+            library_return: ClientScreen::MainMenu,
             library: WorkshopLibraryClient::default(),
+            slot_requests: LibrarySlots::Idle,
+            slot_list: None,
             continue_candidate: None,
             catalog_import: CatalogImport::Idle,
             imported_catalog: None,
@@ -413,6 +530,11 @@ where
     pub fn update(&mut self, frame_delta: Duration) -> WorkshopUpdate {
         self.poll_continue_bootstrap();
         self.poll_catalog_import();
+        // Deliberately not gated on the Library being the current screen. A
+        // request started in the Library and still in flight when the user
+        // closes it must still reach a terminal state, or its lane leaks for
+        // the store's lifetime.
+        self.poll_library_slots();
         match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
@@ -804,6 +926,314 @@ where
         if self.screen == ClientScreen::Settings {
             self.screen = self.settings_return;
         }
+    }
+
+    /// Opens the Library laterally from one of the three product screens.
+    ///
+    /// **It must not prepare a durable transition.** `return_to_main_menu`
+    /// deliberately pauses and saves a resident Workshop before leaving it;
+    /// this route deliberately does not, because §2 requires the resident
+    /// session, its dirty state, its queued actions and its recovery
+    /// obligations to survive opening the Library untouched. Gating happens per
+    /// action inside the Library.
+    ///
+    /// The return screen is the screen actually being left, not
+    /// [`Self::screen_for_active_session`]. Those differ exactly when a
+    /// Workshop is resident while the user is on the main menu — the state
+    /// `return_to_main_menu` produces — and the addendum's "returns to the
+    /// exact prior screen" is the stricter of the two.
+    ///
+    /// `Library`, `Loading` and `RecoverableError` are refused. Re-entry would
+    /// make the Library its own return screen and strand the user; the two
+    /// transient screens are owned by machines that write `self.screen`
+    /// themselves, so a Library opened from either would be silently replaced.
+    pub fn open_library(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(
+            self.screen,
+            ClientScreen::MainMenu | ClientScreen::ClassicSector | ClientScreen::GalaxyWorkshop
+        ) {
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "Library opens from the main menu, Classic Sector, or Galaxy Workshop",
+            );
+            return Err(ClientRuntimeError::RouteUnavailable);
+        }
+        self.library_return = self.screen;
+        self.screen = ClientScreen::Library;
+        // A refusal here is already recorded in the slot-request status, which
+        // is the surface offering Retry and Cancel. Opening the screen itself
+        // succeeded, so it must not report the store's answer as its own.
+        if matches!(self.slot_requests, LibrarySlots::Idle) {
+            let _ = self.dispatch_slot_request(WorkshopStoreRequest::ListSlots);
+        }
+        Ok(())
+    }
+
+    /// Returns to the exact screen the Library was opened from.
+    ///
+    /// Symmetrically to [`Self::open_library`], it touches neither the active
+    /// session nor the credits overlay nor any in-flight slot request: a
+    /// request still in flight keeps being polled by [`Self::update`].
+    pub fn close_library(&mut self) {
+        if self.screen == ClientScreen::Library {
+            self.screen = self.library_return;
+        }
+    }
+
+    /// The listed slots, or `None` when the Library has not completed a list.
+    ///
+    /// `None` is not "no slots": an empty store lists as `Some` with an empty
+    /// `slots`. It is also the state left behind by a successful mutation,
+    /// whose cached list is definitively stale until the automatic re-list
+    /// lands.
+    pub const fn library_slots(&self) -> Option<&SlotList> {
+        self.slot_list.as_ref()
+    }
+
+    pub fn library_slots_status(&self) -> LibrarySlotsStatus {
+        match &self.slot_requests {
+            LibrarySlots::Idle => LibrarySlotsStatus::Idle,
+            LibrarySlots::Working { request, .. } => LibrarySlotsStatus::Working {
+                kind: slot_request_kind(request),
+                slot: slot_request_slot(request),
+            },
+            LibrarySlots::Failed { request, code } => LibrarySlotsStatus::Failed {
+                kind: slot_request_kind(request),
+                slot: slot_request_slot(request),
+                code: *code,
+            },
+        }
+    }
+
+    /// Re-lists the bounded slots.
+    pub fn refresh_library_slots(&mut self) -> Result<(), ClientRuntimeError> {
+        self.start_slot_request(WorkshopStoreRequest::ListSlots)
+    }
+
+    /// Renames one slot through the canonical [`SlotName`] type.
+    ///
+    /// Not gated on the resident Workshop being replaceable: §6 allows Rename
+    /// and Unarchive for unrelated slots to proceed while an active session is
+    /// not replaceable, and contention is the store's lane to refuse, not this
+    /// runtime's to pre-empt.
+    pub fn rename_library_slot(
+        &mut self,
+        slot: SlotId,
+        name: SlotName,
+    ) -> Result<(), ClientRuntimeError> {
+        self.start_slot_request(WorkshopStoreRequest::RenameSlot { slot, name })
+    }
+
+    /// Archives one slot, refusing the resident Workshop's own slot.
+    ///
+    /// §3: archiving the slot a live authoritative session occupies would leave
+    /// that session's next save failing as archived. This is a gating refusal
+    /// at request time, not a retryable store failure — no retry cures it while
+    /// the session is still resident.
+    pub fn archive_library_slot(&mut self, slot: SlotId) -> Result<(), ClientRuntimeError> {
+        if self.resident_slot() == Some(slot) {
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "The resident Workshop's own slot cannot be archived",
+            );
+            return Err(ClientRuntimeError::ResidentSlot);
+        }
+        self.start_slot_request(WorkshopStoreRequest::ArchiveSlot { slot })
+    }
+
+    /// Clears one slot's archived flag and nothing else.
+    pub fn unarchive_library_slot(&mut self, slot: SlotId) -> Result<(), ClientRuntimeError> {
+        self.start_slot_request(WorkshopStoreRequest::UnarchiveSlot { slot })
+    }
+
+    /// Retries a [`LibrarySlotsStatus::Failed`] request from its retained
+    /// request, without asking the user to re-pick the row.
+    pub fn retry_library_slot_request(&mut self) -> Result<(), ClientRuntimeError> {
+        match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
+            LibrarySlots::Failed { request, .. } => self.dispatch_slot_request(request),
+            other => {
+                self.slot_requests = other;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No retryable Workshop Library slot request is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
+        }
+    }
+
+    /// Clears pending Library slot intent and nothing else.
+    ///
+    /// Cancelling an in-flight request abandons its job so the lane is released
+    /// immediately, which matters because three of the four sit in the Commit
+    /// lane the resident Workshop needs. Abandoning drops the outcome, not the
+    /// work: a mutation that was going to land still lands, so the cached list
+    /// is dropped with it. The store's own contract is that a caller which
+    /// abandons a mutation must re-list before trusting any generation it held,
+    /// and discarding the list is how that is enforced rather than documented.
+    ///
+    /// Cancellation is ordinary, so it pushes no diagnostic; only the refusal
+    /// does.
+    pub fn cancel_library_slot_request(&mut self) -> Result<(), ClientRuntimeError> {
+        match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
+            LibrarySlots::Working { job, request } => {
+                self.workshop_store.abandon(job);
+                if slot_request_mutates(&request) {
+                    self.slot_list = None;
+                }
+                Ok(())
+            }
+            LibrarySlots::Failed { request, .. } => {
+                if slot_request_mutates(&request) {
+                    self.slot_list = None;
+                }
+                Ok(())
+            }
+            LibrarySlots::Idle => {
+                self.slot_requests = LibrarySlots::Idle;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No cancellable Workshop Library slot request is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
+        }
+    }
+
+    /// The slot a resident Workshop currently occupies, if any.
+    fn resident_slot(&self) -> Option<SlotId> {
+        match &self.active_session {
+            ActiveSession::Workshop(session) => session.snapshot().store.slot,
+            ActiveSession::None | ActiveSession::Classic => None,
+        }
+    }
+
+    /// Accepts a request only from `Idle`. A `Working` or `Failed` machine
+    /// holds either a live job or a decision the user has not made yet, and
+    /// overwriting either is the wedged-lane defect.
+    fn start_slot_request(
+        &mut self,
+        request: WorkshopStoreRequest,
+    ) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.dispatch_slot_request(request)
+    }
+
+    fn dispatch_slot_request(
+        &mut self,
+        request: WorkshopStoreRequest,
+    ) -> Result<(), ClientRuntimeError> {
+        match self.workshop_store.start(request.clone()) {
+            Ok(job) => {
+                self.slot_requests = LibrarySlots::Working { job, request };
+                Ok(())
+            }
+            Err(error) => {
+                let message = error.to_string();
+                self.retain_failed_slot_request(ClientDiagnosticCode::Store, message, request);
+                Err(ClientRuntimeError::Store(error))
+            }
+        }
+    }
+
+    fn poll_library_slots(&mut self) {
+        let LibrarySlots::Working { job, .. } = &self.slot_requests else {
+            return;
+        };
+        let job = *job;
+        match self.workshop_store.poll(job) {
+            StoreJobState::Pending => {}
+            StoreJobState::Unknown => self.fail_slot_request(
+                ClientDiagnosticCode::StoreProtocol,
+                "Workshop storage forgot the active Library slot request",
+            ),
+            StoreJobState::Complete(Err(error)) => {
+                self.fail_slot_request(ClientDiagnosticCode::Store, error.to_string());
+            }
+            StoreJobState::Complete(Ok(result)) => self.finish_slot_request(result),
+        }
+    }
+
+    /// Moves an in-flight request to its retryable failure state.
+    ///
+    /// Never [`Self::enter_recovery`]: §6 forbids collapsing a Library failure
+    /// into the global recovery screen, and every arm above reaches here.
+    fn fail_slot_request(&mut self, code: ClientDiagnosticCode, message: impl Into<String>) {
+        let LibrarySlots::Working { request, .. } =
+            std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+        else {
+            return;
+        };
+        self.retain_failed_slot_request(code, message, request);
+    }
+
+    fn retain_failed_slot_request(
+        &mut self,
+        code: ClientDiagnosticCode,
+        message: impl Into<String>,
+        request: WorkshopStoreRequest,
+    ) {
+        self.push_diagnostic(code, message);
+        self.slot_requests = LibrarySlots::Failed { request, code };
+    }
+
+    /// Matches the store's answer against the exact request that asked it.
+    ///
+    /// A result of the wrong shape, or naming a different slot, is a protocol
+    /// failure rather than something to absorb: accepting it would let the
+    /// Library report a rename of a row the user never activated.
+    fn finish_slot_request(&mut self, result: WorkshopStoreResult) {
+        let LibrarySlots::Working { request, .. } =
+            std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+        else {
+            return;
+        };
+        match (&request, result) {
+            (WorkshopStoreRequest::ListSlots, WorkshopStoreResult::Slots(list)) => {
+                self.slot_list = Some(list);
+                return;
+            }
+            (
+                WorkshopStoreRequest::RenameSlot { slot, .. },
+                WorkshopStoreResult::SlotRenamed { slot: answered },
+            )
+            | (
+                WorkshopStoreRequest::UnarchiveSlot { slot },
+                WorkshopStoreResult::SlotUnarchived { slot: answered },
+            ) if *slot == answered => {}
+            (
+                WorkshopStoreRequest::ArchiveSlot { slot },
+                WorkshopStoreResult::SlotArchived { slot: answered },
+            ) if *slot == answered => {
+                // The store cleared its own Continue marker for this slot, but
+                // a validated candidate the runtime is already holding would
+                // survive that and could still be installed as resident — an
+                // archived slot whose next save must fail as archived, which
+                // §10 forbids opening at all.
+                if self
+                    .continue_candidate
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.loaded.slot == answered)
+                {
+                    self.continue_candidate = None;
+                }
+            }
+            _ => {
+                self.retain_failed_slot_request(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "Workshop storage answered a Library slot request with an unexpected result",
+                    request,
+                );
+                return;
+            }
+        }
+        // The cached list now misstates a name, an archived flag, or the
+        // Continue marker. Drop it and re-list rather than presenting a row the
+        // user could activate with a generation this mutation invalidated.
+        self.slot_list = None;
+        let _ = self.dispatch_slot_request(WorkshopStoreRequest::ListSlots);
     }
 
     /// Leaves the active product surface without allowing a resident Workshop

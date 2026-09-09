@@ -102,6 +102,7 @@ pub enum PlatformBackground {
 pub enum ShellUiAction {
     Menu(MainMenuRoute),
     CloseSettings,
+    CloseLibrary,
     CycleUiScale,
     ToggleReducedMotion,
     ToggleHighContrast,
@@ -925,6 +926,7 @@ fn icon_for_shell_action(action: ShellUiAction) -> Option<UiIcon> {
     match action {
         ShellUiAction::Menu(MainMenuRoute::Continue) => Some(UiIcon::Load),
         ShellUiAction::CloseSettings
+        | ShellUiAction::CloseLibrary
         | ShellUiAction::DismissCredits
         | ShellUiAction::DismissRecovery => Some(UiIcon::Close),
         ShellUiAction::ContinueRecovery => Some(UiIcon::Check),

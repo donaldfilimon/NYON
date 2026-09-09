@@ -258,6 +258,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 self.runtime.close_settings();
                 self.runtime.classic_mut().close_settings();
             }
+            ClientScreen::Library => self.runtime.close_library(),
             ClientScreen::RecoverableError => self.runtime.dismiss_recovery(),
             ClientScreen::GalaxyWorkshop => {
                 self.apply_workshop_intent(crate::ui::workshop::WorkshopUiIntent::ReturnToMainMenu);

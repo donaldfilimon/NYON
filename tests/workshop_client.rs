@@ -5,7 +5,8 @@ use nyon::{
         AppCore, AppMode,
         client_runtime::{
             ActiveSession, CatalogImportStatus, ClientDiagnosticCode, ClientRuntime,
-            ClientRuntimeEffect, ClientRuntimeError, ClientScreen, MainMenuRoute,
+            ClientRuntimeEffect, ClientRuntimeError, ClientScreen, LibrarySlotsStatus,
+            MainMenuRoute, SlotRequestKind,
         },
     },
     game::model::DEFAULT_SEED,
@@ -16,7 +17,7 @@ use nyon::{
         WorkshopHistory, decode_catalog_pack, encode_archive, encode_catalog_pack,
         session::WorkshopAction,
         store::{
-            MemoryWorkshopStore, SlotName, StoreJobId, StoreJobState, WorkshopStore,
+            MemoryWorkshopStore, SlotId, SlotName, StoreJobId, StoreJobState, WorkshopStore,
             WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
         },
     },
@@ -1442,4 +1443,692 @@ fn recovered_predecessor_continue_keeps_its_exact_offer_message_and_candidate() 
         "The latest save was invalid; a previous valid generation is available"
     );
     assert!(runtime.continue_available());
+}
+
+// ---------------------------------------------------------------------------
+// Library route: `ClientScreen::Library`, return handling, and the poll machine
+// over `ListSlots`, `RenameSlot`, `ArchiveSlot` and `UnarchiveSlot`.
+//
+// The route design's client-suite obligations are exercised here:
+// round-tripping from all three prior screens with no durable transition side
+// effect, the gating matrix under a dirty resident session, and a store failure
+// that yields Retry/Cancel and never `RecoverableError`.
+// ---------------------------------------------------------------------------
+
+/// Two slots, neither selected for Continue, so a Library test can mutate one
+/// row without disturbing the other and without a Continue marker in play.
+fn two_slot_store() -> (MemoryWorkshopStore, SlotId, SlotId) {
+    let mut store = MemoryWorkshopStore::default();
+    let mut created = |name: &str, seed: u64| {
+        let result = complete(
+            &mut store,
+            WorkshopStoreRequest::CreateSlot {
+                name: SlotName::new(name).unwrap(),
+                archive: valid_archive(seed),
+            },
+        );
+        let WorkshopStoreResult::SlotCreated { slot, .. } = result else {
+            panic!("unexpected create result: {result:?}");
+        };
+        slot
+    };
+    let first = created("First Forge", 11);
+    let second = created("Second Forge", 12);
+    (store, first, second)
+}
+
+/// Drives the runtime until the Library slot machine is idle again, bounded.
+fn settle_library<W: WorkshopStore>(
+    runtime: &mut ClientRuntime<MemoryScenarioStore, MemoryPreferencesStore, W>,
+) {
+    for _ in 0..16 {
+        if runtime.library_slots_status() == LibrarySlotsStatus::Idle {
+            return;
+        }
+        runtime.update(Duration::ZERO);
+    }
+    panic!("Library slot machine exceeded its bounded test polls");
+}
+
+fn slot_named<W: WorkshopStore>(
+    runtime: &ClientRuntime<MemoryScenarioStore, MemoryPreferencesStore, W>,
+    slot: SlotId,
+) -> String {
+    runtime
+        .library_slots()
+        .expect("the Library has listed")
+        .slots
+        .iter()
+        .find(|summary| summary.id == slot)
+        .expect("the listed slots contain the row")
+        .name
+        .as_str()
+        .to_owned()
+}
+
+fn slot_archived<W: WorkshopStore>(
+    runtime: &ClientRuntime<MemoryScenarioStore, MemoryPreferencesStore, W>,
+    slot: SlotId,
+) -> bool {
+    runtime
+        .library_slots()
+        .expect("the Library has listed")
+        .slots
+        .iter()
+        .find(|summary| summary.id == slot)
+        .expect("the listed slots contain the row")
+        .archived
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SlotFault {
+    List,
+    Rename,
+}
+
+/// Fails the first matching Library slot request only, so a Retry from the
+/// retained request succeeds. Modelled on `FaultyPutPackStore`: the failure is
+/// delivered through `poll`, which is the path the runtime's own state machine
+/// takes.
+struct FaultySlotStore {
+    inner: MemoryWorkshopStore,
+    fault: Option<SlotFault>,
+    pending: Option<(StoreJobId, StoreJobState)>,
+}
+
+impl FaultySlotStore {
+    fn new(inner: MemoryWorkshopStore, fault: SlotFault) -> Self {
+        Self {
+            inner,
+            fault: Some(fault),
+            pending: None,
+        }
+    }
+}
+
+impl WorkshopStore for FaultySlotStore {
+    fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
+        let matched = matches!(
+            (&request, self.fault),
+            (WorkshopStoreRequest::ListSlots, Some(SlotFault::List))
+                | (
+                    WorkshopStoreRequest::RenameSlot { .. },
+                    Some(SlotFault::Rename)
+                )
+        );
+        if matched {
+            self.fault = None;
+            let job = StoreJobId(u64::MAX);
+            self.pending = Some((
+                job,
+                StoreJobState::Complete(Err(WorkshopStoreError::CorruptManifest)),
+            ));
+            return Ok(job);
+        }
+        self.inner.start(request)
+    }
+
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            self.pending = None;
+            return true;
+        }
+        self.inner.abandon(job)
+    }
+
+    fn poll(&mut self, job: StoreJobId) -> StoreJobState {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            return self.pending.take().unwrap().1;
+        }
+        self.inner.poll(job)
+    }
+}
+
+#[test]
+fn library_round_trips_from_each_of_the_three_prior_screens() {
+    let (store, _, _) = two_slot_store();
+    let mut runtime = runtime(store);
+
+    // Main menu: the addendum's required entry point, where there is no
+    // Workshop frame at all and a drawer section could not exist.
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    runtime.open_library().unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+
+    runtime
+        .select_menu_route(MainMenuRoute::ClassicSector)
+        .unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::ClassicSector);
+    runtime.open_library().unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::ClassicSector);
+
+    runtime.start_new_workshop(21).unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    runtime.open_library().unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+}
+
+#[test]
+fn opening_the_library_prepares_no_durable_transition() {
+    // The discriminating comparison is against `return_to_main_menu`, which
+    // deliberately pauses and saves. Library is a lateral route: §2 requires the
+    // resident session and its recovery obligations to survive opening it
+    // untouched, so the dirty flag must still be set and no commit may start.
+    let mut runtime = runtime(MemoryWorkshopStore::default());
+    runtime.start_new_workshop(0x11B).unwrap();
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    let batch = CreatorBatchV1 {
+        expected_cursor: snapshot.active_view.view_cursor,
+        expected_tick: snapshot.active_view.tick,
+        operations: vec![CreatorOpV1::CreateSystem {
+            local: BatchLocalId(1),
+            name: ObjectName::new("Library Forge").unwrap(),
+            position: GalaxyPointV1::new(512, 256).unwrap(),
+        }],
+    };
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(batch))
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    let dirty_digest = runtime.workshop_snapshot().unwrap().state_digest;
+    assert!(runtime.workshop_snapshot().unwrap().store.dirty);
+    assert!(!runtime.workshop_snapshot().unwrap().store.commit_pending);
+
+    runtime.open_library().unwrap();
+    for _ in 0..4 {
+        runtime.update(Duration::ZERO);
+    }
+
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    let during = runtime.workshop_snapshot().unwrap();
+    assert!(during.store.dirty, "Library must not clear the dirty flag");
+    assert!(
+        !during.store.commit_pending,
+        "Library must not start a durable save"
+    );
+    assert_eq!(during.state_digest, dirty_digest);
+
+    runtime.close_library();
+    for _ in 0..4 {
+        runtime.update(Duration::ZERO);
+    }
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    let after = runtime.workshop_snapshot().unwrap();
+    assert!(after.store.dirty);
+    assert!(!after.store.commit_pending);
+    assert_eq!(after.state_digest, dirty_digest);
+}
+
+#[test]
+fn library_returns_to_the_main_menu_a_resident_workshop_was_left_on() {
+    // `return_to_main_menu` leaves the Workshop resident, so the screen being
+    // left and `screen_for_active_session` disagree here. The addendum's "exact
+    // prior screen" is the screen, not the session.
+    let mut runtime = runtime(MemoryWorkshopStore::default());
+    runtime.start_new_workshop(0x5EED).unwrap();
+    runtime.return_to_main_menu().unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    assert!(matches!(
+        runtime.active_session(),
+        ActiveSession::Workshop(_)
+    ));
+
+    runtime.open_library().unwrap();
+    runtime.close_library();
+
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    assert!(matches!(
+        runtime.active_session(),
+        ActiveSession::Workshop(_)
+    ));
+}
+
+#[test]
+fn library_refuses_reentry_and_both_transient_screens() {
+    let (store, _, _) = two_slot_store();
+    let mut reentry = runtime(store);
+    reentry.open_library().unwrap();
+    settle_library(&mut reentry);
+
+    // Re-entry would make the Library its own return screen and strand the
+    // user, so it is refused rather than absorbed.
+    assert_eq!(
+        reentry.open_library(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(reentry.screen(), ClientScreen::Library);
+    reentry.close_library();
+    assert_eq!(reentry.screen(), ClientScreen::MainMenu);
+
+    // Loading is owned by the bootstrap, which writes `screen` itself.
+    let mut loading = runtime(selected_store(valid_archive(31)));
+    loading.begin_continue_bootstrap().unwrap();
+    assert_eq!(loading.screen(), ClientScreen::Loading);
+    assert_eq!(
+        loading.open_library(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(loading.screen(), ClientScreen::Loading);
+
+    let (_, archive) = custom_archive(407);
+    let mut recovered = runtime(selected_custom_store(None, archive));
+    recovered.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut recovered);
+    assert_eq!(recovered.screen(), ClientScreen::RecoverableError);
+    assert_eq!(
+        recovered.open_library(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(recovered.screen(), ClientScreen::RecoverableError);
+}
+
+#[test]
+fn library_lists_slots_and_re_lists_after_every_successful_mutation() {
+    let (store, first, second) = two_slot_store();
+    let mut runtime = runtime(store);
+    assert!(runtime.library_slots().is_none());
+
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(runtime.library_slots().unwrap().slots.len(), 2);
+    assert_eq!(slot_named(&runtime, first), "First Forge");
+    assert!(!slot_archived(&runtime, second));
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Renamed Forge").unwrap())
+        .unwrap();
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Rename,
+            slot: Some(first),
+        }
+    );
+    runtime.update(Duration::ZERO);
+    // The cached list is dropped the instant the mutation lands: it now
+    // misstates a name, and a row activated from it would carry a generation
+    // the mutation invalidated.
+    assert!(runtime.library_slots().is_none());
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::List,
+            slot: None,
+        }
+    );
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Renamed Forge");
+
+    runtime.archive_library_slot(second).unwrap();
+    settle_library(&mut runtime);
+    assert!(slot_archived(&runtime, second));
+    assert!(!slot_archived(&runtime, first));
+
+    runtime.unarchive_library_slot(second).unwrap();
+    settle_library(&mut runtime);
+    assert!(!slot_archived(&runtime, second));
+    assert_eq!(slot_named(&runtime, second), "Second Forge");
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(runtime.recovery_diagnostic().is_none());
+}
+
+#[test]
+fn library_slot_mutations_proceed_while_the_resident_workshop_is_dirty() {
+    // §6: Rename and Unarchive for unrelated slots may proceed while an active
+    // session is not replaceable. Nothing in the slot paths may call
+    // `ensure_resident_workshop_replaceable`.
+    let (store, first, second) = two_slot_store();
+    let mut runtime = runtime(store);
+    runtime.start_new_workshop(0xD127).unwrap();
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(CreatorBatchV1 {
+            expected_cursor: snapshot.active_view.view_cursor,
+            expected_tick: snapshot.active_view.tick,
+            operations: vec![CreatorOpV1::CreateSystem {
+                local: BatchLocalId(1),
+                name: ObjectName::new("Dirty Forge").unwrap(),
+                position: GalaxyPointV1::new(64, 64).unwrap(),
+            }],
+        }))
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    assert!(runtime.workshop_snapshot().unwrap().store.dirty);
+    // The session genuinely blocks replacement: New Workshop is refused.
+    assert_eq!(
+        runtime.start_new_workshop(1),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Dirty Rename").unwrap())
+        .unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Dirty Rename");
+
+    runtime.archive_library_slot(second).unwrap();
+    settle_library(&mut runtime);
+    assert!(slot_archived(&runtime, second));
+
+    runtime.unarchive_library_slot(second).unwrap();
+    settle_library(&mut runtime);
+    assert!(!slot_archived(&runtime, second));
+    assert!(runtime.workshop_snapshot().unwrap().store.dirty);
+}
+
+#[test]
+fn the_resident_workshops_own_slot_cannot_be_archived() {
+    // §3: archiving the slot a live authoritative session occupies would leave
+    // that session's next save failing as archived.
+    let mut store = MemoryWorkshopStore::default();
+    let created = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Resident Forge").unwrap(),
+            archive: valid_archive(41),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
+        panic!("unexpected create result: {created:?}");
+    };
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+    let other = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Spare Forge").unwrap(),
+            archive: valid_archive(42),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot: other, .. } = other else {
+        panic!("unexpected create result: {other:?}");
+    };
+
+    let mut runtime = runtime(store);
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+    runtime
+        .select_menu_route(MainMenuRoute::Continue)
+        .unwrap_or_else(|error| panic!("Continue was refused: {error}"));
+    assert_eq!(
+        runtime.workshop_snapshot().unwrap().store.slot,
+        Some(slot),
+        "the resident session must occupy the selected slot"
+    );
+
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    assert_eq!(
+        runtime.archive_library_slot(slot),
+        Err(ClientRuntimeError::ResidentSlot)
+    );
+    // A gating refusal starts no request at all, so nothing is left for Retry
+    // or Cancel to resolve and no lane was reserved.
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(!slot_archived(&runtime, slot));
+
+    // The unrelated row is unaffected by the refusal.
+    runtime.archive_library_slot(other).unwrap();
+    settle_library(&mut runtime);
+    assert!(slot_archived(&runtime, other));
+    assert!(!slot_archived(&runtime, slot));
+}
+
+#[test]
+fn archiving_the_validated_continue_candidate_withdraws_it() {
+    // The store clears its own Continue marker on Archive, but a candidate the
+    // runtime already validated would survive that and could still be installed
+    // as resident — an archived slot whose next save must fail as archived.
+    let mut store = MemoryWorkshopStore::default();
+    let created = complete(
+        &mut store,
+        WorkshopStoreRequest::CreateSlot {
+            name: SlotName::new("Candidate Forge").unwrap(),
+            archive: valid_archive(51),
+        },
+    );
+    let WorkshopStoreResult::SlotCreated { slot, generation } = created else {
+        panic!("unexpected create result: {created:?}");
+    };
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+
+    let mut runtime = runtime(store);
+    runtime.begin_continue_bootstrap().unwrap();
+    finish_continue(&mut runtime);
+    assert!(runtime.continue_available());
+
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+    runtime.archive_library_slot(slot).unwrap();
+    settle_library(&mut runtime);
+
+    assert!(slot_archived(&runtime, slot));
+    assert!(
+        !runtime.continue_available(),
+        "an archived slot must not remain openable through a retained candidate"
+    );
+    // Asserted from the main menu, where the route is otherwise available:
+    // from the Library screen it would be refused as `RouteUnavailable`
+    // whatever the candidate held, which witnesses nothing.
+    runtime.close_library();
+    runtime.return_to_main_menu().unwrap();
+    assert_eq!(
+        runtime.select_menu_route(MainMenuRoute::Continue),
+        Err(ClientRuntimeError::ContinueUnavailable)
+    );
+}
+
+#[test]
+fn a_library_store_failure_offers_retry_and_never_enters_recovery() {
+    let (inner, first, _) = two_slot_store();
+    let mut runtime = ClientRuntime::new(classic(), FaultySlotStore::new(inner, SlotFault::List));
+
+    runtime.open_library().unwrap();
+    runtime.update(Duration::ZERO);
+
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::List,
+            slot: None,
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    // §6 forbids collapsing a Library failure into the global recovery screen:
+    // Retry and Cancel cannot be offered over a replaced screen.
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert!(runtime.library_slots().is_none());
+
+    runtime.retry_library_slot_request().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(runtime.recovery_diagnostic().is_none());
+    assert_eq!(slot_named(&runtime, first), "First Forge");
+}
+
+#[test]
+fn a_failed_mutation_retries_from_its_retained_request() {
+    // Retry must not ask the user to retype the slot name, so the request
+    // itself is the retry material.
+    let (inner, first, _) = two_slot_store();
+    let mut runtime = ClientRuntime::new(classic(), FaultySlotStore::new(inner, SlotFault::Rename));
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Retried Forge").unwrap())
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Rename,
+            slot: Some(first),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    // A machine holding a decision the user has not made refuses a new request
+    // rather than silently discarding the retained one.
+    assert_eq!(
+        runtime.refresh_library_slots(),
+        Err(ClientRuntimeError::LibraryRequestActive)
+    );
+
+    runtime.retry_library_slot_request().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Retried Forge");
+    assert!(runtime.recovery_diagnostic().is_none());
+}
+
+#[test]
+fn a_busy_commit_lane_becomes_a_retryable_library_failure() {
+    // §6: an unrelated Rename may proceed "only when they do not contend with
+    // an occupied store mutation lane". Contention is the store's refusal to
+    // report, not this runtime's to pre-empt.
+    let (store, first, _) = two_slot_store();
+    let mut runtime = runtime(store);
+    runtime.start_new_workshop(0xBADC0DE).unwrap();
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(CreatorBatchV1 {
+            expected_cursor: snapshot.active_view.view_cursor,
+            expected_tick: snapshot.active_view.tick,
+            operations: vec![CreatorOpV1::CreateSystem {
+                local: BatchLocalId(1),
+                name: ObjectName::new("Busy Forge").unwrap(),
+                position: GalaxyPointV1::new(128, 128).unwrap(),
+            }],
+        }))
+        .unwrap();
+    runtime
+        .enqueue_workshop_action(WorkshopAction::RequestSave)
+        .unwrap();
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+    runtime.update(Duration::ZERO);
+    assert!(
+        runtime.workshop_snapshot().unwrap().store.commit_pending,
+        "the resident Workshop must hold the Commit lane"
+    );
+
+    let rejected = runtime.rename_library_slot(first, SlotName::new("Contended").unwrap());
+    assert!(matches!(
+        rejected,
+        Err(ClientRuntimeError::Store(WorkshopStoreError::Busy { .. }))
+    ));
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Rename,
+            slot: Some(first),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(runtime.recovery_diagnostic().is_none());
+
+    for _ in 0..16 {
+        if !runtime.workshop_snapshot().unwrap().store.commit_pending {
+            break;
+        }
+        runtime.update(Duration::ZERO);
+    }
+    runtime.retry_library_slot_request().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Contended");
+}
+
+#[test]
+fn cancelling_a_mutation_drops_the_cached_list_and_a_cancelled_list_does_not() {
+    // Abandoning drops the outcome, not the work: a mutation that was going to
+    // land still lands, so every generation the cached list held is suspect and
+    // the store's own contract is to re-list before trusting one. Cancelling a
+    // list invalidates nothing, so the cached list survives it.
+    let (store, first, _) = two_slot_store();
+    let mut runtime = runtime(store);
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+    assert!(runtime.library_slots().is_some());
+
+    runtime.refresh_library_slots().unwrap();
+    runtime.cancel_library_slot_request().unwrap();
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(
+        runtime.library_slots().is_some(),
+        "an abandoned list invalidates no generation"
+    );
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Abandoned").unwrap())
+        .unwrap();
+    runtime.cancel_library_slot_request().unwrap();
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(
+        runtime.library_slots().is_none(),
+        "an abandoned mutation invalidates every generation the list held"
+    );
+
+    // The Commit lane really was released: the very next mutation is accepted
+    // rather than refused as Busy.
+    runtime
+        .unarchive_library_slot(first)
+        .expect("the abandoned job released its lane");
+    settle_library(&mut runtime);
+    assert!(runtime.library_slots().is_some());
+
+    assert_eq!(
+        runtime.cancel_library_slot_request(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+}
+
+#[test]
+fn a_library_request_still_in_flight_survives_closing_the_library() {
+    // A job left unpolled wedges its lane for the store's lifetime, so the poll
+    // machine runs from `update` unconditionally rather than only on screen.
+    let (store, first, _) = two_slot_store();
+    let mut runtime = runtime(store);
+    runtime.start_new_workshop(0xC105E).unwrap();
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    runtime
+        .rename_library_slot(first, SlotName::new("Closed Forge").unwrap())
+        .unwrap();
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    settle_library(&mut runtime);
+
+    assert_eq!(slot_named(&runtime, first), "Closed Forge");
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
 }

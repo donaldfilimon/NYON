@@ -644,6 +644,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             ClientScreen::GalaxyWorkshop => self.build_workshop_frame(),
             ClientScreen::MainMenu
             | ClientScreen::Settings
+            | ClientScreen::Library
             | ClientScreen::Loading
             | ClientScreen::RecoverableError => self.build_shell_frame(),
         }
@@ -1067,6 +1068,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 Ok(ClientRuntimeEffect::QuitRequested) => self.request_durable_exit(),
                 Err(error) => log::warn!("shell action was rejected: {error}"),
             },
+            ShellUiAction::CloseLibrary => self.runtime.close_library(),
             ShellUiAction::CloseSettings => {
                 self.runtime.close_settings();
                 self.runtime.classic_mut().close_settings();
