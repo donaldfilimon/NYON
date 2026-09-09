@@ -1,0 +1,127 @@
+# NYON: decisions awaiting the owner
+
+Date: 2026-09-08 23:1x
+Scope: everything the 2026-09-08 session surfaced that an agent should not decide.
+
+**None of these block each other. Three block downstream work; five do not.** Each
+entry states what it costs to decide *late*, because that is the only thing that
+makes ordering them meaningful — several are free to confirm now and expensive to
+overrule after the next task consumes them.
+
+---
+
+## 1. Genesis manifest wire schema — BLOCKS Living Galaxy Task 3c
+
+`.superpowers/sdd/wild-snuggling-treehouse/gap-6-genesis-manifest-schema.md`
+
+**The rules spec publishes no wire schema for the genesis manifest at all** (verified:
+zero matches), while referencing it normatively throughout — "the validated source of
+replay truth", feeding `genesis_manifest_digest_32` into the root-branch formula.
+
+3c's method *is* authoring `minimal-genesis.json` by hand from spec text. There is
+none. Authoring from `genesis.rs`'s invented envelope would produce a vector that can
+only ever agree with the code — the exact failure independent derivation exists to
+prevent.
+
+Six decisions, with drafted text and a recommendation. The central one is settled in
+my reading by an approved design document: the generator *constructs* the manifest, so
+it is the generator's output and materialization is projection, not expansion. The
+rest are genuinely open — chiefly whether the manifest is a standalone document at
+all, given it *is* an archive field and mirroring the pack's envelope would triple
+version fields inside every archive.
+
+**Cost of deciding late:** nothing is frozen. A rewrite of an unwritten document.
+**Cost of not deciding:** 3c cannot start.
+
+## 2. Creator operation schema is frozen with no published table
+
+`.superpowers/sdd/wild-snuggling-treehouse/gap-7-provenance-and-event-kinds.md`
+
+**28 creator operations are frozen into identity with no published table anywhere.**
+Decoding `command_bytes_hex` shows field names — `local`, `system_a`,
+`distance_units` — that are pure `command.rs` decisions, and **`revision_id` hashes
+those bytes**. This is the same defect as the entity-kind registry before Task 4
+published it, at roughly seven times the surface.
+
+The fix is a spec publication beside the entity-kind and phase tables, not a code
+change.
+
+**Cost of deciding late: this is the expensive one.** Ratifying costs nothing.
+Overruling any single field name costs re-deriving every affected `revision_id` with
+`tools/living-v2-vectors.py` and every digest downstream of it — and that cost grows
+with each task that consumes these bytes.
+
+*Note: this entry was originally filed against `provenance` and the 26 event kinds.
+The Task 4 review measured those and found them low stakes; the operation schema is
+the real freeze. The relocation is recorded in the gap file.*
+
+## 3. Record field order has no upstream authority
+
+Section 10 publishes the state's 24-field order but **no field list for any individual
+record**, so record order cannot be independently derived. `model.rs` says so itself
+and declares itself the authority.
+
+`2b7bfbc` pins *drift* with a mutation-verified 200-key canonical sequence, and
+`4fc7f4b` pins the genesis envelope the same way. **Those pins cannot say the order is
+correct, only that it has not changed** — which is all they claim.
+
+**Cost of deciding late:** publishing record field lists later is a documentation act
+if the orders match what is frozen, and a re-derivation if they do not.
+
+## 4. `LivingFacilityStatusV2` has no never-attempted variant
+
+Two variants, `Operational` and `Blocked`, documented as "outcome of the most recent
+due attempt" — and **at genesis there has been no attempt**. The genesis fixture labels
+never-run facilities `Operational` because it is the only honest choice available, so
+the type cannot distinguish "ran and succeeded" from "never ran". The 3b review
+confirmed the gap is real and that `Operational` is the right stand-in.
+
+**Cost of deciding late:** adding a variant is a format break requiring new vectors.
+Cheap now, a re-derivation later.
+
+## 5. `intent_ordinal` 0 sits outside the published registry — carries to Task 5
+
+Task 4 published an intent registry running 1..16. The `ai_fleet_phase_8` corpus row
+carries `intent_ordinal` **0** at phase 8, and the dispatch-ordinal exception at
+`rules.md:355` covers route dispatch at **phase 9**, not intent generation. So one row
+carries an unpublished value.
+
+Pre-existing; publishing the table is what made it visible. **When a typed intent
+lands it must not be resolved by editing the vector.**
+
+## 6. Baseline review Finding 10 — a release obligation
+
+The one Finding-7 residual that is a decision rather than a repair.
+
+## 7. `construction_jobs` and `hull_jobs` are bounded by nothing
+
+`06873f6` documented this rather than enforcing it, because section 1 assigns
+reservation accounting to the creator-operation path and the civilizations plan homes
+it in `civilization.rs`. Enforcing it in `model.rs` too would put one rule in two
+places.
+
+**Today a state with 2,048 facilities plus 2,048 outstanding construction jobs
+validates.** The decision is whether that stays a `civilization.rs` obligation.
+
+## 8. Facility `hit_points` is never range-checked while hull `hit_points` is
+
+Found by the 3b review: `model.rs:1432-1437` never range-checks facility `hit_points`
+while `check_fleets` rejects `hull.hit_points == 0` — **which is the only reason the
+genesis fixture's `hit_points: 0` validates at all**. An asymmetry, not obviously
+intentional.
+
+---
+
+## What is NOT waiting on you
+
+Phase 2, the Library screen — twelve design tasks closing baseline Finding 2 and
+unblocking qualification Task 3. All five prerequisites landed and were reviewed on
+2026-09-08. It is the largest remaining body of work and it is ready to start.
+
+## The ceiling, restated so it is not rediscovered
+
+**Artifact-qualified is the honest terminal state on this machine.** Nine of the
+fourteen live-matrix rows need Windows 11 or Ubuntu hosts that do not exist here, and
+the qualification plan forbids substituting compilation for live evidence. Runtime-
+and release-qualified are unreachable **by design, not by omission** — which the
+plan's own Task 6 Step 4 explicitly permits committing.
