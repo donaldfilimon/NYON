@@ -1,6 +1,8 @@
 # Review — `6e0cec9` Library task 6: the Library screen, its return handling, and its slot machine
 
-**Status: REQUEST CHANGES — addressed in `e0bd3be`.** Findings 1, 2, 4, 5, 6 and 7 are
+**Status: REQUEST CHANGES — addressed in `5668455`, re-reviewed and ACCEPTED.**
+(The per-finding `Response` lines below cite `e0bd3be`, which is a dangling pre-amend
+predecessor of `5668455`; see Finding 10. The landed commit is `5668455`.) Findings 1, 2, 4, 5, 6 and 7 are
 fixed; Finding 3 is fixed as documentation and `wontfix` as behavior, with the reasoning
 recorded against it; Finding 8 is INFO and needs no change. Per-finding `Response` and
 `Status` lines are inline below, and the implementation summary is at the end of this
@@ -535,3 +537,225 @@ Each was reverted with `git checkout --` and the tree verified clean.
   doubles. The review notes that a real adapter's asynchrony **widens** the cancel window
   Finding 1 depends on; the dispatch-time fix is insensitive to that window by construction,
   but that is reasoning, not measurement.
+
+---
+
+# Re-review of the fix — `5668455` (reviewer, second pass)
+
+**Verdict: APPROVE WITH FINDINGS.** Both HIGH findings are closed, and closed better than
+suggested: neither was fixed where it was found. The residency gate and the candidate
+withdrawal both moved to `dispatch_slot_request`, which makes the coverage argument
+structural instead of an enumeration that the next edge falls out of. R1b, R2, R3 and R4
+were reproduced independently against `5668455` itself, and R4's "would have passed
+silently before" framing was checked by construction rather than accepted. Four new
+findings, none blocking: one real residual race the fix's own comment overstates, one
+provenance defect, one over-generalized rule that will be cited later, and one unpinned
+mechanism.
+
+## The load-bearing claim, verified
+
+The whole correctness argument rests on `dispatch_slot_request` being the only point at
+which a Library slot request reaches the store. **Verified, and it is stronger than
+claimed.**
+
+```
+$ grep -n "workshop_store.start(" src/app/client_runtime.rs
+791:        match self.workshop_store.start(WorkshopStoreRequest::PutPack {
+1211:        match self.workshop_store.start(request.clone()) {
+```
+
+`:791` is the catalog-import machine (`PutPack`); `:1211` is inside
+`dispatch_slot_request`. Beyond that, `ArchiveSlot` is only ever *constructed* in one place
+in the whole of `src/` outside the store module — `archive_library_slot:1058` — and neither
+of the two other components holding a `&mut WorkshopStore` (`WorkshopSession` at `:546`,
+`WorkshopLibraryClient` at `:522`/`:1403`) ever builds one; `session.rs`'s three `start`
+sites issue `LoadSlot`, `SelectContinue` and commits. So "every edge by construction" holds
+at both levels: one dispatch point, and one construction site feeding it.
+
+**The `Unknown` edge needs no fourth guard — the reasoning holds.** The withdrawal happens
+on the `Ok` arm of `start`, before any `StoreJobId` is observable, so by the time *any*
+poll outcome exists the candidate is already gone. `Unknown`, `Complete(Err)` and a
+cancelled `Working` cannot resurrect it because none of them is a code path that restores a
+candidate. That is a stronger argument than the enumeration it replaced, and it is the one
+the fix actually makes.
+
+**The `debug_assert!` → idempotent-call decision was right.** Verified by reading:
+`begin_continue_bootstrap:506-509` is gated only on `continue_bootstrap_active()`, not on
+the slot machine, and the library client's archived check runs at *list* time
+(`src/app/client_runtime/library.rs:216-219`) with no re-check at `LoadSlot`. So against an
+adapter with real asynchrony a bootstrap can list a slot whose archive has not yet landed,
+pass that check, and install a fresh candidate between dispatch and `finish_slot_request`.
+A `debug_assert!` there would panic on a legitimate interleaving. Replacing it was correct.
+See Finding 9 for what the replacement does *not* cover.
+
+One property worth recording that the summary does not claim: R2 (withdrawal removed from
+dispatch) leaves `archiving_the_validated_continue_candidate_withdraws_it` **passing**, so
+`finish_slot_request`'s repeat independently covers the whole success path. The two edges
+are belt and braces, not one real and one defensive.
+
+## Gates re-run at `5668455` (by running)
+
+Exit codes read from inside each log.
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | `FMT_EXIT: 0` |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `CLIPPY_EXIT: 0`, 0 warnings, re-run after `touch`ing all four changed files so `Checking nyon v0.1.0` genuinely appeared |
+| `cargo test --workspace` | `TEST_EXIT: 0`, **657 passed / 0 failed** across 47 `test result:` lines |
+
+**Arithmetic verified.** My own measurement at `6e0cec9` was 654/47 by the same command;
+657/47 now, so **+3**, and `tests/workshop_client.rs` goes 36 → 39 `#[test]` functions.
+Excluding the 3 `nyon` doc-tests gives the implementer's 651 → 654 and 46 suites. Every
+number in the reported table reconciles.
+
+## Mutation evidence re-run (by running)
+
+All four reproduced against `5668455`, not against the tree they were originally measured
+on (Finding 10). `Compiling nyon` confirmed in every run; each reverted and the tree
+verified clean afterwards.
+
+| # | Mutation | Reported | Observed |
+|---|---|---|---|
+| R1b | guard restored to `archive_library_slot` alone (the exact pre-fix arrangement) | 1 | **1** — `a_retried_archive_is_refused_once_its_slot_has_become_resident`, `left: Ok(())` / `right: Err(ResidentSlot)`. Confirms it isolates the *retry* edge: `the_resident_workshops_own_slot_cannot_be_archived` still passes, so the first-attempt edge is separately witnessed. The implementer's self-criticism of R1 was correct and R1b is the right replacement. |
+| R2 | candidate withdrawn on success only | 1 | **1** — `cancelling_an_in_flight_archive_still_withdraws_the_continue_candidate`, failing at `!continue_available()` *after* its `slot_archived` control passed, so the test proves the archive landed before it proves the candidate survived. |
+| R3 | refused retry drops the retained request | 1 | **1** — same test as R1b but a *different* assertion, `left: Idle` / `right: Failed { kind: Archive, .. }`. The test discriminates two independent properties, which is why one test covering both is acceptable here. |
+| R4 | Library shell control shrunk to 20 px high | 1 | **1** — `shell_chrome_qualifies_at_every_required_viewport_and_scale`, `Invalid record shell.library.close.node … "Close library"`. |
+
+**R4's framing was checked, not accepted.** With the same 20 px defect in place and
+`tests/workshop_ui_layout.rs` reverted to its `c9f274a` state, the suite passes **18/18,
+exit 0**. So the claim "before this commit the same mutation passed silently" is true by
+construction, and Finding 4's real evidence is that reversion, not the green suite. This is
+the correct way to argue for a coverage addition and it is worth copying.
+
+*(Method note for whoever repeats this: `git checkout <rev> -- <path>` writes the index too,
+so the later `git checkout -- <path>` restores the reverted file rather than HEAD's and the
+suite silently keeps testing the wrong tree. It read as a clean green. `git restore
+--staged --worktree <path>` is the correct undo, and the tree must be re-verified after.)*
+
+## New findings
+
+### 9. MEDIUM — the bootstrap/archive interleaving is half covered, and the new comment claims the whole race
+
+`src/app/client_runtime.rs:1293-1305` (the repeat's justification) against
+`src/app/client_runtime/library.rs:216-228` and `src/app/client_runtime.rs:506-509`.
+
+The comment says the repeat exists because "a bootstrap can list a slot the worker has not
+archived yet … and install a fresh candidate between dispatch and this arm." That ordering
+is real and the repeat closes it. The **other** ordering is not closed: if the archive
+completes first — `finish_slot_request` runs, repeat fires, candidate already absent — and
+the racing bootstrap's `LoadSlot` lands *afterwards*, `poll_continue_bootstrap:1403` installs
+a candidate naming a now-archived slot, with no archived re-check at install and none in
+`continue_selected_workshop`. `LoadSlot` does not refuse archived slots
+(`src/workshop/store/memory.rs:84-96`), and the bootstrap's only archived check is at list
+time. Nothing gates `begin_continue_bootstrap` on the slot machine, and `ArchiveSlot`
+(Commit lane) does not contend with the bootstrap's `ListSlots`/`LoadSlot` (LoadOrImport
+lane), so they can genuinely overlap.
+
+This is **not a regression** — the pre-fix code had the same exposure and worse — and it is
+structurally unobservable under `MemoryWorkshopStore`, which executes at `start`. What is
+owed is accuracy: the comment should say it closes one ordering, and the residual should be
+named. The durable fix is a check where the candidate is *installed* rather than at any of
+the points that race it — the same lifecycle argument the fix itself makes, applied to the
+other machine.
+
+**Suggestion:** re-check `archived` when `poll_continue_bootstrap` installs a candidate, or
+refuse `begin_continue_bootstrap` while an `ArchiveSlot` is in flight, or record the
+residual explicitly. Not blocking for task 6.
+
+**Status:** open, for task 7 or an owner decision.
+
+### 10. LOW — every `Response` line cites `e0bd3be`, which is dangling and unreachable
+
+The header and all seven `Response` blocks attribute the fix to `e0bd3be`. That object
+exists (`git cat-file -t` says `commit`) but is on **no ref** — it is the pre-amend
+predecessor of `5668455`, reachable only through the reflog and therefore gc-able. The two
+differ in `src/app/client_runtime.rs` by exactly the arm under discussion: `e0bd3be` had the
+`debug_assert!`, `5668455` has the idempotent `withdraw_continue_candidate` call. So the
+reported gate numbers and all four mutation results were measured against a tree that is not
+HEAD, in the file the review is about.
+
+Materially this is harmless — I re-ran all four mutations and the full gate against
+`5668455` and everything reproduces — but a review file whose evidence cites an unreachable
+hash cannot be re-verified by anyone else once the object is collected. The header line is
+corrected above; the `Response` bodies are the implementer's text and are left as written.
+
+**Suggestion:** when a commit is amended after its review response is drafted, re-stamp the
+hash. Cheaper than the alternative, which is evidence that cannot be reproduced.
+
+**Status:** open (cosmetic, but it is a provenance rule worth keeping).
+
+### 11. LOW — the extracted rule generalizes further than its justification, and it will be cited
+
+*"The moment a request reaches the store is the last moment its effect is knowable … Any
+compensation for a mutation therefore belongs at dispatch, not at success."*
+
+The first clause is exactly right and follows from `WorkshopStore::abandon`'s documented
+contract. The second is right **for compensations that are safe to over-apply**, which is
+the property that actually carries this case: withdrawing a candidate is idempotent, and
+its cost when the store later rejects the request is one bootstrap to rebuild a purely
+in-memory artifact. The implementer says so under Finding 1 and then drops the qualifier
+from the rule.
+
+Tasks 7-12 will apply this to compensations that are *not* cheap — transfer-stage state,
+retained rename text, an export whose bytes were prepared. Moving those to dispatch would
+discard user work on a request the store went on to refuse. Two distinct arguments are also
+bundled here: the *gate* moved to dispatch for coverage of every edge, the *compensation*
+moved for knowability. They generalize differently.
+
+**Suggestion:** restate as "compensation that is safe to over-apply belongs at dispatch; a
+compensation that destroys user work or durable state belongs where the outcome is known,
+and must therefore be reachable from every terminal edge." Two sentences, and the rule stops
+licensing the wrong thing.
+
+**Status:** open, wording only.
+
+### 12. LOW — the retry restore's `matches!(.., Idle)` condition is correct, subtle, and unpinned
+
+`src/app/client_runtime.rs:1074-1080`.
+
+The restore fires only when dispatch left the machine `Idle`, i.e. on a *gate* refusal. When
+a retry instead fails at the store, `dispatch_slot_request`'s `Err` arm has already written
+`Failed { request, code }` with the **new** code, and the guard correctly declines to
+overwrite it with the stale one. That distinction is exactly right and is the kind of thing
+a later simplification deletes. R3 pins the gate-refusal half; nothing pins the store-failure
+half.
+
+**Suggestion:** one assertion — retry a `Failed` into a store that fails differently, and
+assert the retained code is the new one.
+
+**Status:** open.
+
+## Judgements requested
+
+- **Finding 3 `wontfix` — accepted.** A seeded import is the user asking for a new Workshop
+  from that pack; arriving there is defensible, refusing a lateral route on an unrelated
+  background job is the coupling this screen exists to avoid, and writing `library_return`
+  would name a session that no longer exists. There is a real counter-argument — opening the
+  Library is the user's *more recent* intent — but it is a product judgement, not a
+  correctness defect, and no state is stranded (`close_library` no-ops off-screen and
+  re-entry rewrites `library_return`). The documentation half is what the finding was
+  actually about, and it is fixed.
+- **The adapter boundary — the statement is honest, and it understates the fix.** "Insensitive
+  to the cancel window by construction" is not merely reasoning: the withdrawal executes
+  before `start` returns, so no adapter timing can interleave with it. That is a structural
+  property readable in the code, and the widened window a real adapter creates cannot reach
+  it. What *is* still owed on that boundary is Finding 9 — an ordering `MemoryWorkshopStore`
+  cannot exhibit at all, which the fix's own comment raises and half addresses. That, not the
+  cancel window, is the honest residual.
+- **Findings 4, 5, 6, 7 — accepted as fixed**, each re-read at HEAD: both sweeps carry
+  `ClientScreen::Library` (`tests/workshop_ui_layout.rs:494`, `:598`), both doc comments now
+  state one meaning for `None` and name all three ways it is reached
+  (`src/app/client_runtime.rs:173-178`, `:1000-1013`), `ClientDiagnosticCode::ResidentSlot`
+  exists with its own `safe_client_diagnostic` arm (`src/app.rs:1706`, and the match is
+  exhaustive so a missing arm is a compile error rather than a silent default), and
+  `a_retained_failure_survives_closing_and_reopening_the_library` pins Finding 7's contract
+  in the shape suggested.
+
+## Still not verified
+
+- Only `MemoryWorkshopStore` and the two test doubles were exercised, so Finding 9's
+  interleaving is argued from source, not measured.
+- R1 (the mutation the implementer labelled sloppy) was not reproduced; R1b supersedes it and
+  was.
+- No native or browser adapter, no WASM target, and no rendering measurement beyond the two
+  layout sweeps now covering the Library arm.
