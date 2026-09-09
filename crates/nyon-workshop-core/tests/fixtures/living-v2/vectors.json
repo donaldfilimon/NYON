@@ -1,6 +1,7 @@
 {
   "note": "Living Galaxy V2 canonical wire vectors. Every digest below is SHA-256 over the spec domain literal (ASCII plus a terminating NUL) followed by the little-endian framed inputs listed with each vector. Derived from docs/superpowers/specs/2026-09-04-nyon-living-galaxy-rules.md section 10 by tools recorded in the task-1 report, never from Rust output.",
   "domain_digest_note": "A domain row's `empty_object_digest` is SHA256(domain_bytes || '{}'). It is NORMATIVE only for the four payload domains (pack, state, archive_integrity, receipt), whose spec formulas hash canonical JSON bytes and can therefore legitimately receive '{}'. For the other seven domains (revision, creator_entity, auto_entity, root_branch, fork_branch, event, claim) the formulas hash concatenated fixed-width binary fields and never receive a JSON payload at all, so those rows are NON-NORMATIVE probes kept only as a second anchor on the domain bytes. Each row states which it is in `digest_is_normative`. Do not treat a non-normative row as a frozen spec value; the frozen value is `bytes_hex`.",
+  "entity_kind_note": "The five `entity_kind` values below come from the registry published in section 10 of the rules spec: 1 System, 10 Fleet, 13 Shipment. They were renumbered on 2026-09-08 when that registry landed, and the affected `entity_digest`/`entity_id` values were re-derived with `python3 tools/living-v2-vectors.py creator|autonomous ...`, which transcribes the spec formulas rather than calling the Rust implementation. `python3 tools/living-v2-vectors.py verify` recomputes every digest in this file the same way; no other value in it changed.",
   "rules_version": 2,
   "domains": [
     {
@@ -119,20 +120,20 @@
   },
   "creator_entities": [
     {
-      "label": "kind_3_local_0",
+      "label": "system_local_0",
       "revision_id": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad",
-      "entity_kind": 3,
+      "entity_kind": 1,
       "batch_local_id": 0,
-      "entity_digest": "a65a0bf3dbebc95828914b1698e6a81bd54fbce706f01750b1b25dcae387f091",
-      "entity_id": "a65a0bf3dbebc95828914b1698e6a81b"
+      "entity_digest": "d183a56465e646d852f39d7d60bfa4cde5dccafab19672b900bb75cd7e0bc972",
+      "entity_id": "d183a56465e646d852f39d7d60bfa4cd"
     },
     {
-      "label": "kind_3_local_1",
+      "label": "system_local_1",
       "revision_id": "5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad",
-      "entity_kind": 3,
+      "entity_kind": 1,
       "batch_local_id": 1,
-      "entity_digest": "fb78f9adfe1caa4561fce74b3d3b5f3b4d09c1cf2b272e0401572ee67b700d4a",
-      "entity_id": "fb78f9adfe1caa4561fce74b3d3b5f3b"
+      "entity_digest": "6a2f17faf593b84a3a56122c14f100227642e18bdb0986ac3d8b4fe250d9fccb",
+      "entity_id": "6a2f17faf593b84a3a56122c14f10022"
     }
   ],
   "autonomous_entities": [
@@ -143,10 +144,10 @@
       "phase": 8,
       "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
       "intent_ordinal": 0,
-      "entity_kind": 4,
+      "entity_kind": 10,
       "local_id": 0,
-      "entity_digest": "47acc48ab3c8cab08b818fb8fb03d673b3cd34b830b21182d0c022e21c9e766f",
-      "entity_id": "47acc48ab3c8cab08b818fb8fb03d673"
+      "entity_digest": "7946d2a378ed35fcf8b101a9ce74f8f9c2518c55e3acf0e65eabb1e05dec2de6",
+      "entity_id": "7946d2a378ed35fcf8b101a9ce74f8f9"
     },
     {
       "label": "route_shipment_phase_9",
@@ -155,10 +156,10 @@
       "phase": 9,
       "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
       "intent_ordinal": 0,
-      "entity_kind": 7,
+      "entity_kind": 13,
       "local_id": 0,
-      "entity_digest": "a4a02447df43697c943b187971b88a837365954d2546584d60dc682d0d10e504",
-      "entity_id": "a4a02447df43697c943b187971b88a83"
+      "entity_digest": "f2c4de5ee879eafe2e56c3967bcb1fdc061d20262fdf716a772a7df2170ba1af",
+      "entity_id": "f2c4de5ee879eafe2e56c3967bcb1fdc"
     },
     {
       "label": "ai_fleet_phase_8_next_intent_ordinal",
@@ -167,10 +168,10 @@
       "phase": 8,
       "actor_id": "a65a0bf3dbebc95828914b1698e6a81b",
       "intent_ordinal": 1,
-      "entity_kind": 4,
+      "entity_kind": 10,
       "local_id": 0,
-      "entity_digest": "bfc1bda089825681404ce1a496daf97f448beaf93bbbc8fa1df4edbecedced18",
-      "entity_id": "bfc1bda089825681404ce1a496daf97f"
+      "entity_digest": "3c42a6805f59349e303ba2c83e8fa1efc764c4a99223dc5944d81c64899a0b12",
+      "entity_id": "3c42a6805f59349e303ba2c83e8fa1ef"
     }
   ],
   "branches": {

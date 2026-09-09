@@ -9,17 +9,18 @@
 
 use nyon_workshop_core::living::{
     LIVING_ARCHIVE_INTEGRITY_DOMAIN_V2, LIVING_AUTO_ENTITY_DOMAIN_V2, LIVING_CLAIM_DOMAIN_V2,
-    LIVING_CREATOR_ENTITY_DOMAIN_V2, LIVING_EVENT_DOMAIN_V2, LIVING_FORK_BRANCH_DOMAIN_V2,
-    LIVING_MAX_CANONICAL_DEPTH_V2, LIVING_MAX_PACK_BYTES_V2, LIVING_PACK_DOMAIN_V2,
-    LIVING_RECEIPT_DOMAIN_V2, LIVING_REVISION_DOMAIN_V2, LIVING_ROOT_BRANCH_DOMAIN_V2,
-    LIVING_RULES_VERSION, LIVING_STATE_DOMAIN_V2, LIVING_TICK_HZ, LivingAutonomousEntityInputsV2,
-    LivingBranchIdV2, LivingCatalogHashV2, LivingEntityIdV2, LivingEventIdV2, LivingKeyedV2,
-    LivingReceiptDigestV2, LivingRevisionIdV2, LivingSortedVecV2, LivingStateDigestV2,
-    LivingTickV2, LivingWireErrorV2, archive_integrity_v2, autonomous_entity_digest_v2,
-    autonomous_entity_id_v2, catalog_hash_v2, claim_rank_v2, creator_entity_digest_v2,
-    creator_entity_id_v2, decode_canonical_v2, encode_canonical_v2, event_digest_v2, event_id_v2,
-    fork_branch_digest_v2, fork_branch_id_v2, receipt_digest_v2, revision_id_v2,
-    root_branch_digest_v2, root_branch_id_v2, state_digest_v2,
+    LIVING_CREATOR_ENTITY_DOMAIN_V2, LIVING_ENTITY_KIND_REGISTRY_V2, LIVING_EVENT_DOMAIN_V2,
+    LIVING_FORK_BRANCH_DOMAIN_V2, LIVING_MAX_CANONICAL_DEPTH_V2, LIVING_MAX_PACK_BYTES_V2,
+    LIVING_PACK_DOMAIN_V2, LIVING_PHASE_REGISTRY_V2, LIVING_RECEIPT_DOMAIN_V2,
+    LIVING_REVISION_DOMAIN_V2, LIVING_ROOT_BRANCH_DOMAIN_V2, LIVING_RULES_VERSION,
+    LIVING_STATE_DOMAIN_V2, LIVING_TICK_HZ, LivingAutonomousEntityInputsV2, LivingBranchIdV2,
+    LivingCatalogHashV2, LivingEntityIdV2, LivingEntityKindV2, LivingEventIdV2, LivingKeyedV2,
+    LivingPhaseV2, LivingReceiptDigestV2, LivingRevisionIdV2, LivingSortedVecV2,
+    LivingStateDigestV2, LivingTickV2, LivingWireErrorV2, archive_integrity_v2,
+    autonomous_entity_digest_v2, autonomous_entity_id_v2, catalog_hash_v2, claim_rank_v2,
+    creator_entity_digest_v2, creator_entity_id_v2, decode_canonical_v2, encode_canonical_v2,
+    event_digest_v2, event_id_v2, fork_branch_digest_v2, fork_branch_id_v2, receipt_digest_v2,
+    revision_id_v2, root_branch_digest_v2, root_branch_id_v2, state_digest_v2,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -376,6 +377,195 @@ fn every_autonomous_identity_field_changes_the_identity() {
     // property is not an artifact of taking the leading sixteen bytes.
     let digests: BTreeSet<_> = variants.iter().map(autonomous_entity_digest_v2).collect();
     assert_eq!(digests.len(), 10);
+}
+
+// ------------------------------------------------- published ordinal registries
+
+/// The entity-kind registry is normative: `entity_kind_u16` is a hash input to
+/// both entity formulas, so renumbering one row silently changes every entity
+/// identity derived under it. Pin each row on its own rather than pinning only
+/// the shape of the table, so that swapping two rows fails on the two rows that
+/// moved and names them.
+#[test]
+fn every_published_entity_kind_ordinal_is_pinned_individually() {
+    assert_eq!(LivingEntityKindV2::System.ordinal(), 1);
+    assert_eq!(LivingEntityKindV2::Star.ordinal(), 2);
+    assert_eq!(LivingEntityKindV2::World.ordinal(), 3);
+    assert_eq!(LivingEntityKindV2::Lane.ordinal(), 4);
+    assert_eq!(LivingEntityKindV2::Civilization.ordinal(), 5);
+    assert_eq!(LivingEntityKindV2::Deposit.ordinal(), 6);
+    assert_eq!(LivingEntityKindV2::Facility.ordinal(), 7);
+    assert_eq!(LivingEntityKindV2::ConstructionJob.ordinal(), 8);
+    assert_eq!(LivingEntityKindV2::HullJob.ordinal(), 9);
+    assert_eq!(LivingEntityKindV2::Fleet.ordinal(), 10);
+    assert_eq!(LivingEntityKindV2::Hull.ordinal(), 11);
+    assert_eq!(LivingEntityKindV2::Route.ordinal(), 12);
+    assert_eq!(LivingEntityKindV2::Shipment.ordinal(), 13);
+    assert_eq!(LivingEntityKindV2::Hazard.ordinal(), 14);
+}
+
+/// The published table and the per-variant mapping must agree, and both must
+/// stay a total, gap-free, duplicate-free numbering from one. A registry that
+/// skipped a value or repeated one would still satisfy the row-by-row test
+/// above.
+#[test]
+fn the_entity_kind_registry_table_is_total_and_gap_free() {
+    assert_eq!(LIVING_ENTITY_KIND_REGISTRY_V2.len(), 14);
+    for (index, (kind, ordinal)) in LIVING_ENTITY_KIND_REGISTRY_V2.into_iter().enumerate() {
+        let expected = u16::try_from(index + 1).expect("small index");
+        assert_eq!(
+            ordinal, expected,
+            "the registry is numbered from one in order"
+        );
+        assert_eq!(kind.ordinal(), ordinal, "{kind:?} disagrees with the table");
+        assert_eq!(LivingEntityKindV2::from_ordinal(ordinal), Some(kind));
+    }
+    assert_eq!(
+        LivingEntityKindV2::from_ordinal(0),
+        None,
+        "zero is not a kind"
+    );
+    assert_eq!(LivingEntityKindV2::from_ordinal(15), None);
+    assert_eq!(LivingEntityKindV2::from_ordinal(u16::MAX), None);
+}
+
+/// The phase registry carries the same obligation for `phase_u16`.
+#[test]
+fn every_published_phase_ordinal_is_pinned_individually() {
+    assert_eq!(LivingPhaseV2::ApplyCreatorInterventions.ordinal(), 1);
+    assert_eq!(LivingPhaseV2::ExpireLifecycles.ordinal(), 2);
+    assert_eq!(LivingPhaseV2::ResolveArrivals.ordinal(), 3);
+    assert_eq!(LivingPhaseV2::ResolveConflict.ordinal(), 4);
+    assert_eq!(LivingPhaseV2::RunProduction.ordinal(), 5);
+    assert_eq!(LivingPhaseV2::RefreshObservations.ordinal(), 6);
+    assert_eq!(LivingPhaseV2::UpdateDiplomacy.ordinal(), 7);
+    assert_eq!(LivingPhaseV2::GenerateIntents.ordinal(), 8);
+    assert_eq!(LivingPhaseV2::DispatchOrders.ordinal(), 9);
+    assert_eq!(LivingPhaseV2::CommitBoundary.ordinal(), 10);
+}
+
+#[test]
+fn the_phase_registry_table_is_total_and_gap_free() {
+    assert_eq!(LIVING_PHASE_REGISTRY_V2.len(), 10);
+    for (index, (phase, ordinal)) in LIVING_PHASE_REGISTRY_V2.into_iter().enumerate() {
+        let expected = u16::try_from(index + 1).expect("small index");
+        assert_eq!(
+            ordinal, expected,
+            "the registry is numbered from one in order"
+        );
+        assert_eq!(
+            phase.ordinal(),
+            ordinal,
+            "{phase:?} disagrees with the table"
+        );
+        assert_eq!(LivingPhaseV2::from_ordinal(ordinal), Some(phase));
+    }
+    assert_eq!(
+        LivingPhaseV2::from_ordinal(0),
+        None,
+        "the step list is one-based"
+    );
+    assert_eq!(LivingPhaseV2::from_ordinal(11), None);
+}
+
+/// Both registries travel the wire as their published ordinal, never as a Rust
+/// discriminant, and an unpublished ordinal is refused rather than guessed into
+/// a neighbouring row.
+#[test]
+fn registry_wire_values_are_the_published_ordinals() {
+    assert_eq!(
+        serde_json::to_string(&LivingEntityKindV2::Shipment).expect("kind encodes"),
+        "13"
+    );
+    assert_eq!(
+        serde_json::to_string(&LivingPhaseV2::DispatchOrders).expect("phase encodes"),
+        "9"
+    );
+    assert_eq!(
+        serde_json::from_str::<LivingEntityKindV2>("10").expect("kind decodes"),
+        LivingEntityKindV2::Fleet
+    );
+    assert_eq!(
+        serde_json::from_str::<LivingPhaseV2>("1").expect("phase decodes"),
+        LivingPhaseV2::ApplyCreatorInterventions
+    );
+    for text in ["0", "15", "\"fleet\""] {
+        assert!(
+            serde_json::from_str::<LivingEntityKindV2>(text).is_err(),
+            "{text} is not a published entity kind"
+        );
+    }
+    for text in ["0", "11"] {
+        assert!(serde_json::from_str::<LivingPhaseV2>(text).is_err());
+    }
+}
+
+/// The reviewed corpus and the registry must name the same value for the same
+/// entity, or the vectors stop being evidence about the registry the code
+/// actually hashes with. The corpus rows were re-derived outside this crate
+/// when the registry landed; this test is what ties the two together.
+#[test]
+fn the_reviewed_entity_vectors_carry_registry_kinds() {
+    let vectors = vectors();
+    let kind_of = |rows: &str, label: &str| -> u16 {
+        let row = vectors[rows]
+            .as_array()
+            .expect("vector rows")
+            .iter()
+            .find(|row| row["label"] == label)
+            .unwrap_or_else(|| panic!("the corpus carries the {label} row"));
+        u16::try_from(row["entity_kind"].as_u64().expect("kind")).expect("u16 kind")
+    };
+
+    assert_eq!(
+        kind_of("creator_entities", "system_local_0"),
+        LivingEntityKindV2::System.ordinal()
+    );
+    assert_eq!(
+        kind_of("creator_entities", "system_local_1"),
+        LivingEntityKindV2::System.ordinal()
+    );
+    assert_eq!(
+        kind_of("autonomous_entities", "ai_fleet_phase_8"),
+        LivingEntityKindV2::Fleet.ordinal()
+    );
+    assert_eq!(
+        kind_of(
+            "autonomous_entities",
+            "ai_fleet_phase_8_next_intent_ordinal"
+        ),
+        LivingEntityKindV2::Fleet.ordinal()
+    );
+    assert_eq!(
+        kind_of("autonomous_entities", "route_shipment_phase_9"),
+        LivingEntityKindV2::Shipment.ordinal()
+    );
+}
+
+/// The two autonomous rows the spec cites by name must also carry the phase
+/// ordinals the published phase registry assigns to intent generation and to
+/// dispatch.
+#[test]
+fn the_reviewed_autonomous_vectors_carry_registry_phases() {
+    let vectors = vectors();
+    let phase_of = |label: &str| -> u16 {
+        let row = vectors["autonomous_entities"]
+            .as_array()
+            .expect("autonomous rows")
+            .iter()
+            .find(|row| row["label"] == label)
+            .unwrap_or_else(|| panic!("the corpus carries the {label} row"));
+        u16::try_from(row["phase"].as_u64().expect("phase")).expect("u16 phase")
+    };
+
+    assert_eq!(
+        phase_of("ai_fleet_phase_8"),
+        LivingPhaseV2::GenerateIntents.ordinal()
+    );
+    assert_eq!(
+        phase_of("route_shipment_phase_9"),
+        LivingPhaseV2::DispatchOrders.ordinal()
+    );
 }
 
 // ------------------------------------------------------- branches and events

@@ -142,6 +142,230 @@ fn living_hex_nibble_v2(byte: u8) -> Option<u8> {
     }
 }
 
+/// One kind of Living V2 authority entity, as published by the section 10
+/// registry.
+///
+/// The registry fixes the authority entity set: exactly those records that
+/// carry an identity of their own. A colony, relation, agreement, war,
+/// observation, settlement claim and occupation are deliberately absent,
+/// because each is keyed by the identities it relates rather than by one of
+/// its own.
+///
+/// `entity_kind_u16` is a hash input to both entity formulas, so these values
+/// are normative, never reordered and never reissued: renumbering one produces
+/// different entity identities for the same history. That is why the wire and
+/// hash value comes from [`LivingEntityKindV2::ordinal`], an explicit arm per
+/// variant, and never from this enum's Rust layout.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LivingEntityKindV2 {
+    /// A star system.
+    System,
+    /// A star belonging to one system.
+    Star,
+    /// A world, which holds all inventory.
+    World,
+    /// A lane between two systems.
+    Lane,
+    /// A civilization.
+    Civilization,
+    /// A finite resource deposit.
+    Deposit,
+    /// A built industrial facility, including a defense battery.
+    Facility,
+    /// A paid, in-progress facility construction.
+    ConstructionJob,
+    /// A paid, in-progress hull build.
+    HullJob,
+    /// A fleet of co-owned hulls.
+    Fleet,
+    /// One hull inside a fleet.
+    Hull,
+    /// A standing freight route.
+    Route,
+    /// One shipment in flight, waiting or returning.
+    Shipment,
+    /// A scheduled lane hazard.
+    Hazard,
+}
+
+/// The published entity-kind registry, in its normative order.
+///
+/// The task that fixed the authority entity set assigned these values, as
+/// section 10 delegates. They follow the state schema's own field order and are
+/// numbered from one, like the published phase and intent registries.
+pub const LIVING_ENTITY_KIND_REGISTRY_V2: [(LivingEntityKindV2, u16); 14] = [
+    (LivingEntityKindV2::System, 1),
+    (LivingEntityKindV2::Star, 2),
+    (LivingEntityKindV2::World, 3),
+    (LivingEntityKindV2::Lane, 4),
+    (LivingEntityKindV2::Civilization, 5),
+    (LivingEntityKindV2::Deposit, 6),
+    (LivingEntityKindV2::Facility, 7),
+    (LivingEntityKindV2::ConstructionJob, 8),
+    (LivingEntityKindV2::HullJob, 9),
+    (LivingEntityKindV2::Fleet, 10),
+    (LivingEntityKindV2::Hull, 11),
+    (LivingEntityKindV2::Route, 12),
+    (LivingEntityKindV2::Shipment, 13),
+    (LivingEntityKindV2::Hazard, 14),
+];
+
+impl LivingEntityKindV2 {
+    /// The published `entity_kind_u16` of this kind.
+    pub const fn ordinal(self) -> u16 {
+        match self {
+            Self::System => 1,
+            Self::Star => 2,
+            Self::World => 3,
+            Self::Lane => 4,
+            Self::Civilization => 5,
+            Self::Deposit => 6,
+            Self::Facility => 7,
+            Self::ConstructionJob => 8,
+            Self::HullJob => 9,
+            Self::Fleet => 10,
+            Self::Hull => 11,
+            Self::Route => 12,
+            Self::Shipment => 13,
+            Self::Hazard => 14,
+        }
+    }
+
+    /// The kind an ordinal names, or `None` for a value the registry does not
+    /// publish. Zero is not a kind, and neither is any value above the last
+    /// published row.
+    pub const fn from_ordinal(ordinal: u16) -> Option<Self> {
+        match ordinal {
+            1 => Some(Self::System),
+            2 => Some(Self::Star),
+            3 => Some(Self::World),
+            4 => Some(Self::Lane),
+            5 => Some(Self::Civilization),
+            6 => Some(Self::Deposit),
+            7 => Some(Self::Facility),
+            8 => Some(Self::ConstructionJob),
+            9 => Some(Self::HullJob),
+            10 => Some(Self::Fleet),
+            11 => Some(Self::Hull),
+            12 => Some(Self::Route),
+            13 => Some(Self::Shipment),
+            14 => Some(Self::Hazard),
+            _ => None,
+        }
+    }
+}
+
+/// One of the ten ordered steps of a Living V2 tick boundary, as published by
+/// the section 10 registry.
+///
+/// `phase_u16` is a hash input to the autonomous entity formula, so like the
+/// entity kinds these values are normative, never reordered, and taken from
+/// [`LivingPhaseV2::ordinal`] rather than from Rust layout. The step list is
+/// numbered from one and so is this registry.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LivingPhaseV2 {
+    /// 1. Apply queued validated creator interventions.
+    ApplyCreatorInterventions,
+    /// 2. Expire agreements, truces and wars; update hazard boundaries.
+    ExpireLifecycles,
+    /// 3. Resolve travel arrivals and freight delivery, return and capture.
+    ResolveArrivals,
+    /// 4. Resolve retreat departures, combat rounds, occupation and settlement
+    ///    claims.
+    ResolveConflict,
+    /// 5. Complete construction; run hubs, solar, extraction, processing and
+    ///    repairs.
+    RunProduction,
+    /// 6. Refresh civilization observations.
+    RefreshObservations,
+    /// 7. Update diplomacy and resolve proposals.
+    UpdateDiplomacy,
+    /// 8. Generate economic and fleet intents; validate and reserve centrally.
+    GenerateIntents,
+    /// 9. Dispatch scheduled fleet orders and eligible freight routes.
+    DispatchOrders,
+    /// 10. Produce ordered event receipts, update counters, hash and commit.
+    CommitBoundary,
+}
+
+/// The published phase registry, in its normative order.
+pub const LIVING_PHASE_REGISTRY_V2: [(LivingPhaseV2, u16); 10] = [
+    (LivingPhaseV2::ApplyCreatorInterventions, 1),
+    (LivingPhaseV2::ExpireLifecycles, 2),
+    (LivingPhaseV2::ResolveArrivals, 3),
+    (LivingPhaseV2::ResolveConflict, 4),
+    (LivingPhaseV2::RunProduction, 5),
+    (LivingPhaseV2::RefreshObservations, 6),
+    (LivingPhaseV2::UpdateDiplomacy, 7),
+    (LivingPhaseV2::GenerateIntents, 8),
+    (LivingPhaseV2::DispatchOrders, 9),
+    (LivingPhaseV2::CommitBoundary, 10),
+];
+
+impl LivingPhaseV2 {
+    /// The published `phase_u16` of this step.
+    pub const fn ordinal(self) -> u16 {
+        match self {
+            Self::ApplyCreatorInterventions => 1,
+            Self::ExpireLifecycles => 2,
+            Self::ResolveArrivals => 3,
+            Self::ResolveConflict => 4,
+            Self::RunProduction => 5,
+            Self::RefreshObservations => 6,
+            Self::UpdateDiplomacy => 7,
+            Self::GenerateIntents => 8,
+            Self::DispatchOrders => 9,
+            Self::CommitBoundary => 10,
+        }
+    }
+
+    /// The step an ordinal names, or `None` for a value the registry does not
+    /// publish. Zero is not a phase, because the step list is one-based.
+    pub const fn from_ordinal(ordinal: u16) -> Option<Self> {
+        match ordinal {
+            1 => Some(Self::ApplyCreatorInterventions),
+            2 => Some(Self::ExpireLifecycles),
+            3 => Some(Self::ResolveArrivals),
+            4 => Some(Self::ResolveConflict),
+            5 => Some(Self::RunProduction),
+            6 => Some(Self::RefreshObservations),
+            7 => Some(Self::UpdateDiplomacy),
+            8 => Some(Self::GenerateIntents),
+            9 => Some(Self::DispatchOrders),
+            10 => Some(Self::CommitBoundary),
+            _ => None,
+        }
+    }
+}
+
+macro_rules! living_registry_serde_v2 {
+    ($type:ident, $noun:literal) => {
+        impl Serialize for $type {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_u16(self.ordinal())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let ordinal = u16::deserialize(deserializer)?;
+                Self::from_ordinal(ordinal).ok_or_else(|| {
+                    serde::de::Error::custom(concat!("the registry publishes no ", $noun))
+                })
+            }
+        }
+    };
+}
+
+living_registry_serde_v2!(LivingEntityKindV2, "entity kind with that ordinal");
+living_registry_serde_v2!(LivingPhaseV2, "phase with that ordinal");
+
 /// Framed inputs of the autonomous entity identity.
 ///
 /// The spec groups these into one never-reordered tuple, and the same tuple may

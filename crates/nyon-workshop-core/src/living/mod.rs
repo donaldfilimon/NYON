@@ -33,11 +33,12 @@ pub use genesis::{
 };
 pub use ids::{
     LIVING_ARCHIVE_INTEGRITY_DOMAIN_V2, LIVING_AUTO_ENTITY_DOMAIN_V2, LIVING_CLAIM_DOMAIN_V2,
-    LIVING_CREATOR_ENTITY_DOMAIN_V2, LIVING_EVENT_DOMAIN_V2, LIVING_FORK_BRANCH_DOMAIN_V2,
-    LIVING_OPTIONAL_ABSENT_V2, LIVING_OPTIONAL_PRESENT_V2, LIVING_PACK_DOMAIN_V2,
-    LIVING_RECEIPT_DOMAIN_V2, LIVING_REVISION_DOMAIN_V2, LIVING_ROOT_BRANCH_DOMAIN_V2,
-    LIVING_STATE_DOMAIN_V2, LivingAutonomousEntityInputsV2, LivingBranchIdV2, LivingCatalogHashV2,
-    LivingEntityIdV2, LivingEventIdV2, LivingReceiptDigestV2, LivingRevisionIdV2,
+    LIVING_CREATOR_ENTITY_DOMAIN_V2, LIVING_ENTITY_KIND_REGISTRY_V2, LIVING_EVENT_DOMAIN_V2,
+    LIVING_FORK_BRANCH_DOMAIN_V2, LIVING_OPTIONAL_ABSENT_V2, LIVING_OPTIONAL_PRESENT_V2,
+    LIVING_PACK_DOMAIN_V2, LIVING_PHASE_REGISTRY_V2, LIVING_RECEIPT_DOMAIN_V2,
+    LIVING_REVISION_DOMAIN_V2, LIVING_ROOT_BRANCH_DOMAIN_V2, LIVING_STATE_DOMAIN_V2,
+    LivingAutonomousEntityInputsV2, LivingBranchIdV2, LivingCatalogHashV2, LivingEntityIdV2,
+    LivingEntityKindV2, LivingEventIdV2, LivingPhaseV2, LivingReceiptDigestV2, LivingRevisionIdV2,
     LivingStateDigestV2, LivingTickV2, archive_integrity_v2, autonomous_entity_digest_v2,
     autonomous_entity_id_v2, catalog_hash_v2, claim_rank_v2, creator_entity_digest_v2,
     creator_entity_id_v2, event_digest_v2, event_id_v2, fork_branch_digest_v2, fork_branch_id_v2,

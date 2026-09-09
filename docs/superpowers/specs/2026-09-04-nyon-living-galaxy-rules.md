@@ -22,6 +22,17 @@ re-derived. The commit that renumbers them must say so here. Everything frozen t
 `entity_kind` — the domain literals, the payload digests, and the revision, branch, event and claim rows
 — is unaffected
 
+**Renumbered 2026-09-08, discharging the obligation in the sentence above.** The entity-kind registry
+landed with the commit that froze the V2 commands and receipts, and it renumbered five `entity_kind`
+values in the reviewed corpus: both `creator_entities` rows moved from `3` to `1` and now name the two
+systems a topology batch creates, the two `ai_fleet_phase_8` rows moved from `4` to `10`, and
+`route_shipment_phase_9` moved from `7` to `13`. Those five rows' `entity_digest` and `entity_id` values
+were re-derived outside the implementation crate with `tools/living-v2-vectors.py`, which transcribes the
+formulas of this section rather than calling the Rust code. No other byte of that corpus changed: the
+domain literals, the payload digests, and the revision, branch, event and claim rows are the values they
+have always carried, and `tools/living-v2-vectors.py verify` recomputes every one of them from this
+section's formulas
+
 Parent: [Product and architecture](2026-09-04-nyon-living-galaxy-design.md)
 
 ## 1. Authority and release envelope
@@ -379,10 +390,11 @@ to **every** `state_digest`, permanently, and populating or removing it is a for
 vectors. The per-relation delivery accumulators of section 5 are not this record; they live inside the
 relation record where section 5 places them.
 
-Entity kinds are assigned by the task that fixes the authority entity set, numbered freely rather than
-chosen to match values that already appear in the test corpus. Renumbering invalidates the affected
-frozen vectors, which are re-derived. Re-derivation does not license a new method: the affected digests
-are recomputed outside this crate by the same independent path the original vectors used, because a
+Entity kinds were assigned by the task that fixed the authority entity set, numbered freely rather than
+chosen to match values that already appeared in the test corpus. The resulting registry is published
+below with the phase and intent registries. Renumbering invalidated the affected frozen vectors, which
+were re-derived. Re-derivation did not license a new method: the affected digests were recomputed
+outside the implementation crate by the same independent path the original vectors used, because a
 corpus regenerated from the implementation's own output is a recording of the code rather than evidence
 about it.
 
@@ -434,7 +446,26 @@ Intent ordinals cover the economic intents of section 7 and then its fleet prior
 | 15 | Reinforce an undefended owned colony |
 | 16 | Establish or adjust a freight route |
 
-Entity kinds are assigned by the task that fixes the authority entity set, and are not published here yet. The `LivingEventKindV2` discriminant ordinal is deliberately **not** assigned: tagged enums travel the wire as lowercase-snake-case strings, and `event_digest` consumes an emission ordinal rather than a kind, so no byte or hash depends on it. It may be published later without invalidating any frozen vector.
+Entity kinds are the authority records that carry an identity of their own, numbered in the order the state schema declares them:
+
+| `entity_kind_u16` | Entity |
+| ---: | --- |
+| 1 | System |
+| 2 | Star |
+| 3 | World |
+| 4 | Lane |
+| 5 | Civilization |
+| 6 | Deposit |
+| 7 | Facility |
+| 8 | Construction job |
+| 9 | Hull job |
+| 10 | Fleet |
+| 11 | Hull |
+| 12 | Route |
+| 13 | Shipment |
+| 14 | Hazard |
+
+A colony, relation, agreement, war, observation, settlement claim and occupation are deliberately absent, because each is keyed by the identities it relates rather than by one of its own, so none of them can be the subject of either entity formula. The `LivingEventKindV2` discriminant ordinal is deliberately **not** assigned: tagged enums travel the wire as lowercase-snake-case strings, and `event_digest` consumes an emission ordinal rather than a kind, so no byte or hash depends on it. It may be published later without invalidating any frozen vector.
 
 Claim arbitration chooses the lexicographically smallest full 32-byte rank after all higher-level eligibility and strength comparisons. Whole exported-file SHA-256 shown by the UI is an ordinary hash of the final canonical file and is distinct from the domain-separated payload integrity. Strings or variable byte slices included by a future domain formula must be preceded by their `u64` byte length; adding such a field requires a new explicitly documented formula/domain.
 
