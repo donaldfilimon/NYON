@@ -8,7 +8,6 @@ use super::{
     platform_sdf::{
         PlatformTextOverflow, PlatformTextRole, PlatformVisibleNodeRecord, PlatformVisibleNodeState,
     },
-    workshop::WorkshopUiModel,
     workshop_layout::{WorkshopLayout, WorkshopLayoutMode},
     workshop_view::{NavigatorSection, WorkshopDrawer, WorkshopViewState},
 };
@@ -31,11 +30,10 @@ pub(crate) struct ModalPresentation {
 }
 
 pub(crate) fn modal_presentation(
-    model: &WorkshopUiModel,
+    tree: &SemanticTree,
     layout: &WorkshopLayout,
 ) -> Option<ModalPresentation> {
-    let dialog = model
-        .semantics
+    let dialog = tree
         .nodes_depth_first()
         .into_iter()
         .find(|node| node.role == SemanticRole::Dialog)?;

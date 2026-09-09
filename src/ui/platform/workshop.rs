@@ -577,7 +577,7 @@ pub fn build_workshop_platform_frame_for_view(
         );
     }
 
-    let modal_content = modal_presentation(model, &layout);
+    let modal_content = modal_presentation(&model.semantics, &layout);
     let mut modal_actions = model
         .creator_form
         .as_ref()

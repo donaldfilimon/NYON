@@ -110,7 +110,9 @@ impl WorkshopViewState {
         layout: &WorkshopLayout,
     ) {
         self.reconcile_modal(model);
-        if let Some(content) = super::platform_projection::modal_presentation(model, layout) {
+        if let Some(content) =
+            super::platform_projection::modal_presentation(&model.semantics, layout)
+        {
             if action == WorkshopViewAction::ScrollNext {
                 let next = self.modal_row + content.visible_rows(self.modal_row).count().max(1);
                 if next < content.rows.len() {
@@ -220,7 +222,9 @@ impl WorkshopViewState {
         action: &SemanticActionId,
     ) -> bool {
         self.reconcile_modal(model);
-        if let Some(content) = super::platform_projection::modal_presentation(model, layout) {
+        if let Some(content) =
+            super::platform_projection::modal_presentation(&model.semantics, layout)
+        {
             if let Some(index) = content
                 .rows
                 .iter()
@@ -334,7 +338,9 @@ impl WorkshopViewState {
         semantic_id: &SemanticNodeId,
     ) -> bool {
         self.reconcile_modal(model);
-        if let Some(content) = super::platform_projection::modal_presentation(model, layout) {
+        if let Some(content) =
+            super::platform_projection::modal_presentation(&model.semantics, layout)
+        {
             if let Some(index) = content.rows.iter().position(|row| row.id == *semantic_id) {
                 self.modal_row = index;
                 return true;
