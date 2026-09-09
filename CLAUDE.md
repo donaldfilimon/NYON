@@ -280,3 +280,12 @@ any conflict.
   that log, and confirm the count against the log's own `test result:` lines.** Never
   conclude green from a wrapper's status, and treat a suspiciously fast or suspiciously
   short log as unproven rather than passing.
+- **⚠️ `git checkout <rev> -- <path>` WRITES THE INDEX, so the obvious undo restores the
+  wrong thing.** Found 2026-09-09 while re-verifying a mutation. Checking a path out of
+  another revision stages it as well as writing the worktree; a later
+  `git checkout -- <path>` then restores **from the index**, which now holds the reverted
+  content. The file looks restored, `git status` can look clean, and **the suite goes
+  green while testing the wrong tree** — the same false-green direction as the stale
+  artifact and the wrapper exit code. `git restore --staged --worktree <path>` is the
+  correct undo. Relevant here because reverting one file to an older revision is exactly
+  how you prove a test could not have caught a defect before a commit.

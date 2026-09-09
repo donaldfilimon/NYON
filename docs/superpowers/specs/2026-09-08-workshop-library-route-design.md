@@ -208,6 +208,31 @@ client-dependent controls **rendered disabled with a visible reason**, then
 enabled. Silently omitting them is not acceptable — Finding 5 is precisely about
 controls that exist logically but cannot be reached.
 
+## The dispatch-compensation rule, and the qualifier that carries it
+
+Established by task 6 (`5668455`) and refined by its re-review (`2851391`). Recorded
+here because tasks 7-12 will cite it, and the short form is dangerous on its own.
+
+**The rule:** the moment a request reaches the store is the last moment its effect is
+knowable. `WorkshopStore::abandon` drops the *outcome*, not the *work* — a mutation
+that was going to land still lands — so **compensation belongs at dispatch, never at
+success**. Task 6 puts the residency gate and the Continue-candidate withdrawal in
+`dispatch_slot_request`, the single `workshop_store.start` for slot requests, so all
+four edges (first attempt, retry from a retained `Failed`, cancel of an in-flight job,
+and a forgotten `StoreJobState::Unknown`) are covered by construction rather than by
+enumeration.
+
+**⚠️ The qualifier, which the short form drops:** compensating at dispatch is safe
+*because withdrawing a Continue candidate is cheap and idempotent*. It is **not**
+safe for state that is expensive or user-authored. Applied without thought to retained
+rename text or prepared export bytes, it discards the user's work on a request that is
+merely *refused* — and task 6 already hit the near miss: moving its guard to dispatch
+would have swallowed the retained request, turning "silently succeed" into "silently
+vanish", until it restored the retained `Failed` on refusal.
+
+So: **compensate at dispatch when the compensation is cheap and idempotent; otherwise
+preserve at dispatch and compensate on the outcome you can observe.**
+
 ## Verification
 
 Store suites, in all three adapters: unarchive is a flag-only mutation with
