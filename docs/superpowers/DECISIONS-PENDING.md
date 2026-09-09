@@ -1,9 +1,10 @@
 # NYON: decisions awaiting the owner
 
 Date: 2026-09-08 23:1x
-Scope: everything the 2026-09-08 session surfaced that an agent should not decide.
+Scope: everything the 2026-09-08/09 session surfaced that an agent should not decide.
+Last reconciled 2026-09-09 02:1x.
 
-**None of these block each other. Three block downstream work; five do not.** Each
+**None of these block each other. Four block downstream work; five do not.** Each
 entry states what it costs to decide *late*, because that is the only thing that
 makes ordering them meaningful — several are free to confirm now and expensive to
 overrule after the next task consumes them.
@@ -109,6 +110,29 @@ Found by the 3b review: `model.rs:1432-1437` never range-checks facility `hit_po
 while `check_fleets` rejects `hull.hit_points == 0` — **which is the only reason the
 genesis fixture's `hit_points: 0` validates at all**. An asymmetry, not obviously
 intentional.
+
+## 9. The Library design has no task for the main-menu entry control
+
+`docs/superpowers/specs/2026-09-08-workshop-library-route-design.md`, recorded in its own
+task list.
+
+The design's twelve tasks include no main-menu entry control, while addendum §2 requires
+main-menu entry — task 10 is the **in-Workshop** control only. Task 6 satisfies the
+constraint **at the runtime seam only**: `open_library()` succeeds from `MainMenu` and is
+tested there, but **nothing routes to it**, so the screen is currently unreachable in the
+product from the main menu.
+
+Task 6 was right not to add `MainMenuRoute::Library` unbriefed — it pulls in `menu_copy`,
+`menu_slug`, icon arms and every `menu_capabilities()` assertion, and the design assigns
+entry controls to their own tasks.
+
+**The decision is where it goes:** task 8's dispatch, or a new task. **Cost of deciding
+late: the two-slice ship plan delivers a screen no user can open**, and the omission is
+invisible until someone goes looking for the control.
+
+*Added 2026-09-09 02:1x. It was missing from this document's first version, found by
+re-checking rather than by anything surfacing it — which is the drift this file exists to
+prevent, occurring in this file.*
 
 ---
 
