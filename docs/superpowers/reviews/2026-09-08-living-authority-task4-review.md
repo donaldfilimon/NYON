@@ -303,7 +303,28 @@ one is refused; or derive/expose the field list so a variant added without a wal
 to compile. Rename the test if it is going to stay a sample. Do not simply add
 `CreateHazard` to the list — that recreates the same trap for whatever lands next.
 
-**Status:** open.
+**Response:** Fixed. `every_reference_bearing_field_is_validated` no longer enumerates:
+`scan_command_schema` reads `living/command.rs`'s own text and returns every field of every
+enum in the file whose declared type carries a `LivingCommandTargetV2` — **49**, not the
+"roughly twenty" uncovered plus six covered, because the six previously covered were
+`SetWorldOwner.owner`, `SetRelationBase.to`, `SetFleetOrder.lane_path`, `ForceWar.declarer`,
+`RemoveListed.dependents` and `CreateHullJob.target_fleet`, leaving **43** with no assertion.
+Each field is now redirected at an undeclared local in turn, from one template per operation
+built as a typed Rust value, so a field added to a variant is a compile error before it is a
+test failure, and a twenty-ninth operation fails the scan's coverage assertion by name. The
+walk itself is unchanged: no digest, vector or field order moves. Two nits in the finding —
+`CreateFacility` has no `owner` field, and the uncovered count was understated rather than
+overstated.
+
+**Verified by mutation:** the exact `CreateHazard.lane` drop this finding reproduced now fails
+`every_reference_bearing_field_is_validated` naming `create_hazard.lane` (233 → 1 failed,
+exit 101); so do `SetShipmentDisposition.shipment` (the renamed-binding or-arm),
+`CreateRoute.source_owner` (one of four in an arm) and `CreateWorld.owner` (the `Option`
+shape). Deleting one template fails both new assertions with "no template declares
+create_hazard"; adding a reference field to a variant fails to compile. Gate at the fix:
+`FMT_EXIT: 0`, `CLIPPY_EXIT: 0`, `TEST_EXIT: 0`, 638 passed / 46 suites (was 637 / 46).
+
+**Status:** fixed.
 
 ### F2 — MEDIUM — A seventh normative gap: the creator operation schema is frozen by vector with no spec table
 

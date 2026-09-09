@@ -11,12 +11,15 @@
 
 use nyon_workshop_core::living::{
     LIVING_MAX_ARCHIVE_BYTES_V2, LIVING_MAX_CREATOR_BATCH_OPERATIONS_V2, LivingAcceptedCommandV2,
-    LivingCascadeDispositionV2, LivingCatalogHashV2, LivingCommandEnvelopeV2, LivingCommandErrorV2,
-    LivingCommandModeV2, LivingCommandTargetV2, LivingCommandV2, LivingCreatorOperationV2,
-    LivingEntityIdV2, LivingEntityKindV2, LivingNameV2, LivingRevisionIdV2, LivingRevisionV2,
-    LivingTickV2, LivingWireErrorV2, decode_canonical_v2,
+    LivingAgreementKindV2, LivingCascadeDispositionV2, LivingCatalogHashV2,
+    LivingCivilizationStatusV2, LivingCommandEnvelopeV2, LivingCommandErrorV2, LivingCommandModeV2,
+    LivingCommandTargetV2, LivingCommandV2, LivingCreatorOperationV2, LivingEntityIdV2,
+    LivingEntityKindV2, LivingFacilityStatusV2, LivingFleetOrderKindV2, LivingInventoryV2,
+    LivingNameV2, LivingPolicyV2, LivingResourceV2, LivingRevisionIdV2, LivingRevisionV2,
+    LivingRouteKindV2, LivingShipmentDispositionV2, LivingSlugV2, LivingTickV2, LivingWireErrorV2,
+    decode_canonical_v2,
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 const VECTORS: &str = include_str!("fixtures/living-v2/vectors.json");
 const SEED: [u8; 32] = [0x11; 32];
@@ -59,6 +62,358 @@ fn existing(byte: u8) -> LivingCommandTargetV2 {
     LivingCommandTargetV2::Existing {
         id: LivingEntityIdV2([byte; 16]),
     }
+}
+
+fn slug(text: &str) -> LivingSlugV2 {
+    LivingSlugV2::new(text).expect("a catalog identifier")
+}
+
+fn inventory() -> LivingInventoryV2 {
+    LivingInventoryV2 {
+        energy: 4,
+        ore: 5,
+        alloy: 6,
+    }
+}
+
+/// `living/command.rs`'s own text, so the reference-field contract below is
+/// derived from the declaration rather than restated beside it.
+const COMMAND_SOURCE: &str = include_str!("../src/living/command.rs");
+
+/// The batch-local identifier no template declares, so pointing any field at
+/// it must be refused.
+const MISSING_LOCAL: u16 = 7;
+
+/// One field of one declared variant whose type carries a
+/// [`LivingCommandTargetV2`], and therefore must reach the reference walk.
+#[derive(Debug)]
+struct ReferenceField {
+    variant: String,
+    field: String,
+    plural: bool,
+}
+
+/// Is this the name of an enum variant, rather than a doc comment, an
+/// attribute, or a closing brace at the same indentation?
+fn is_variant_name(text: &str) -> bool {
+    text.starts_with(|character: char| character.is_ascii_uppercase())
+        && text
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+}
+
+/// Read `living/command.rs` and return the operation variants it declares and
+/// every reference-bearing field of every enum in the file.
+///
+/// This is the part that makes the coverage test below total instead of a
+/// sample. A twenty-ninth operation, or one more `LivingCommandTargetV2` field
+/// on an existing operation, appears here without anyone remembering to say so,
+/// and fails the assertions that consume it until the templates are extended.
+fn scan_command_schema() -> (Vec<String>, Vec<ReferenceField>) {
+    let mut operations = Vec::new();
+    let mut fields = Vec::new();
+    let mut current_enum: Option<&str> = None;
+    let mut current_variant: Option<String> = None;
+
+    for line in COMMAND_SOURCE.lines() {
+        if let Some(rest) = line.strip_prefix("pub enum ") {
+            current_enum = Some(rest.trim_end_matches(" {"));
+            current_variant = None;
+            continue;
+        }
+        if line == "}" {
+            current_enum = None;
+            current_variant = None;
+            continue;
+        }
+        let Some(enum_name) = current_enum else {
+            continue;
+        };
+
+        // A variant header sits at one level of indentation, a field at two.
+        if let Some(rest) = line.strip_prefix("    ")
+            && !rest.starts_with(' ')
+        {
+            let candidate = rest.trim_end_matches(" {").trim_end_matches(',');
+            if is_variant_name(candidate) {
+                if enum_name == "LivingCreatorOperationV2" {
+                    operations.push(candidate.to_owned());
+                }
+                current_variant = Some(candidate.to_owned());
+            }
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("        ")
+            && !rest.starts_with(' ')
+            && let Some((field, declared)) = rest.split_once(": ")
+            && !field.is_empty()
+            && field
+                .chars()
+                .all(|character| character.is_ascii_lowercase() || character == '_')
+            && declared.contains("LivingCommandTargetV2")
+        {
+            let variant = current_variant
+                .clone()
+                .unwrap_or_else(|| panic!("{enum_name}.{field} sits outside any variant"));
+            fields.push(ReferenceField {
+                variant,
+                field: field.to_owned(),
+                plural: declared.starts_with("Vec<"),
+            });
+        }
+    }
+
+    (operations, fields)
+}
+
+/// The serde tag a variant is written under on the wire.
+fn snake_case(variant: &str) -> String {
+    let mut out = String::new();
+    for (index, character) in variant.char_indices() {
+        if character.is_ascii_uppercase() {
+            if index != 0 {
+                out.push('_');
+            }
+            out.push(character.to_ascii_lowercase());
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
+
+/// The object in `document` tagged `"type": tag`, at any depth.
+fn find_tagged<'a>(document: &'a Value, tag: &str) -> Option<&'a Map<String, Value>> {
+    match document {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some(tag) {
+                return Some(object);
+            }
+            object.values().find_map(|value| find_tagged(value, tag))
+        }
+        Value::Array(items) => items.iter().find_map(|item| find_tagged(item, tag)),
+        _ => None,
+    }
+}
+
+/// The same search, for the one edit each case makes.
+fn find_tagged_mut<'a>(document: &'a mut Value, tag: &str) -> Option<&'a mut Map<String, Value>> {
+    match document {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some(tag) {
+                return Some(object);
+            }
+            object
+                .values_mut()
+                .find_map(|value| find_tagged_mut(value, tag))
+        }
+        Value::Array(items) => items.iter_mut().find_map(|item| find_tagged_mut(item, tag)),
+        _ => None,
+    }
+}
+
+/// How many batch-local references the document carries, at any depth.
+///
+/// Each case below asserts this is zero before its edit and one after, so a
+/// template that already pointed somewhere local could not make a case pass for
+/// a field the walk never reads.
+fn count_local_targets(document: &Value) -> usize {
+    match document {
+        Value::Object(object) => {
+            let here = usize::from(object.get("type").and_then(Value::as_str) == Some("local"));
+            here + object.values().map(count_local_targets).sum::<usize>()
+        }
+        Value::Array(items) => items.iter().map(count_local_targets).sum(),
+        _ => 0,
+    }
+}
+
+/// One instance of every declared operation, each valid on its own and each
+/// pointing every reference-bearing field it has at an existing entity.
+///
+/// These are Rust values rather than JSON literals on purpose: a field added to
+/// a variant fails to compile here, which is a stronger signal than a test
+/// failure and arrives sooner.
+fn every_operation_template() -> Vec<LivingCreatorOperationV2> {
+    vec![
+        LivingCreatorOperationV2::CreateSystem {
+            local: 0,
+            name: name("Vale"),
+        },
+        LivingCreatorOperationV2::CreateStar {
+            local: 0,
+            system: existing(0x01),
+            archetype: slug("main_sequence"),
+            name: name("Vale Prime"),
+        },
+        LivingCreatorOperationV2::CreateWorld {
+            local: 0,
+            system: existing(0x01),
+            archetype: slug("terrestrial"),
+            name: name("Vale II"),
+            owner: Some(existing(0x02)),
+            inventory: inventory(),
+        },
+        LivingCreatorOperationV2::CreateLane {
+            local: 0,
+            system_a: existing(0x01),
+            system_b: existing(0x02),
+            distance_units: 101,
+        },
+        LivingCreatorOperationV2::CreateCivilization {
+            local: 0,
+            name: name("Concord"),
+            policy: LivingPolicyV2(slug("balanced")),
+            status: LivingCivilizationStatusV2::Active,
+        },
+        LivingCreatorOperationV2::CreateDeposit {
+            local: 0,
+            world: existing(0x01),
+            resource: LivingResourceV2::Ore,
+            remaining_units: 500,
+        },
+        LivingCreatorOperationV2::CreateFacility {
+            local: 0,
+            world: existing(0x01),
+            definition: slug("refinery"),
+            status: LivingFacilityStatusV2::Operational,
+            paid_alloy: 20,
+            hit_points: 100,
+            next_due: Some(LivingTickV2(9)),
+        },
+        LivingCreatorOperationV2::CreateConstructionJob {
+            local: 0,
+            world: existing(0x01),
+            owner: existing(0x02),
+            definition: slug("refinery"),
+            accepted_tick: LivingTickV2(0),
+            completion_tick: LivingTickV2(100),
+            paid_alloy: 20,
+        },
+        LivingCreatorOperationV2::CreateHullJob {
+            local: 0,
+            world: existing(0x01),
+            owner: existing(0x02),
+            definition: slug("escort"),
+            accepted_tick: LivingTickV2(0),
+            completion_tick: LivingTickV2(100),
+            paid_alloy: 20,
+            target_fleet: Some(existing(0x03)),
+        },
+        LivingCreatorOperationV2::CreateFleet {
+            local: 0,
+            owner: existing(0x01),
+            world: existing(0x02),
+        },
+        LivingCreatorOperationV2::CreateHull {
+            local: 0,
+            fleet: existing(0x01),
+            definition: slug("escort"),
+            hit_points: 50,
+            return_credit: false,
+        },
+        LivingCreatorOperationV2::CreateRoute {
+            local: 0,
+            kind: LivingRouteKindV2::Internal,
+            source_world: existing(0x01),
+            destination_world: existing(0x02),
+            resource: LivingResourceV2::Ore,
+            batch_size: 10,
+            cadence_ticks: 5,
+            source_reserve: 2,
+            source_owner: existing(0x03),
+            receiver_owner: existing(0x04),
+            next_due: LivingTickV2(12),
+        },
+        LivingCreatorOperationV2::CreateShipment {
+            local: 0,
+            dispatch_owner: existing(0x01),
+            intended_receiver: existing(0x02),
+            source_world: existing(0x03),
+            destination_world: existing(0x04),
+            resource: LivingResourceV2::Alloy,
+            units: 5,
+            departure_tick: LivingTickV2(1),
+            arrival_tick: LivingTickV2(9),
+            disposition: LivingShipmentDispositionV2::Outbound,
+        },
+        LivingCreatorOperationV2::CreateHazard {
+            local: 0,
+            definition: slug("ion_storm"),
+            lane: existing(0x01),
+            start_tick: LivingTickV2(3),
+            end_tick: LivingTickV2(11),
+        },
+        LivingCreatorOperationV2::SetWorldInventory {
+            world: existing(0x01),
+            inventory: inventory(),
+        },
+        LivingCreatorOperationV2::SetWorldOwner {
+            world: existing(0x01),
+            owner: Some(existing(0x02)),
+        },
+        LivingCreatorOperationV2::CreateColony {
+            world: existing(0x01),
+            owner: existing(0x02),
+        },
+        LivingCreatorOperationV2::RemoveColony {
+            world: existing(0x01),
+        },
+        LivingCreatorOperationV2::SetDepositRemaining {
+            deposit: existing(0x01),
+            remaining_units: 7,
+        },
+        LivingCreatorOperationV2::SetCivilizationPolicy {
+            civilization: existing(0x01),
+            policy: LivingPolicyV2(slug("balanced")),
+        },
+        LivingCreatorOperationV2::SetRelationBase {
+            from: existing(0x01),
+            to: existing(0x02),
+            base_disposition: 10,
+        },
+        LivingCreatorOperationV2::SetAgreement {
+            kind: LivingAgreementKindV2::Trade,
+            participant_a: existing(0x01),
+            participant_b: existing(0x02),
+            start_tick: LivingTickV2(0),
+            end_tick: LivingTickV2(600),
+        },
+        LivingCreatorOperationV2::RemoveAgreement {
+            kind: LivingAgreementKindV2::Trade,
+            participant_a: existing(0x01),
+            participant_b: existing(0x02),
+        },
+        LivingCreatorOperationV2::ForceWar {
+            participant_a: existing(0x01),
+            participant_b: existing(0x02),
+            declarer: existing(0x03),
+            start_tick: LivingTickV2(0),
+            end_tick: LivingTickV2(600),
+        },
+        LivingCreatorOperationV2::ForcePeace {
+            participant_a: existing(0x01),
+            participant_b: existing(0x02),
+        },
+        LivingCreatorOperationV2::SetFleetOrder {
+            fleet: existing(0x01),
+            kind: Some(LivingFleetOrderKindV2::Move),
+            target_world: Some(existing(0x02)),
+            not_before_tick: LivingTickV2(5),
+            lane_path: vec![existing(0x03)],
+        },
+        LivingCreatorOperationV2::SetShipmentDisposition {
+            shipment: existing(0x01),
+            disposition: LivingShipmentDispositionV2::Outbound,
+        },
+        LivingCreatorOperationV2::RemoveEntity {
+            target: existing(0x01),
+            cascade: LivingCascadeDispositionV2::RemoveListed {
+                dependents: vec![existing(0x02)],
+            },
+        },
+    ]
 }
 
 /// The exact batch the reviewed `creator_command` vector describes: two
@@ -405,62 +760,154 @@ fn an_operation_may_not_reference_its_own_local_identifier() {
     );
 }
 
+/// The reference-field contract is read out of `living/command.rs`, so it
+/// cannot drift from the declaration without failing here.
+///
+/// The two counts are pins, not targets. If one moves, the schema moved:
+/// re-read `scan_command_schema` against the declaration and extend
+/// `every_operation_template`, rather than editing the number.
+#[test]
+fn the_command_schema_scan_finds_every_declared_reference_field() {
+    let (operations, fields) = scan_command_schema();
+    assert_eq!(
+        operations.len(),
+        28,
+        "the declared operation count moved: {operations:?}"
+    );
+    assert_eq!(
+        fields.len(),
+        49,
+        "the reference-bearing field count moved: {fields:?}"
+    );
+
+    // A scan that found nothing would satisfy every assertion below it, so
+    // prove it observed both the operation enum and the nested cascade.
+    assert!(
+        fields
+            .iter()
+            .any(|field| field.variant == "RemoveListed" && field.field == "dependents"),
+        "the scan must reach reference fields nested below an operation"
+    );
+    assert!(
+        fields.iter().any(|field| field.plural),
+        "the scan must distinguish a repeated reference field"
+    );
+
+    // One template per declared operation, matched by its wire tag rather than
+    // by position, so a twenty-ninth operation fails here until it has one.
+    let templates: Vec<Value> = every_operation_template()
+        .iter()
+        .map(|operation| serde_json::to_value(operation).expect("an operation serializes"))
+        .collect();
+    assert_eq!(templates.len(), operations.len());
+    for operation in &operations {
+        let tag = snake_case(operation);
+        let carrying = templates
+            .iter()
+            .filter(|template| find_tagged(template, &tag).is_some())
+            .count();
+        assert_eq!(
+            carrying, 1,
+            "exactly one template must carry the {tag} operation, found {carrying}"
+        );
+    }
+}
+
 /// Every reference-bearing field must reach validation. A field the walk
 /// forgets is a hole an invalid reference travels through, and the only way to
 /// see it is to point each field at an undeclared local in turn.
+///
+/// The field list comes from the declaration itself
+/// (`the_command_schema_scan_finds_every_declared_reference_field`), so this is
+/// a total scan rather than a hand-enumerated sample: adding a reference field
+/// without adding a walk arm fails here, and so does adding one the templates
+/// do not populate.
 #[test]
 fn every_reference_bearing_field_is_validated() {
-    let missing = LivingCommandTargetV2::Local { local: 7 };
-    let operations = vec![
-        LivingCreatorOperationV2::SetWorldOwner {
-            world: existing(0x01),
-            owner: Some(missing),
-        },
-        LivingCreatorOperationV2::SetRelationBase {
-            from: existing(0x01),
-            to: missing,
-            base_disposition: 10,
-        },
-        LivingCreatorOperationV2::SetFleetOrder {
-            fleet: existing(0x01),
-            kind: serde_json::from_str("\"move\"").expect("order kind"),
-            target_world: None,
-            not_before_tick: LivingTickV2(5),
-            lane_path: vec![existing(0x02), missing],
-        },
-        LivingCreatorOperationV2::ForceWar {
-            participant_a: existing(0x01),
-            participant_b: existing(0x02),
-            declarer: missing,
-            start_tick: LivingTickV2(0),
-            end_tick: LivingTickV2(600),
-        },
-        LivingCreatorOperationV2::RemoveEntity {
-            target: existing(0x01),
-            cascade: LivingCascadeDispositionV2::RemoveListed {
-                dependents: vec![missing],
-            },
-        },
-        LivingCreatorOperationV2::CreateHullJob {
-            local: 0,
-            world: existing(0x01),
-            owner: existing(0x02),
-            definition: serde_json::from_str("\"escort\"").expect("slug"),
-            accepted_tick: LivingTickV2(0),
-            completion_tick: LivingTickV2(100),
-            paid_alloy: 20,
-            target_fleet: Some(missing),
-        },
-    ];
+    let (_, fields) = scan_command_schema();
+    let templates = every_operation_template();
 
-    for operation in operations {
+    // Nothing below is evidence unless every template is otherwise acceptable,
+    // because then a rejection could come from the template rather than from
+    // the one field this case redirects.
+    for template in &templates {
         let command = LivingCommandV2::CreatorBatch {
-            operations: vec![operation.clone()],
+            operations: vec![template.clone()],
         };
         assert_eq!(
             command.validate(),
-            Err(LivingCommandErrorV2::UnknownLocalReference { local: 7 }),
-            "this operation's reference never reached validation: {operation:?}"
+            Ok(()),
+            "a template must be valid before its reference is redirected: {template:?}"
+        );
+    }
+
+    let documents: Vec<Value> = templates
+        .iter()
+        .map(|operation| serde_json::to_value(operation).expect("an operation serializes"))
+        .collect();
+
+    for field in &fields {
+        let ReferenceField {
+            variant,
+            field: name,
+            plural,
+        } = field;
+        let tag = snake_case(variant);
+        let mut carrying = documents
+            .iter()
+            .filter(|document| find_tagged(document, &tag).is_some())
+            .cloned();
+        let mut document = carrying
+            .next()
+            .unwrap_or_else(|| panic!("no template declares {tag}, so {tag}.{name} is untested"));
+        assert!(
+            carrying.next().is_none(),
+            "{tag} appears in more than one template, so {tag}.{name} is ambiguous"
+        );
+        assert_eq!(
+            count_local_targets(&document),
+            0,
+            "a template must start with no batch-local reference: {tag}.{name}"
+        );
+
+        let object = find_tagged_mut(&mut document, &tag).expect("the object just located");
+        let populated = object
+            .get(name)
+            .unwrap_or_else(|| panic!("{tag} carries no {name} on the wire"));
+        assert!(
+            !populated.is_null(),
+            "a template must populate {tag}.{name}, so the redirect replaces a real target"
+        );
+        assert_eq!(
+            populated.is_array(),
+            *plural,
+            "{tag}.{name} is declared repeated but is not written as a list"
+        );
+        let missing = serde_json::json!({ "type": "local", "local": MISSING_LOCAL });
+        let redirected = if *plural {
+            Value::Array(vec![missing])
+        } else {
+            missing
+        };
+        object.insert(name.clone(), redirected);
+
+        assert_eq!(
+            count_local_targets(&document),
+            1,
+            "exactly one reference may be redirected per case: {tag}.{name}"
+        );
+
+        let operation: LivingCreatorOperationV2 = serde_json::from_value(document)
+            .unwrap_or_else(|error| panic!("{tag}.{name} is not a wire field: {error}"));
+        let command = LivingCommandV2::CreatorBatch {
+            operations: vec![operation],
+        };
+        assert_eq!(
+            command.validate(),
+            Err(LivingCommandErrorV2::UnknownLocalReference {
+                local: MISSING_LOCAL
+            }),
+            "this field's reference never reached validation: {tag}.{name}"
         );
     }
 }
