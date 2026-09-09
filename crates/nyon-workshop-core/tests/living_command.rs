@@ -603,3 +603,44 @@ fn the_sequence_and_the_boundary_both_reach_the_revision_identity() {
         );
     }
 }
+
+/// A revision's field order reaches archives, and its doc comment declaring it
+/// normative pins nothing on its own. Decode a literal in the declared order,
+/// check it is the reviewed revision, and refuse the same fields in any other
+/// order.
+#[test]
+fn the_revision_field_order_is_pinned_against_literal_bytes() {
+    const DECLARED: &[u8] = br#"{"id":"7a68db6c231f162d4ebee7c5595f78ec1eb34327d6d333cd5eaea5913ccb36c2","parent":null,"tick":7,"ordinal":3,"command":{"type":"creator_batch","operations":[{"type":"create_system","local":0,"name":"Vale"},{"type":"create_system","local":1,"name":"Confluence"},{"type":"create_lane","local":2,"system_a":{"type":"local","local":0},"system_b":{"type":"local","local":1},"distance_units":101}]}}"#;
+
+    let revision: LivingRevisionV2 =
+        decode_canonical_v2(DECLARED, LIVING_MAX_ARCHIVE_BYTES_V2).expect("the declared order");
+    let corpus = vectors();
+    let catalog = LivingCatalogHashV2(hex32(&corpus["creator_command"]["catalog_hash"]));
+    assert_eq!(
+        revision,
+        LivingRevisionV2::seal(catalog, SEED, None, &reviewed_accepted()).expect("seals")
+    );
+
+    const REORDERED: &[u8] = br#"{"parent":null,"id":"7a68db6c231f162d4ebee7c5595f78ec1eb34327d6d333cd5eaea5913ccb36c2","tick":7,"ordinal":3,"command":{"type":"creator_batch","operations":[]}}"#;
+    assert_eq!(
+        decode_canonical_v2::<LivingRevisionV2>(REORDERED, LIVING_MAX_ARCHIVE_BYTES_V2),
+        Err(LivingWireErrorV2::NonCanonical)
+    );
+}
+
+/// The accepted envelope's own field order is pinned the same way: the sequence
+/// and the boundary precede the envelope they were allocated for.
+#[test]
+fn the_accepted_envelope_field_order_is_pinned_against_literal_bytes() {
+    const DECLARED: &[u8] = br#"{"accepted_sequence":3,"application_tick":7,"envelope":{"expected_committed_revision":null,"expected_tick":6,"expected_pending_sequence":0,"mode":"running","command":{"type":"creator_batch","operations":[]}}}"#;
+    let accepted: LivingAcceptedCommandV2 =
+        decode_canonical_v2(DECLARED, LIVING_MAX_ARCHIVE_BYTES_V2).expect("the declared order");
+    assert_eq!(accepted.accepted_sequence, 3);
+    assert_eq!(accepted.application_tick, LivingTickV2(7));
+
+    const REORDERED: &[u8] = br#"{"application_tick":7,"accepted_sequence":3,"envelope":{"expected_committed_revision":null,"expected_tick":6,"expected_pending_sequence":0,"mode":"running","command":{"type":"creator_batch","operations":[]}}}"#;
+    assert_eq!(
+        decode_canonical_v2::<LivingAcceptedCommandV2>(REORDERED, LIVING_MAX_ARCHIVE_BYTES_V2),
+        Err(LivingWireErrorV2::NonCanonical)
+    );
+}

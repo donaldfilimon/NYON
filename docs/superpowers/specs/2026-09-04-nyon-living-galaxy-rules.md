@@ -23,7 +23,8 @@ re-derived. The commit that renumbers them must say so here. Everything frozen t
 — is unaffected
 
 **Renumbered 2026-09-08, discharging the obligation in the sentence above.** The entity-kind registry
-landed with the commit that froze the V2 commands and receipts, and it renumbered five `entity_kind`
+landed in `2f6561a`, "feat(living): publish the V2 entity-kind and phase ordinal registries", the first
+of the three commits that closed the commands-and-receipts task. It renumbered five `entity_kind`
 values in the reviewed corpus: both `creator_entities` rows moved from `3` to `1` and now name the two
 systems a topology batch creates, the two `ai_fleet_phase_8` rows moved from `4` to `10`, and
 `route_shipment_phase_9` moved from `7` to `13`. Those five rows' `entity_digest` and `entity_id` values

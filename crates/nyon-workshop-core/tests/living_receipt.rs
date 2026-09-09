@@ -441,3 +441,76 @@ fn the_payload_entry_is_the_event_without_its_identity() {
     assert_eq!(rebuilt, entries);
     assert_eq!(receipt.payload().event_payloads, entries);
 }
+
+/// The public receipt's field order is declared normative in its doc comment,
+/// and a doc comment pins nothing. Decoding a literal in the declared order and
+/// then rejecting the same fields in any other order is what makes a reorder
+/// fail. Round-tripping a value the encoder produced would not: both sides move
+/// together.
+#[test]
+fn the_public_receipt_field_order_is_pinned_against_literal_bytes() {
+    const DECLARED: &[u8] = br#"{"tick":50,"applied_revisions":["5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad","f578847e04303eaba9a9656fe43143dfab001a56e508dfc275684060f577d61d"],"events":[{"id":"45cabd078b96ac0bf6a2a4f772131d82","ordinal":0,"provenance":{"type":"creator","revision":"5273768014a3a8a6e38d1acdfec57c0e54e61378e7681c579baaf650e02b18ad"},"kind":"creator_intervention"},{"id":"b5b4c7b20f7e6ca788b27879686d5f19","ordinal":1,"provenance":{"type":"autonomous","phase":9},"kind":"shipment_dispatched"}],"state_digest":"23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683","digest":"e9cc871d91723c670abc871884a42d947992c7fd13096e6a47177cf82f244e71"}"#;
+
+    let receipt: LivingTickReceiptV2 =
+        decode_canonical_v2(DECLARED, LIVING_MAX_ARCHIVE_BYTES_V2).expect("the declared order");
+    receipt
+        .verify()
+        .expect("the literal carries the reviewed digest and identities");
+
+    // The literal is the reviewed boundary, so this also ties the field order to
+    // the corpus rather than to whatever the encoder happens to emit.
+    let (tick, applied_revisions, pending, state_digest) = reviewed_boundary();
+    assert_eq!(
+        receipt,
+        seal_living_tick_receipt_v2(tick, applied_revisions, &pending, state_digest)
+            .expect("the boundary seals")
+    );
+
+    // `digest` last, `state_digest` fourth: swap them and the document is no
+    // longer canonical.
+    const SWAPPED: &[u8] = br#"{"tick":50,"applied_revisions":[],"events":[],"digest":"e9cc871d91723c670abc871884a42d947992c7fd13096e6a47177cf82f244e71","state_digest":"23aea47d6aa816e31f3f5a65dfe7d6d9b6c8889cf6442826f030ab1800bfd683"}"#;
+    assert_eq!(
+        decode_canonical_v2::<LivingTickReceiptV2>(SWAPPED, LIVING_MAX_ARCHIVE_BYTES_V2),
+        Err(LivingWireErrorV2::NonCanonical)
+    );
+
+    // And an event is `id, ordinal, provenance, kind`, in that order.
+    const EVENT_REORDERED: &[u8] = br#"{"ordinal":0,"id":"45cabd078b96ac0bf6a2a4f772131d82","provenance":{"type":"autonomous","phase":9},"kind":"fleet_arrived"}"#;
+    assert_eq!(
+        decode_canonical_v2::<LivingEventV2>(EVENT_REORDERED, LIVING_MAX_ARCHIVE_BYTES_V2),
+        Err(LivingWireErrorV2::NonCanonical)
+    );
+}
+
+/// The bound is a refusal, not a wrapped ordinal. Filling the ordinal space and
+/// then recording one more is the only way to see that.
+#[test]
+fn one_event_past_the_ordinal_space_is_refused() {
+    let mut pending = LivingPendingEventsV2::new();
+    for _ in 0..LIVING_MAX_BOUNDARY_EVENTS_V2 {
+        pending
+            .record(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::CommitBoundary,
+                },
+                LivingEventKindV2::CombatRound,
+            )
+            .expect("an event inside the bound records");
+    }
+    assert_eq!(pending.len(), LIVING_MAX_BOUNDARY_EVENTS_V2);
+    assert_eq!(
+        pending.payloads()[LIVING_MAX_BOUNDARY_EVENTS_V2 - 1].ordinal,
+        u16::MAX
+    );
+    assert_eq!(
+        pending.record(
+            LivingEventProvenanceV2::Autonomous {
+                phase: LivingPhaseV2::CommitBoundary
+            },
+            LivingEventKindV2::CombatRound
+        ),
+        Err(LivingReceiptErrorV2::TooManyEvents {
+            limit: LIVING_MAX_BOUNDARY_EVENTS_V2
+        })
+    );
+}
