@@ -259,3 +259,24 @@ any conflict.
   a script that opens and writes — sets a current mtime and is safe. Same family as the
   `env!("CARGO_MANIFEST_DIR")` trap above: the build system's cache disagreeing with the
   source you are looking at.
+- **⚠️ AN EXIT CODE READ FROM ANYTHING BUT THE COMMAND ITSELF IS NOT EVIDENCE. This fired
+  FOUR TIMES on 2026-09-08 in this repository alone**, twice on a controller's own runs,
+  and it manufactures *green*, which is the direction that ships defects. The gates here
+  are slow enough that everyone reaches for a wrapper, so this is a repo-local hazard
+  rather than a general one. Four distinct shapes, all observed:
+  1. **`cmd | tail`** reports tail's status, not `cmd`'s, and the window hides the rest.
+  2. **A trailing `echo`** in a compound command: `cargo test > log 2>&1; echo "EXIT: $?"`
+     is correct, but `{ …; } 2>&1` around a group, or any `echo` after the command whose
+     own status you then read, gives you the `echo`'s.
+  3. **A background wrapper's status.** A backgrounded gate reported **exit 0 while
+     `clippy` had exited 101**, and separately while `fmt` had exited 1. Both were caught
+     only by reading per-command codes out of the log.
+  4. **Worst shape: a truncated log with no exit line at all.** A backgrounded baseline
+     reported exit 0 while its log stopped at 559 lines, carried **no** exit line, and
+     contained **339 of 638 tests**. Nothing in it says "incomplete" — it reads as a clean
+     pass to anyone skimming, and the test count only looks wrong if you already know the
+     baseline.
+  **The rule: redirect each command to its own log, echo that command's own `$?` into
+  that log, and confirm the count against the log's own `test result:` lines.** Never
+  conclude green from a wrapper's status, and treat a suspiciously fast or suspiciously
+  short log as unproven rather than passing.
