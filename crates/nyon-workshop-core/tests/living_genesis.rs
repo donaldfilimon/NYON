@@ -14,14 +14,15 @@
 
 use nyon_workshop_core::living::{
     LIVING_GENESIS_FORMAT_VERSION_V2, LIVING_GENESIS_KIND_V2, LIVING_HUB_ENERGY_PERIOD_TICKS_V2,
-    LIVING_HUB_FALLBACK_PERIOD_TICKS_V2, LIVING_HUB_ORE_PERIOD_TICKS_V2, LIVING_RULES_VERSION,
-    LivingCivilizationStatusV2, LivingCivilizationV2, LivingColonyV2, LivingDepositV2,
-    LivingEntityIdV2, LivingFacilityStatusV2, LivingFacilityV2, LivingFleetLocationV2,
-    LivingFleetV2, LivingGalaxyStateV2, LivingGenesisErrorV2, LivingGenesisGeneratorV2,
-    LivingGenesisManifestV2, LivingHubV2, LivingHullV2, LivingInventoryV2, LivingKeyedV2,
-    LivingNameV2, LivingPolicyV2, LivingResourceV2, LivingSlugV2, LivingSortedVecV2, LivingStarV2,
-    LivingStateDigestV2, LivingSystemV2, LivingTickV2, LivingValidationErrorV2, LivingWireErrorV2,
-    LivingWorldV2, ValidatedLivingCatalogPackV2, decode_living_genesis_manifest_v2,
+    LIVING_HUB_FALLBACK_PERIOD_TICKS_V2, LIVING_HUB_ORE_PERIOD_TICKS_V2,
+    LIVING_MAX_ARCHIVE_BYTES_V2, LIVING_RULES_VERSION, LivingCivilizationStatusV2,
+    LivingCivilizationV2, LivingColonyV2, LivingDepositV2, LivingEntityIdV2,
+    LivingFacilityStatusV2, LivingFacilityV2, LivingFleetLocationV2, LivingFleetV2,
+    LivingGalaxyStateV2, LivingGenesisErrorV2, LivingGenesisGeneratorV2, LivingGenesisManifestV2,
+    LivingHubV2, LivingHullV2, LivingInventoryV2, LivingKeyedV2, LivingNameV2, LivingPolicyV2,
+    LivingResourceV2, LivingSlugV2, LivingSortedVecV2, LivingStarV2, LivingStateDigestV2,
+    LivingSystemV2, LivingTickV2, LivingValidationErrorV2, LivingWireErrorV2, LivingWorldV2,
+    ValidatedLivingCatalogPackV2, decode_living_genesis_manifest_v2, encode_canonical_v2,
     living_core_pack_v2, root_branch_id_v2, state_digest_v2, validate_living_genesis_manifest_v2,
 };
 
@@ -627,4 +628,44 @@ fn the_state_digest_wrapper_is_the_one_genesis_publishes() {
     let genesis = accept(home_manifest());
     let digest: LivingStateDigestV2 = genesis.manifest_digest();
     assert_eq!(digest.0.len(), 32);
+}
+
+// ---------------------------------------------------------------------------
+// Envelope field-order pin (review finding F2)
+//
+// `LivingGenesisManifestV2`'s doc comment declares its four fields to be the
+// wire order and a reorder to be a format break. That declaration was pinned by
+// nothing: the reviewer moved `kind` to third position and the entire crate
+// stayed green across all twelve result lines.
+//
+// The order is genuinely load-bearing rather than cosmetic. `decode_canonical_v2`
+// re-encodes what it decoded and compares byte for byte, so a document whose
+// fields arrive in a different order is rejected as non-canonical -- which means
+// a silent reorder here does not produce a lenient decoder, it produces one that
+// rejects every previously valid manifest.
+//
+// This is a byte-exact prefix rather than a key-sequence walk because the
+// envelope is four fields deep and the fifth is an entire galaxy. It therefore
+// also pins the kind string and both version numbers, which is deliberate: those
+// three values and their order are exactly what a reader of the envelope must
+// agree on before anything else can be parsed.
+//
+// Same standing rule as the state schema's 200-key pin in `living_model.rs`: if
+// this fails, DO NOT paste in the new prefix. Establish whether the change was
+// intended, and if it was, every frozen genesis vector is invalid.
+
+#[test]
+fn the_manifest_envelope_field_order_is_pinned() {
+    let bytes = encode_canonical_v2(&home_manifest(), LIVING_MAX_ARCHIVE_BYTES_V2)
+        .expect("the reference manifest encodes");
+    let text = str::from_utf8(&bytes).expect("canonical bytes are utf-8");
+
+    const EXPECTED_PREFIX: &str =
+        r#"{"kind":"NYON_LIVING_GALAXY_GENESIS","format_version":2,"rules_version":2,"state":{"#;
+
+    assert!(
+        text.starts_with(EXPECTED_PREFIX),
+        "genesis envelope order or values changed.\nexpected prefix: {EXPECTED_PREFIX}\nactual prefix:   {}",
+        &text[..EXPECTED_PREFIX.len().min(text.len())]
+    );
 }
