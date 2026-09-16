@@ -29,14 +29,77 @@ pub(crate) struct ModalPresentation {
     pub footer_height: f32,
 }
 
+/// The single dialog every modal derivation must agree on.
+///
+/// Presentation, the focus trap's action list, and the modal-identity key are all
+/// projections of the *same* dialog. They used to answer that question three separate
+/// ways — `modal_presentation` took the first `Dialog` depth-first while the focus trap
+/// and the identity key read `creator_form` first and `removal_confirmation` second —
+/// and nothing kept the three in step.
+///
+/// `WorkshopUiModel` can hold both modals at once, and `src/app.rs` does not prevent it
+/// (`OpenCreatorForm` does not clear `pending_removal`, `OpenRemovalConfirmation` does
+/// not clear `active_creator`). In that state the old code handed the focus trap to the
+/// dialog that was *not* rendered, which
+/// `focus_trap_follows_the_rendered_dialog_when_both_modals_are_open` pins.
+///
+/// **No user path into that state has been demonstrated**, and the evidence points the
+/// other way: the frame's own trap disables every control outside the modal, and
+/// `ui_focus` restricts the Tab order to the modal's actions, so neither pointer nor
+/// keyboard appears to reach the second open. Treat this as a latent inconsistency that
+/// is now impossible by construction, not as a fixed user-visible bug.
+///
+/// The durable win is generalization: a dialog type named nowhere in
+/// `platform/workshop.rs` now gets a focus trap because it is in the tree.
+///
+/// Route every modal projection through here so the three cannot drift apart again.
+pub(crate) fn modal_dialog(tree: &SemanticTree) -> Option<&SemanticNode> {
+    tree.nodes_depth_first()
+        .into_iter()
+        .find(|node| node.role == SemanticRole::Dialog)
+}
+
+/// Focus-trap action IDs for the active modal, in depth-first order.
+///
+/// Derived from the semantic tree rather than from named model fields, so a modal type
+/// that renders at all also gets a focus trap. Nodes without an `action_id` (body text,
+/// validation alerts) are skipped, which reproduces the previous hand-built order for
+/// both existing dialogs.
+pub(crate) fn modal_action_ids(
+    tree: &SemanticTree,
+) -> Option<Vec<super::accessibility::SemanticActionId>> {
+    fn collect(node: &SemanticNode, output: &mut Vec<super::accessibility::SemanticActionId>) {
+        if let Some(action) = &node.action_id {
+            output.push(action.clone());
+        }
+        for child in &node.children {
+            collect(child, output);
+        }
+    }
+
+    let dialog = modal_dialog(tree)?;
+    let mut actions = Vec::new();
+    for child in dialog.children.iter() {
+        collect(child, &mut actions);
+    }
+    Some(actions)
+}
+
+/// Identity key for the active modal, used only to detect that the modal changed.
+///
+/// The dialog's `name` carries the discriminating content the previous key encoded by
+/// hand (`"{title} editor"` for the creator, `"Remove {target}"` for removal), so a
+/// different tool or a different removal target still produces a different key.
+pub(crate) fn modal_identity(tree: &SemanticTree) -> Option<String> {
+    let dialog = modal_dialog(tree)?;
+    Some(format!("{}:{}", dialog.id, dialog.name))
+}
+
 pub(crate) fn modal_presentation(
     tree: &SemanticTree,
     layout: &WorkshopLayout,
 ) -> Option<ModalPresentation> {
-    let dialog = tree
-        .nodes_depth_first()
-        .into_iter()
-        .find(|node| node.role == SemanticRole::Dialog)?;
+    let dialog = modal_dialog(tree)?;
     let width = layout.canvas.width().min(640.0);
     let metrics = super::AtlasMetrics::embedded().expect("embedded atlas is valid");
     let mut rows = Vec::new();
@@ -385,5 +448,137 @@ fn set_geometry(node: &mut SemanticNode, id: &SemanticNodeId, bounds: SemanticRe
     }
     for child in &mut node.children {
         set_geometry(child, id, bounds);
+    }
+}
+
+#[cfg(test)]
+mod modal_projection_tests {
+    use super::*;
+    use crate::ui::accessibility::SemanticActionId;
+
+    fn control(id: &str, action: &str) -> SemanticNode {
+        SemanticNode::control(
+            id,
+            SemanticRole::Button,
+            action,
+            "",
+            true,
+            false,
+            SemanticActionId::new(action),
+        )
+    }
+
+    fn tree_with(dialogs: Vec<SemanticNode>) -> SemanticTree {
+        SemanticTree {
+            root: SemanticNode::container(
+                "test.application",
+                SemanticRole::Application,
+                "test",
+                dialogs,
+            ),
+            announcements: Vec::new(),
+        }
+    }
+
+    /// The generalization the hand-built list could not provide: a dialog type nobody
+    /// named in `platform/workshop.rs` still gets a focus trap, in tree order.
+    #[test]
+    fn modal_action_ids_covers_a_dialog_type_no_model_field_names() {
+        let tree = tree_with(vec![SemanticNode::container(
+            "workshop.export-dialog",
+            SemanticRole::Dialog,
+            "Export galaxy",
+            vec![
+                SemanticNode::text("export.body", SemanticRole::Text, "Body", "choose a format"),
+                control("export.control.format", "export.format"),
+                control("export.control.cancel", "export.cancel"),
+                control("export.control.confirm", "export.confirm"),
+            ],
+        )]);
+
+        assert_eq!(
+            modal_action_ids(&tree),
+            Some(vec![
+                SemanticActionId::new("export.format"),
+                SemanticActionId::new("export.cancel"),
+                SemanticActionId::new("export.confirm"),
+            ]),
+            "actions must follow tree order and skip nodes carrying no action"
+        );
+    }
+
+    /// Presentation, the focus trap and the identity key must describe one dialog.
+    /// When two dialogs are present the tree order decides, and all three agree because
+    /// they share `modal_dialog`.
+    #[test]
+    fn every_modal_projection_describes_the_same_dialog() {
+        let tree = tree_with(vec![
+            SemanticNode::container(
+                "workshop.removal-dialog",
+                SemanticRole::Dialog,
+                "Remove Kepler Yard",
+                vec![
+                    control("removal.control.cancel", "remove.cancel"),
+                    control("removal.control.confirm", "remove.confirm"),
+                ],
+            ),
+            SemanticNode::container(
+                "workshop.creator-dialog",
+                SemanticRole::Dialog,
+                "Deposit editor",
+                vec![
+                    control("creator.control.cancel", "creator.cancel"),
+                    control("creator.control.submit", "creator.submit"),
+                ],
+            ),
+        ]);
+
+        let dialog = modal_dialog(&tree).expect("a dialog is present");
+        assert_eq!(dialog.id.as_str(), "workshop.removal-dialog");
+        assert_eq!(
+            modal_action_ids(&tree),
+            Some(vec![
+                SemanticActionId::new("remove.cancel"),
+                SemanticActionId::new("remove.confirm"),
+            ]),
+            "the focus trap must belong to the dialog that is rendered, not to whichever \
+             model field is inspected first"
+        );
+        assert_eq!(
+            modal_identity(&tree).as_deref(),
+            Some("workshop.removal-dialog:Remove Kepler Yard")
+        );
+    }
+
+    /// The identity key exists to notice that the modal changed; a different removal
+    /// target must not read as the same modal.
+    #[test]
+    fn modal_identity_discriminates_between_targets() {
+        let one = tree_with(vec![SemanticNode::container(
+            "workshop.removal-dialog",
+            SemanticRole::Dialog,
+            "Remove Kepler Yard",
+            vec![control("removal.control.cancel", "remove.cancel")],
+        )]);
+        let two = tree_with(vec![SemanticNode::container(
+            "workshop.removal-dialog",
+            SemanticRole::Dialog,
+            "Remove Vela Foundry",
+            vec![control("removal.control.cancel", "remove.cancel")],
+        )]);
+        assert_ne!(modal_identity(&one), modal_identity(&two));
+    }
+
+    #[test]
+    fn no_dialog_means_no_modal_projection() {
+        let tree = tree_with(vec![SemanticNode::container(
+            "workshop.navigator",
+            SemanticRole::Group,
+            "Navigator",
+            vec![control("nav.control.select", "nav.select")],
+        )]);
+        assert!(modal_dialog(&tree).is_none());
+        assert!(modal_action_ids(&tree).is_none());
+        assert!(modal_identity(&tree).is_none());
     }
 }

@@ -700,3 +700,80 @@ fn creator_choice_fields_cycle_through_typed_available_objects() {
         Some(WorkshopUiIntent::EditCreatorField { cycle: true, .. })
     ));
 }
+
+/// The model can hold both modals at once, and `src/app.rs` prevents neither:
+/// `OpenCreatorForm` does not clear `pending_removal`, and `OpenRemovalConfirmation`
+/// does not clear `active_creator`.
+///
+/// In that state the rendered dialog is decided by semantic-tree order (removal is
+/// pushed first), so the focus trap must belong to the removal dialog too. It used to be
+/// built by reading `creator_form` first, which left the removal dialog on screen with
+/// its own buttons disabled.
+///
+/// This builds the state directly through `WorkshopUiContext`. **No user path into it
+/// has been demonstrated** — the frame's trap disables controls outside the modal and
+/// `ui_focus` restricts the Tab order — so read this as a pin on a latent inconsistency,
+/// not as a regression test for a reported bug. `app/modal_lifecycle_tests.rs` does not
+/// cover it: that suite closes each modal before opening the next.
+#[test]
+fn focus_trap_follows_the_rendered_dialog_when_both_modals_are_open() {
+    let model = WorkshopUiModel::build(
+        &snapshot(),
+        WorkshopUiContext {
+            selected_entity: Some(entity(12)),
+            pending_removal: Some(entity(12)),
+            creator_form: Some(CreatorTool::CreateDeposit),
+            ..WorkshopUiContext::default()
+        },
+    );
+    assert!(
+        model.creator_form.is_some() && model.removal_confirmation.is_some(),
+        "the fixture must actually reach the both-open state this test is about"
+    );
+
+    let frame = build_workshop_platform_frame(&model, Vec2::new(1_280.0, 720.0), None);
+
+    let modal_title = frame
+        .modal
+        .as_ref()
+        .map(|_| {
+            frame
+                .semantics
+                .nodes_depth_first()
+                .into_iter()
+                .find(|node| node.role == SemanticRole::Dialog)
+                .expect("a dialog is rendered")
+                .id
+                .as_str()
+                .to_owned()
+        })
+        .expect("a modal is presented");
+    assert_eq!(
+        modal_title, "workshop.removal-dialog",
+        "tree order decides which dialog renders"
+    );
+
+    let enabled = |action: &str| {
+        frame
+            .controls
+            .iter()
+            .find(|control| control.action_id.as_str() == action)
+            .map(|control| control.enabled)
+    };
+
+    assert_eq!(
+        enabled("remove.cancel"),
+        Some(true),
+        "the rendered dialog's own controls must stay enabled"
+    );
+    assert_eq!(
+        enabled("remove.confirm"),
+        Some(true),
+        "the rendered dialog's own controls must stay enabled"
+    );
+    assert_eq!(
+        enabled("creator.submit"),
+        Some(false),
+        "a control belonging to the dialog that is NOT rendered must be trapped out"
+    );
+}

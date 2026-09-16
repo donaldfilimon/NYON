@@ -482,15 +482,19 @@ impl WorkshopViewState {
     }
 }
 
+/// Identity of the modal currently on screen.
+///
+/// Derived from the semantic tree via `modal_identity` rather than from `creator_form`
+/// and `removal_confirmation` by name, so it describes the dialog that is actually
+/// rendered. The model can hold both modals at once and `src/app.rs` clears neither when
+/// opening the other, so the old field-order preference could disagree with what was
+/// drawn; see `modal_dialog` for why that state has no demonstrated user path.
+///
+/// Only ever compared against another value of itself, so the key's format is free to
+/// change; what it must preserve is discriminating power between one tool or removal
+/// target and another, which the dialog's name carries.
 fn modal_context(model: &WorkshopUiModel) -> Option<String> {
-    if let Some(dialog) = &model.creator_form {
-        Some(format!("creator:{:?}", dialog.tool))
-    } else {
-        model
-            .removal_confirmation
-            .as_ref()
-            .map(|dialog| format!("removal:{:?}", dialog.target))
-    }
+    super::platform_projection::modal_identity(&model.semantics)
 }
 
 pub(crate) fn wide_navigation_fits(layout: &WorkshopLayout) -> bool {

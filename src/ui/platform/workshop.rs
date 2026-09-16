@@ -14,7 +14,7 @@ use crate::ui::accessibility::SemanticRole;
 use crate::ui::platform_inspector::apply_platform_sighted_text_geometry;
 use crate::ui::platform_inspector::build_inspector_sighted_text;
 use crate::ui::platform_projection::build_source_records;
-use crate::ui::platform_projection::modal_presentation;
+use crate::ui::platform_projection::{modal_action_ids, modal_presentation};
 use crate::ui::workshop::WorkshopControl;
 use crate::ui::workshop::WorkshopUiModel;
 use crate::ui::workshop_layout::WorkshopLayout;
@@ -578,28 +578,10 @@ pub fn build_workshop_platform_frame_for_view(
     }
 
     let modal_content = modal_presentation(&model.semantics, &layout);
-    let mut modal_actions = model
-        .creator_form
-        .as_ref()
-        .map(|dialog| {
-            dialog
-                .fields
-                .iter()
-                .map(|field| field.control.action_id.clone())
-                .chain([
-                    dialog.cancel_control.action_id.clone(),
-                    dialog.submit_control.action_id.clone(),
-                ])
-                .collect::<Vec<_>>()
-        })
-        .or_else(|| {
-            model.removal_confirmation.as_ref().map(|dialog| {
-                vec![
-                    dialog.cancel_control.action_id.clone(),
-                    dialog.confirm_control.action_id.clone(),
-                ]
-            })
-        });
+    // Derived from the same dialog `modal_presentation` renders, not from named model
+    // fields — see `modal_dialog`. Building this list by hand meant the focus trap could
+    // describe a different dialog than the one on screen whenever both modals were open.
+    let mut modal_actions = modal_action_ids(&model.semantics);
     let modal = modal_content.as_ref().map(|content| content.bounds);
     if let Some(modal_actions) = modal_actions.as_ref() {
         for control in &mut controls {
