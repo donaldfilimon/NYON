@@ -1403,6 +1403,15 @@ where
         match self.library.poll(&mut self.workshop_store) {
             LibraryEvent::Pending => {}
             LibraryEvent::NoCandidate => self.screen = self.bootstrap_return,
+            // Task 6 review Finding 9. Startup Continue treats a slot archived
+            // under it exactly as no Continue, and that is not a softening:
+            // `ArchiveSlot` clears the Continue marker when it archives the
+            // selected slot, so by the time this arrives the store genuinely
+            // has no Continue target. Recovery would be the wrong answer -- the
+            // user archived the slot, nothing failed -- and installing the
+            // candidate is what addendum §3 forbids. `continue_candidate` is
+            // left untouched because this route never assigned it.
+            LibraryEvent::ArchivedRow { .. } => self.screen = self.bootstrap_return,
             LibraryEvent::Ready(candidate) => {
                 let recovered = candidate.loaded.recovered_from_previous;
                 self.continue_candidate = Some(*candidate);

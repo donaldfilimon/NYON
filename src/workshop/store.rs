@@ -262,6 +262,23 @@ pub struct LoadedSlot {
     /// archive decode and replay before replacing live state.
     pub archive: Box<[u8]>,
     pub recovered_from_previous: bool,
+    /// Whether the slot was archived **as the load read it**.
+    ///
+    /// Reported rather than refused, because loading an archived slot is not
+    /// itself an error: `LoadSlot` stays permissive and the caller owns the
+    /// policy. The Library client refuses it, because addendum §3 says an
+    /// archived row cannot be opened or selected for Continue until it is
+    /// explicitly unarchived.
+    ///
+    /// **This closes one ordering of a race and not the other.** Reading the
+    /// flag inside the same operation that produced `archive` means an
+    /// `ArchiveSlot` that completed *before* this load cannot be missed. An
+    /// archive landing *after* this load still yields `archived: false` here;
+    /// that window is bounded instead by the eventual
+    /// [`WorkshopStoreRequest::CommitSlot`] or
+    /// [`WorkshopStoreRequest::SelectContinue`] being refused with
+    /// [`WorkshopStoreError::ArchivedSlot`], which every adapter does.
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

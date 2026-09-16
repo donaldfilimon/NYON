@@ -96,6 +96,19 @@ pub enum LibraryEvent {
         observed: SaveGeneration,
         head: SaveGeneration,
     },
+    /// The slot was archived by the time the load read it, so it may not be
+    /// opened. Addendum §3: "an archived row cannot be opened or selected for
+    /// Continue until it is explicitly unarchived", and design line 428 has
+    /// `CONTINUE` selecting only an unarchived slot.
+    ///
+    /// Deliberately **not** a [`Self::ProtocolFailure`], which the `Listing`
+    /// arm does use for an archived slot. There the store's own Continue marker
+    /// pointed at an archived row, which means `ArchiveSlot` failed to clear it
+    /// and the store broke its invariant. This is the legitimate case: an
+    /// `ArchiveSlot` completed between the list and the load, on a lane that
+    /// does not contend with either. Conflating them would file a race as a
+    /// store bug.
+    ArchivedRow { slot: SlotId },
     /// §4: the candidate replayed completely, but the head moved before the
     /// Continue marker could be set, so the compare-and-swap was refused. The
     /// validated candidate is preserved rather than discarded, and the stored
@@ -510,6 +523,14 @@ impl WorkshopLibraryClient {
             return LibraryEvent::ProtocolFailure(
                 "Workshop storage returned inconsistent loaded and head generations",
             );
+        }
+        // Task 6 review Finding 9. Checked here rather than in either load arm
+        // because both funnel through this function, so the head load and the
+        // retained-predecessor recovery load are covered by one refusal instead
+        // of two that could drift. Checked before the catalog is decoded and
+        // before a byte is replayed, so an archived row costs one load.
+        if loaded.archived {
+            return LibraryEvent::ArchivedRow { slot: loaded.slot };
         }
         let catalog = match decode_catalog_pack(CORE_PACK_V1) {
             Ok(catalog) => catalog,

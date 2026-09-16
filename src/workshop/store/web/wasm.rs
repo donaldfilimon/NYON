@@ -550,6 +550,7 @@ async fn load_slot(
                     head_generation,
                     archive,
                     recovered_from_previous: index > 0,
+                    archived: reference.archived,
                 }));
             }
             GenerationRead::Missing => saw_eviction = true,
@@ -603,6 +604,7 @@ async fn load_previous_generation(
         head_generation: actual,
         archive,
         recovered_from_previous: true,
+        archived: reference.archived,
     }))
 }
 

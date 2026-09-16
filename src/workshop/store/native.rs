@@ -511,6 +511,7 @@ impl NativeStoreWorker {
                         head_generation,
                         archive,
                         recovered_from_previous: index > 0,
+                        archived: record.archived,
                     }));
                 }
                 Err(ReadGenerationError::Invalid) => continue,
@@ -560,6 +561,7 @@ impl NativeStoreWorker {
             head_generation: actual,
             archive,
             recovered_from_previous: true,
+            archived: record.archived,
         }))
     }
 

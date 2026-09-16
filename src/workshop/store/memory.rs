@@ -97,6 +97,7 @@ impl MemoryWorkshopStore {
                     head_generation: current.generation,
                     archive: current.archive.clone(),
                     recovered_from_previous: false,
+                    archived: record.archived,
                 }))
             }
             WorkshopStoreRequest::LoadPreviousGeneration {
@@ -130,6 +131,7 @@ impl MemoryWorkshopStore {
                     head_generation: actual,
                     archive: previous.archive.clone(),
                     recovered_from_previous: true,
+                    archived: record.archived,
                 }))
             }
             WorkshopStoreRequest::CommitSlot {

@@ -646,3 +646,100 @@ fn abandoning_a_selecting_open_leaves_the_continue_marker_claimed() {
         "abandon must not be read as restoring the previous marker"
     );
 }
+
+#[test]
+fn a_slot_archived_between_the_list_and_the_load_is_refused_rather_than_opened() {
+    // Task 6 review Finding 9, and the ordering that finding names: the archive
+    // completes FIRST and the racing open's `LoadSlot` lands after. Addendum §3
+    // line 39 is normative -- "an archived row cannot be opened or selected for
+    // Continue until it is explicitly unarchived" -- and design line 428 says
+    // CONTINUE selects only an unarchived slot, so installing this candidate
+    // violates both.
+    //
+    // The finding called this "structurally unobservable under
+    // `MemoryWorkshopStore`". That was true of the code, not of the adapter: the
+    // store knew the slot was archived and had no way to say so. The injection
+    // point is what makes it reachable. `begin` executes `ListSlots` immediately,
+    // so the client is already holding a list snapshot taken while the slot was
+    // unarchived; archiving before the first poll means poll 0 passes its
+    // `!summary.archived` check against that stale snapshot and starts
+    // `LoadSlot`, which memory executes now, against a record that is archived.
+    // `ArchiveSlot` is Commit-class and `LoadSlot`/`ListSlots` are LoadOrImport,
+    // so the lanes never contend -- which is exactly why nothing refused it.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0E18);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(&mut store, LibraryOpen::SelectedContinue)
+        .unwrap();
+
+    let event = drive(&mut client, &mut store, |step, store| {
+        if step == 0 {
+            // Archive lands between the list the client already read and the
+            // load it has not started. It also clears the Continue marker, so
+            // after this there is genuinely no Continue to install.
+            complete(store, WorkshopStoreRequest::ArchiveSlot { slot });
+        }
+    });
+
+    match event {
+        LibraryEvent::ArchivedRow { slot: refused } => assert_eq!(refused, slot),
+        other => panic!("an archived slot was opened instead of refused: {other:?}"),
+    }
+    assert_eq!(
+        list(&mut store).selected_continue,
+        None,
+        "ArchiveSlot must have cleared the marker, which is why NoCandidate is \
+         the honest bootstrap outcome"
+    );
+    assert!(
+        !client.is_active(),
+        "the refusal is terminal; the client must hold nothing"
+    );
+}
+
+#[test]
+fn an_unarchived_slot_still_opens_so_the_refusal_is_not_unconditional() {
+    // The control for the test above. A refusal that fired for every load would
+    // pass that test while breaking every open, and the two assertions look
+    // identical from the outside.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0E19);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+    // Archived and then explicitly unarchived: per addendum §3 `UnarchiveSlot`
+    // restores openability without restoring Continue, so this also pins that
+    // the refusal reads live state rather than a sticky flag.
+    complete(&mut store, WorkshopStoreRequest::ArchiveSlot { slot });
+    complete(&mut store, WorkshopStoreRequest::UnarchiveSlot { slot });
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot,
+            expected_generation: generation,
+        },
+    );
+
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(&mut store, LibraryOpen::SelectedContinue)
+        .unwrap();
+    let event = drive(&mut client, &mut store, |_, _| {});
+    match event {
+        LibraryEvent::Ready(candidate) => assert_eq!(candidate.loaded.slot, slot),
+        other => panic!("an unarchived slot must still open: {other:?}"),
+    }
+}
