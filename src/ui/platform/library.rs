@@ -1,4 +1,4 @@
-//! Library platform frame: route-design task 8, slice 1.
+//! Library platform frame: route-design task 8, slices 1 and 2.
 //!
 //! The model in `crate::ui::library` owns the semantic tree, every label, every
 //! disabled reason and the focus order. This layer only assigns geometry, so it
@@ -12,10 +12,17 @@
 //! `right_panel`, and the four transfer controls in `bottom_bar`. Compact moves
 //! Close and Refresh into its otherwise-empty `bottom_bar` instead: at the 320
 //! floor and the largest scale, a failure message plus a four-control grid left
-//! no room for a single row. Compact places no actions or transfer controls:
-//! its `drawer_sheet` is the whole canvas at the floor, so an always-open sheet
-//! would hide every row, and "row selection opens the sheet" is slice 2. A row
-//! that does not fit the canvas is likewise left for slice 2's reveal.
+//! no room for a single row. Compact places no actions or transfer controls
+//! while the list shows: its `drawer_sheet` is the whole canvas at the floor,
+//! so an always-open sheet would hide every row.
+//!
+//! **The Compact sheet (slice 2c).** Selecting a row opens the sheet on its
+//! actions page; the bottom bar's third slot opens it on the transfer page,
+//! which is the only route to Import in an empty Library. While the sheet is
+//! open that slot is Back, so the page gets the sheet's full height. Whatever
+//! the sheet covers is removed for the frame: no pointer target, no focus
+//! slot, no drawn text. Page columns are sized by the widest word, because a
+//! label wraps between words and five one-line labels do not fit at the floor.
 //!
 //! **Section headings travel with their first row.** Each section's heading is
 //! drawn directly above its first placed row, and only when that row fits too;
@@ -57,12 +64,17 @@ fn control_height(scale: f32) -> f32 {
     (48.0 * scale).max(44.0)
 }
 
-/// The two view-only Library actions. They move the row window and touch
-/// neither the model nor the store.
+/// The view-only Library actions. They move the row window or the Compact
+/// sheet and touch neither the model nor the store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryViewAction {
     PreviousRows,
     NextRows,
+    /// Compact only: opens the sheet on its transfer page. The one route to
+    /// Import in an empty Library, where there is no row to select.
+    OpenTransfer,
+    /// Compact only: closes the sheet, back to the list.
+    CloseSheet,
 }
 
 impl LibraryViewAction {
@@ -70,6 +82,8 @@ impl LibraryViewAction {
         SemanticActionId::new(match self {
             Self::PreviousRows => "library.rows.previous",
             Self::NextRows => "library.rows.next",
+            Self::OpenTransfer => "library.sheet.transfer",
+            Self::CloseSheet => "library.sheet.close",
         })
     }
 
@@ -77,8 +91,28 @@ impl LibraryViewAction {
         match self {
             Self::PreviousRows => ("Previous", "Show the previous saved galaxies."),
             Self::NextRows => ("Next", "Show the next saved galaxies."),
+            Self::OpenTransfer => ("Transfer", "Import or export portable files."),
+            Self::CloseSheet => ("Back", "Return to the saved galaxy list."),
         }
     }
+}
+
+/// Which page of the Compact sheet is open. Wide and Medium dock both
+/// surfaces and ignore it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LibrarySheet {
+    /// Opened by selecting a row: the five actions for that save.
+    Actions,
+    /// Opened by the bottom bar's Transfer control.
+    Transfer,
+}
+
+/// Client-side view state the Library frame is drawn for.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LibraryView {
+    /// First model row placed; moved only by the pager.
+    pub row_start: usize,
+    pub sheet: Option<LibrarySheet>,
 }
 
 /// Clamps a row window start to the rows the model holds, so a Refresh that
@@ -90,11 +124,11 @@ pub fn clamp_library_row_start(model: &LibraryUiModel, row_start: usize) -> usiz
 pub fn build_library_platform_frame(
     model: &LibraryUiModel,
     layout: WorkshopLayout,
-    row_start: usize,
+    view: LibraryView,
     focused: Option<&SemanticActionId>,
     high_contrast: bool,
 ) -> PlatformUiFrame {
-    let row_start = clamp_library_row_start(model, row_start);
+    let row_start = clamp_library_row_start(model, view.row_start);
     let scale = layout.ui_scale;
     let height = control_height(scale);
     let mut semantics = model.semantics.clone();
@@ -173,12 +207,13 @@ pub fn build_library_platform_frame(
     }
 
     let rows_placed = placed.len() - first_row;
+    let mut view_controls: Vec<(LibraryViewAction, PlatformRect)> = Vec::new();
     let mut pager = Vec::new();
     if rows_placed > 0 && rows_placed < model.rows.len() {
         let line = placed[first_row].1;
         let mut right = canvas.max.x;
         for action in [LibraryViewAction::NextRows, LibraryViewAction::PreviousRows] {
-            let width = pager_width(action.label().0, scale, height);
+            let width = label_width(action.label().0, scale, height);
             let bounds = PlatformRect::from_xywh(right - width, line.min.y, width, height);
             right = bounds.min.x - GAP;
             pager.push((action, bounds));
@@ -206,9 +241,68 @@ pub fn build_library_platform_frame(
         bar.width() - GAP * 2.0,
         height,
     );
+    let mut sheet = None;
     if compact {
+        // Close, Refresh and the sheet's Transfer opener share the strip; the
+        // column width is the widest label, so a label is never cut.
         let chrome = [&model.close_control, &model.refresh_control];
-        place_grid(&chrome, strip, height, 110.0 * scale, &mut placed);
+        let (opener_label, _) = LibraryViewAction::OpenTransfer.label();
+        let min_width = chrome
+            .iter()
+            .map(|control| label_width(&control.label, scale, height))
+            .fold(label_width(opener_label, scale, height), f32::max);
+        let (cells, _) = grid_cells(3, strip, height, min_width);
+        for (control, cell) in chrome.into_iter().zip(&cells) {
+            if let Some(cell) = cell {
+                placed.push((control, *cell));
+            }
+        }
+        // The third slot is Transfer while the list shows and Back while the
+        // sheet does, which leaves the sheet's full height to its page.
+        if let Some(cell) = cells[2] {
+            let slot = if view.sheet.is_some() {
+                LibraryViewAction::CloseSheet
+            } else {
+                LibraryViewAction::OpenTransfer
+            };
+            view_controls.push((slot, cell));
+        }
+
+        if let Some(page) = view.sheet {
+            let drawer = layout.drawer_sheet;
+            sheet = Some(drawer);
+            // What the sheet covers is gone for this frame: no pointer target,
+            // no focus slot, no drawn text under it.
+            placed.retain(|(_, bounds)| !bounds.overlaps(drawer));
+            pager
+                .retain(|(_, bounds): &(LibraryViewAction, PlatformRect)| !bounds.overlaps(drawer));
+            let mut covered = Vec::new();
+            records.retain(|record| {
+                let keep = !record.bounds.overlaps(drawer);
+                if !keep {
+                    covered.push(record.semantic_id.clone());
+                }
+                keep
+            });
+            for id in covered {
+                hide_node(&mut semantics.root, id.as_str());
+            }
+
+            let body = inset(drawer, GAP);
+            let page_controls: Vec<&LibraryControl> = match page {
+                LibrarySheet::Actions => model.actions.controls().to_vec(),
+                LibrarySheet::Transfer => model.transfer.controls().to_vec(),
+            };
+            // Sized by the widest word, not the widest label: a control label
+            // wraps between words, and "Use for Continue" on one line would
+            // force a single column that cannot hold five controls at the floor.
+            let min_width = page_controls
+                .iter()
+                .flat_map(|control| control.label.split(' '))
+                .map(|word| label_width(word, scale, height))
+                .fold(0.0, f32::max);
+            place_grid(&page_controls, body, height, min_width, &mut placed);
+        }
     } else {
         if let Some(panel) = layout.right_panel {
             let actions = model.actions.controls();
@@ -224,7 +318,8 @@ pub fn build_library_platform_frame(
         place_grid(&transfer, strip, height, 100.0 * scale, &mut placed);
     }
 
-    let pager_controls: Vec<PlatformControl> = pager
+    view_controls.extend(pager.iter().copied());
+    let pager_controls: Vec<PlatformControl> = view_controls
         .iter()
         .map(|&(action, bounds)| {
             let action_id = action.action_id();
@@ -279,25 +374,58 @@ pub fn build_library_platform_frame(
     controls.extend(pager_controls);
     apply_platform_control_geometry(&mut semantics, &mut controls);
 
-    // The model's order, restricted to what this frame placed. Order is
-    // preserved, so slice 2 placing more controls only inserts slots.
+    // The model's order, restricted to what this frame placed, with the
+    // view controls inserted where a keyboard user expects them: Transfer
+    // after Refresh, Back before the sheet's first control, Previous and Next
+    // after the last placed row.
+    let has = |action: LibraryViewAction| view_controls.iter().any(|(item, _)| *item == action);
+    let page_first = view.sheet.and_then(|page| {
+        let ids: Vec<&SemanticActionId> = match page {
+            LibrarySheet::Actions => model
+                .actions
+                .controls()
+                .iter()
+                .map(|c| &c.action_id)
+                .collect(),
+            LibrarySheet::Transfer => model
+                .transfer
+                .controls()
+                .iter()
+                .map(|c| &c.action_id)
+                .collect(),
+        };
+        model
+            .focus_order()
+            .iter()
+            .find(|id| ids.contains(id) && controls.iter().any(|control| &control.action_id == *id))
+            .cloned()
+    });
     let mut logical_focus_order: Vec<SemanticActionId> = Vec::new();
+    let mut back_pending = has(LibraryViewAction::CloseSheet);
     for id in model.focus_order() {
+        if back_pending && page_first.as_ref() == Some(id) {
+            logical_focus_order.push(LibraryViewAction::CloseSheet.action_id());
+            back_pending = false;
+        }
         if controls.iter().any(|control| &control.action_id == id) {
             logical_focus_order.push(id.clone());
         }
-        // Previous and Next follow the last placed row, where a keyboard user
-        // who has run out of rows is.
+        if *id == model.refresh_control.action_id && has(LibraryViewAction::OpenTransfer) {
+            logical_focus_order.push(LibraryViewAction::OpenTransfer.action_id());
+        }
         if last_row.as_ref() == Some(id) {
             logical_focus_order.extend(pager.iter().map(|(action, _)| action.action_id()));
         }
+    }
+    if back_pending {
+        logical_focus_order.push(LibraryViewAction::CloseSheet.action_id());
     }
 
     let mut frame = PlatformUiFrame {
         viewport: glam::Vec2::new(layout.viewport.width(), layout.viewport.height()),
         layout,
         background: PlatformBackground::Full,
-        drawer: None,
+        drawer: sheet,
         modal: None,
         controls,
         logical_focus_order,
@@ -315,13 +443,13 @@ pub fn build_library_platform_frame(
 }
 
 /// Wide enough for the label at the control font, never under the minimum.
-fn pager_width(label: &str, scale: f32, minimum: f32) -> f32 {
+fn label_width(label: &str, scale: f32, minimum: f32) -> f32 {
     let metrics = crate::ui::AtlasMetrics::embedded().expect("embedded atlas is valid");
     let advance = metrics
         .measure_text(13.0 * scale, crate::ui::FontWeight::SemiBold, label)
         .expect("pager labels are atlas text")
         .advance;
-    (advance + 6.0 + 2.0 * crate::ui::platform_sdf::text_ink_padding(scale) + 12.0)
+    (advance + 6.0 + 2.0 * crate::ui::platform_sdf::text_ink_padding(scale))
         .ceil()
         .max(minimum)
 }
@@ -372,14 +500,32 @@ fn place_grid<'a>(
     min_width: f32,
     placed: &mut Vec<(&'a LibraryControl, PlatformRect)>,
 ) -> f32 {
-    if controls.is_empty() || area.width() <= 0.0 {
-        return 0.0;
+    let (cells, used) = grid_cells(controls.len(), area, height, min_width);
+    for (control, cell) in controls.iter().zip(cells) {
+        if let Some(cell) = cell {
+            placed.push((control, cell));
+        }
+    }
+    used
+}
+
+/// The cells [`place_grid`] would use for `count` controls; `None` for a cell
+/// outside `area`.
+fn grid_cells(
+    count: usize,
+    area: PlatformRect,
+    height: f32,
+    min_width: f32,
+) -> (Vec<Option<PlatformRect>>, f32) {
+    if count == 0 || area.width() <= 0.0 {
+        return (vec![None; count], 0.0);
     }
     let fits = ((area.width() + GAP) / (min_width + GAP)).floor() as usize;
-    let columns = fits.clamp(1, controls.len());
+    let columns = fits.clamp(1, count);
     let width = ((area.width() - GAP * (columns - 1) as f32) / columns as f32).floor();
     let mut used: f32 = 0.0;
-    for (index, control) in controls.iter().enumerate() {
+    let mut cells = Vec::with_capacity(count);
+    for index in 0..count {
         let row = (index / columns) as f32;
         let column = (index % columns) as f32;
         // `ceil`, not `round`: rounding can move a cell before the area's
@@ -394,12 +540,13 @@ fn place_grid<'a>(
             height,
         );
         if !area.contains_rect(bounds) {
+            cells.push(None);
             continue;
         }
         used = used.max(bounds.max.y - area.min.y + GAP);
-        placed.push((control, bounds));
+        cells.push(Some(bounds));
     }
-    used
+    (cells, used)
 }
 
 fn inset(rect: PlatformRect, by: f32) -> PlatformRect {

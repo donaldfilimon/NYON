@@ -8,6 +8,7 @@
 use super::*;
 use crate::app::client_runtime::LibrarySlotsStatus;
 use crate::scenario::{ScenarioDraft, store::MemoryScenarioStore};
+use crate::ui::workshop_layout::WorkshopLayoutMode;
 use crate::workshop::store::{
     SlotId, SlotName, StoreJobState, WorkshopStoreRequest, WorkshopStoreResult,
 };
@@ -332,4 +333,115 @@ fn next_and_previous_page_through_every_save_and_keep_focus_on_the_pager() {
         first_page,
         "reopening kept the old window"
     );
+}
+
+#[test]
+fn in_compact_selecting_a_row_opens_the_actions_sheet_and_back_returns_to_it() {
+    let (mut app, slot) = library_app();
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(723.0, 802.0));
+    app.build_frame();
+    let frame = app.platform_ui.as_ref().unwrap();
+    assert_eq!(frame.layout.mode, WorkshopLayoutMode::Compact);
+    assert!(frame.drawer.is_none());
+    assert!(!has_control(&app, "library.action.open"));
+
+    let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
+    app.ui_focus.request_focus(&row);
+    app.activate_platform_action_id(&row, InputModality::Keyboard);
+    app.build_frame();
+    assert!(
+        app.platform_ui.as_ref().unwrap().drawer.is_some(),
+        "no sheet"
+    );
+    assert!(has_control(&app, "library.action.open"));
+    // The sheet covers the lower part of the canvas; whatever still shows is
+    // above it, never under it.
+    let frame = app.platform_ui.as_ref().unwrap();
+    let sheet = frame.drawer.unwrap();
+    assert!(
+        frame
+            .controls
+            .iter()
+            .all(|control| sheet.contains_rect(control.bounds) || !control.bounds.overlaps(sheet)),
+        "a control shows through the sheet"
+    );
+    let back = SemanticActionId::new("library.sheet.close");
+    assert_eq!(
+        app.ui_focus.focused(),
+        Some(&back),
+        "focus did not move into the sheet"
+    );
+
+    app.activate_platform_action_id(&back, InputModality::Keyboard);
+    app.build_frame();
+    assert!(app.platform_ui.as_ref().unwrap().drawer.is_none());
+    assert_eq!(
+        app.ui_focus.focused(),
+        Some(&row),
+        "focus did not return to the row"
+    );
+    assert_eq!(
+        app.selected_library_slot,
+        Some(slot),
+        "Back dropped the selection"
+    );
+
+    // Transfer opens its own page, and Back returns to Transfer.
+    let transfer = SemanticActionId::new("library.sheet.transfer");
+    app.activate_platform_action_id(&transfer, InputModality::Pointer);
+    app.build_frame();
+    assert!(has_control(&app, "library.transfer.import-archive"));
+    assert!(!has_control(&app, "library.action.open"));
+    app.activate_platform_action_id(&back, InputModality::Pointer);
+    app.build_frame();
+    assert_eq!(
+        app.ui_focus.focused(),
+        Some(&transfer),
+        "focus did not return to Transfer"
+    );
+
+    // Growing out of Compact closes the sheet; it does not come back on shrink.
+    app.activate_platform_action_id(&transfer, InputModality::Pointer);
+    app.build_frame();
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(1440.0, 900.0));
+    app.build_frame();
+    assert!(app.platform_ui.as_ref().unwrap().drawer.is_none());
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(723.0, 802.0));
+    app.build_frame();
+    assert!(
+        app.platform_ui.as_ref().unwrap().drawer.is_none(),
+        "the sheet came back"
+    );
+
+    // Leaving forgets an open sheet.
+    app.activate_platform_action_id(&transfer, InputModality::Pointer);
+    app.build_frame();
+    app.runtime.close_library();
+    app.build_frame();
+    app.runtime.open_library().unwrap();
+    app.runtime.update(std::time::Duration::ZERO);
+    app.build_frame();
+    assert!(
+        app.platform_ui.as_ref().unwrap().drawer.is_none(),
+        "reopened with a sheet"
+    );
+}
+
+#[test]
+fn in_a_docked_layout_selecting_a_row_opens_no_sheet() {
+    let (mut app, slot) = library_app();
+    let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
+    app.activate_platform_action_id(&row, InputModality::Pointer);
+    app.build_frame();
+    let frame = app.platform_ui.as_ref().unwrap();
+    assert_ne!(frame.layout.mode, WorkshopLayoutMode::Compact);
+    assert!(frame.drawer.is_none());
+    assert!(has_control(&app, &format!("library.slot.{}", slot.0)));
+    assert!(!has_control(&app, "library.sheet.close"));
 }

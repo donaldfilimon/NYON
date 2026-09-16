@@ -72,9 +72,10 @@ use crate::{
         guide::{GuideAction, GuideLocation, build_guide_frame},
         library::{LibraryUiContext, LibraryUiIntent, LibraryUiModel},
         platform::{
-            LibraryViewAction, PlatformUiAction, PlatformUiFrame, ShellPlatformInput,
-            ShellUiAction, build_library_platform_frame, build_shell_platform_frame,
-            build_workshop_platform_frame_for_view, clamp_library_row_start, draw_workshop_scene,
+            LibrarySheet, LibraryView, LibraryViewAction, PlatformUiAction, PlatformUiFrame,
+            ShellPlatformInput, ShellUiAction, build_library_platform_frame,
+            build_shell_platform_frame, build_workshop_platform_frame_for_view,
+            clamp_library_row_start, draw_workshop_scene,
         },
         workshop::{
             CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel, creator_modal_order,
@@ -251,8 +252,12 @@ pub struct App<
     /// Pure client selection, like `selected_workshop_entity`: no runtime
     /// state owns it, and the model filters it against the current list.
     selected_library_slot: Option<crate::workshop::store::SlotId>,
-    /// First model row the Library frame places; moved only by the pager.
-    library_row_start: usize,
+    /// Row window and Compact sheet the Library frame is drawn for.
+    library_view: LibraryView,
+    /// A control the next frame should focus. `request_focus` only accepts a
+    /// control already in the focus order, and one that a view action has just
+    /// brought on screen is not in it until that frame is installed.
+    pending_focus: Option<SemanticActionId>,
     ui_focus: FocusManager,
     player_guide: Option<(GuideLocation, FocusManager)>,
     selected_workshop_entity: Option<nyon_workshop_core::EntityId>,
@@ -327,7 +332,8 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             workshop_ui: None,
             library_ui: None,
             selected_library_slot: None,
-            library_row_start: 0,
+            library_view: LibraryView::default(),
+            pending_focus: None,
             ui_focus: FocusManager::new(std::iter::empty()),
             player_guide: None,
             selected_workshop_entity: None,
@@ -841,7 +847,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     fn leave_library(&mut self) {
         self.library_ui = None;
         self.selected_library_slot = None;
-        self.library_row_start = 0;
+        self.library_view = LibraryView::default();
     }
 
     fn build_library_frame(&mut self) {
@@ -880,11 +886,17 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 WorkshopLayout::resolve(finite.max(glam::Vec2::new(640.0, 480.0)), scale)
             })
             .expect("a 640 by 480 floor always resolves");
-        self.library_row_start = clamp_library_row_start(&model, self.library_row_start);
+        self.library_view.row_start = clamp_library_row_start(&model, self.library_view.row_start);
+        // The sheet is a Compact surface. A window that grows out of Compact
+        // docks both panels, so a sheet left open would reappear unasked on
+        // the next shrink.
+        if layout.mode != crate::ui::workshop_layout::WorkshopLayoutMode::Compact {
+            self.library_view.sheet = None;
+        }
         let frame = build_library_platform_frame(
             &model,
             layout,
-            self.library_row_start,
+            self.library_view,
             self.ui_focus.focused(),
             preferences.high_contrast,
         );
@@ -957,6 +969,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.ui_focus
             .replace_active_order(frame.focus_order())
             .expect("a presented modal retains an actionable control");
+        if let Some(target) = self.pending_focus.take() {
+            self.ui_focus.request_focus(&target);
+        }
         let focused = self.ui_focus.focused();
         frame.reconcile_focused(focused);
     }
@@ -1120,12 +1135,33 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             })
             .count()
             .max(1);
-        let start = self.library_row_start;
-        self.library_row_start = match action {
-            LibraryViewAction::NextRows if start + shown < model.rows.len() => start + shown,
-            LibraryViewAction::NextRows => start,
-            LibraryViewAction::PreviousRows => start.saturating_sub(shown),
-        };
+        let start = self.library_view.row_start;
+        match action {
+            LibraryViewAction::NextRows if start + shown < model.rows.len() => {
+                self.library_view.row_start = start + shown;
+            }
+            LibraryViewAction::NextRows => {}
+            LibraryViewAction::PreviousRows => {
+                self.library_view.row_start = start.saturating_sub(shown);
+            }
+            LibraryViewAction::OpenTransfer => {
+                self.library_view.sheet = Some(LibrarySheet::Transfer);
+                self.pending_focus = Some(LibraryViewAction::CloseSheet.action_id());
+                return;
+            }
+            LibraryViewAction::CloseSheet => {
+                // Back to whatever opened the sheet.
+                self.pending_focus = match self.library_view.sheet.take() {
+                    Some(LibrarySheet::Transfer) => {
+                        Some(LibraryViewAction::OpenTransfer.action_id())
+                    }
+                    _ => self
+                        .selected_library_slot
+                        .map(|slot| SemanticActionId::new(format!("library.slot.{}", slot.0))),
+                };
+                return;
+            }
+        }
         self.ui_focus.request_focus(&action.action_id());
     }
 
@@ -1146,6 +1182,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             LibraryUiIntent::CancelSlotRequest => self.runtime.cancel_library_slot_request(),
             LibraryUiIntent::SelectSlot(slot) => {
                 self.selected_library_slot = Some(slot);
+                // Compact has no docked panel: selecting a row is the one
+                // gesture that reaches its actions.
+                if self.platform_ui.as_ref().is_some_and(|frame| {
+                    frame.layout.mode == crate::ui::workshop_layout::WorkshopLayoutMode::Compact
+                }) {
+                    self.library_view.sheet = Some(LibrarySheet::Actions);
+                    self.pending_focus = Some(LibraryViewAction::CloseSheet.action_id());
+                }
                 Ok(())
             }
             deferred @ (LibraryUiIntent::OpenSlot { .. }

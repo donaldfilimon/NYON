@@ -26,7 +26,10 @@ mod library;
 mod shell;
 mod workshop;
 
-pub use library::{LibraryViewAction, build_library_platform_frame, clamp_library_row_start};
+pub use library::{
+    LibrarySheet, LibraryView, LibraryViewAction, build_library_platform_frame,
+    clamp_library_row_start,
+};
 pub use shell::{
     PlatformFallbackCode, ShellPlatformInput, build_shell_platform_frame, install_guide_batches,
 };

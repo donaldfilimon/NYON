@@ -101,11 +101,53 @@ fn frame_at(
     scale: f32,
     row_start: usize,
 ) -> PlatformUiFrame {
+    frame_with(
+        model,
+        viewport,
+        scale,
+        LibraryView {
+            row_start,
+            sheet: None,
+        },
+    )
+}
+
+fn frame_with(
+    model: &LibraryUiModel,
+    viewport: Vec2,
+    scale: f32,
+    view: LibraryView,
+) -> PlatformUiFrame {
     let layout = WorkshopLayout::resolve(viewport, scale).expect("test viewport resolves");
-    build_library_platform_frame(model, layout, row_start, None, false)
+    build_library_platform_frame(model, layout, view, None, false)
 }
 
 const PAGER_IDS: [&str; 2] = ["library.rows.previous", "library.rows.next"];
+const VIEW_IDS: [&str; 4] = [
+    "library.rows.previous",
+    "library.rows.next",
+    "library.sheet.transfer",
+    "library.sheet.close",
+];
+const SHEETS: [Option<LibrarySheet>; 3] = [
+    None,
+    Some(LibrarySheet::Actions),
+    Some(LibrarySheet::Transfer),
+];
+
+fn sheet_cases() -> Vec<((Vec2, f32), Option<LibrarySheet>)> {
+    viewports()
+        .into_iter()
+        .flat_map(|case| SHEETS.map(move |sheet| (case, sheet)))
+        .collect()
+}
+
+fn view(sheet: Option<LibrarySheet>) -> LibraryView {
+    LibraryView {
+        row_start: 0,
+        sheet,
+    }
+}
 
 fn placed_rows(model: &LibraryUiModel, frame: &PlatformUiFrame) -> Vec<usize> {
     let placed = placed_ids(frame);
@@ -152,9 +194,11 @@ fn every_library_frame_installs_through_the_real_sdf_batch() {
     let list = crowded_list();
     let model = crowded_model(&list);
     for (viewport, scale) in viewports() {
-        let frame = frame_for(&model, viewport, scale);
-        if let Err(error) = install(&frame) {
-            panic!("{viewport} at {scale}: the SDF batch refused the Library frame: {error}");
+        for sheet in SHEETS {
+            let frame = frame_with(&model, viewport, scale, view(sheet));
+            if let Err(error) = install(&frame) {
+                panic!("{viewport} at {scale} {sheet:?}: the SDF batch refused the frame: {error}");
+            }
         }
         let empty = LibraryUiModel::build(LibraryUiContext::default());
         install(&frame_for(&empty, viewport, scale)).unwrap_or_else(|error| {
@@ -167,8 +211,8 @@ fn every_library_frame_installs_through_the_real_sdf_batch() {
 fn every_placed_control_is_at_least_44_square_and_inside_the_viewport() {
     let list = crowded_list();
     let model = crowded_model(&list);
-    for (viewport, scale) in viewports() {
-        let frame = frame_for(&model, viewport, scale);
+    for ((viewport, scale), sheet) in sheet_cases() {
+        let frame = frame_with(&model, viewport, scale, view(sheet));
         let screen = PlatformRect::from_xywh(0.0, 0.0, viewport.x, viewport.y);
         assert!(!frame.controls.is_empty());
         for control in &frame.controls {
@@ -204,8 +248,8 @@ fn pointer_and_keyboard_reach_exactly_the_same_controls() {
     // is not a platform control at all.
     let list = crowded_list();
     let model = crowded_model(&list);
-    for (viewport, scale) in viewports() {
-        let frame = frame_for(&model, viewport, scale);
+    for ((viewport, scale), sheet) in sheet_cases() {
+        let frame = frame_with(&model, viewport, scale, view(sheet));
         let focus: Vec<SemanticActionId> = frame.focus_order();
         let focus_set: BTreeSet<String> = focus.iter().map(|id| id.as_str().to_owned()).collect();
         assert_eq!(focus.len(), focus_set.len(), "a focus slot repeats");
@@ -224,7 +268,7 @@ fn pointer_and_keyboard_reach_exactly_the_same_controls() {
         let frame_order: Vec<&str> = focus
             .iter()
             .map(SemanticActionId::as_str)
-            .filter(|id| !PAGER_IDS.contains(id))
+            .filter(|id| !VIEW_IDS.contains(id))
             .collect();
         assert_eq!(frame_order, model_order, "{viewport} at {scale}");
         for control in &frame.controls {
@@ -248,6 +292,12 @@ fn pointer_and_keyboard_reach_exactly_the_same_controls() {
                     PlatformUiAction::LibraryView(LibraryViewAction::PreviousRows)
                 }
                 "library.rows.next" => PlatformUiAction::LibraryView(LibraryViewAction::NextRows),
+                "library.sheet.transfer" => {
+                    PlatformUiAction::LibraryView(LibraryViewAction::OpenTransfer)
+                }
+                "library.sheet.close" => {
+                    PlatformUiAction::LibraryView(LibraryViewAction::CloseSheet)
+                }
                 id => PlatformUiAction::Library(SemanticActionId::new(id)),
             };
             assert_eq!(
@@ -283,6 +333,14 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
         }
         if frame.layout.mode == WorkshopLayoutMode::Compact {
             assert!(
+                placed.contains("library.sheet.transfer"),
+                "{viewport} at {scale}: Compact has no route to transfer"
+            );
+            assert!(
+                frame.drawer.is_none(),
+                "{viewport} at {scale}: a closed sheet is drawn"
+            );
+            assert!(
                 placed.is_disjoint(&deferred),
                 "{viewport} at {scale}: Compact placed a slice-2 control"
             );
@@ -299,6 +357,7 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
                 );
             }
         } else {
+            assert!(!placed.contains("library.sheet.transfer"));
             assert!(
                 deferred.is_subset(&placed),
                 "{viewport} at {scale}: missing {:?}",
@@ -512,6 +571,92 @@ fn a_list_that_fits_has_no_pager_and_a_stale_start_is_clamped() {
     // Refresh can shrink the list under a window that had moved on.
     let frame = frame_at(&model, Vec2::new(1440.0, 900.0), 1.0, 40);
     assert_eq!(placed_rows(&model, &frame), vec![2]);
+}
+
+#[test]
+fn the_compact_sheet_holds_its_page_and_covers_the_list() {
+    let list = crowded_list();
+    let model = crowded_model(&list);
+    for (viewport, scale) in viewports() {
+        for (page, ids, other) in [
+            (LibrarySheet::Actions, &ACTION_IDS[..], &TRANSFER_IDS[..]),
+            (LibrarySheet::Transfer, &TRANSFER_IDS[..], &ACTION_IDS[..]),
+        ] {
+            let case = format!("{viewport} at {scale} {page:?}");
+            let closed = frame_for(&model, viewport, scale);
+            let frame = frame_with(&model, viewport, scale, view(Some(page)));
+            if frame.layout.mode != WorkshopLayoutMode::Compact {
+                // Wide and Medium dock both surfaces; the sheet does not exist.
+                assert_eq!(frame, closed, "{case}: a docked layout drew a sheet");
+                continue;
+            }
+            let sheet = frame
+                .drawer
+                .unwrap_or_else(|| panic!("{case}: no sheet drawn"));
+            assert_eq!(sheet, frame.layout.drawer_sheet);
+            let placed = placed_ids(&frame);
+            for id in ids {
+                let control = frame
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id.as_str() == *id)
+                    .unwrap_or_else(|| panic!("{case}: {id} not placed"));
+                assert!(
+                    sheet.contains_rect(control.bounds),
+                    "{case}: {id} outside the sheet"
+                );
+            }
+            // Back takes Transfer's slot in the bottom bar.
+            let back = frame
+                .controls
+                .iter()
+                .find(|control| control.action_id.as_str() == "library.sheet.close")
+                .unwrap_or_else(|| panic!("{case}: no way back"));
+            assert!(
+                frame.layout.bottom_bar.contains_rect(back.bounds),
+                "{case}: Back is not in the bar"
+            );
+            assert!(
+                !placed.contains("library.sheet.transfer"),
+                "{case}: Transfer and Back both placed"
+            );
+            assert!(
+                other.iter().all(|id| !placed.contains(*id)),
+                "{case}: both pages placed"
+            );
+            // Nothing under the sheet can be pressed, focused or read.
+            for control in &frame.controls {
+                assert!(
+                    sheet.contains_rect(control.bounds) || !control.bounds.overlaps(sheet),
+                    "{case}: {} under the sheet",
+                    control.action_id.as_str()
+                );
+            }
+            for record in &frame.visible_nodes {
+                let is_control = frame
+                    .controls
+                    .iter()
+                    .any(|control| control.semantic_id == record.semantic_id);
+                if !is_control && record.semantic_id.as_str().starts_with("library.") {
+                    assert!(
+                        !record.bounds.overlaps(sheet),
+                        "{case}: {} is drawn under the sheet",
+                        record.semantic_id.as_str()
+                    );
+                }
+            }
+            let order = frame.focus_order();
+            let back = order
+                .iter()
+                .position(|id| id.as_str() == "library.sheet.close")
+                .unwrap();
+            assert_eq!(
+                order[back + 1].as_str(),
+                ids[0],
+                "{case}: Back is not right before the page"
+            );
+        }
+    }
 }
 
 #[test]
