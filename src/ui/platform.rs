@@ -1001,6 +1001,7 @@ fn icon_for_workshop_intent(intent: &WorkshopUiIntent) -> Option<UiIcon> {
         )
         | WorkshopUiIntent::OpenRemovalConfirmation(_)
         | WorkshopUiIntent::ReturnToMainMenu
+        | WorkshopUiIntent::OpenLibrary
         | WorkshopUiIntent::EditCreatorField { .. } => None,
     }
 }

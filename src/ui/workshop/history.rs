@@ -129,6 +129,10 @@ pub(super) fn build_branches(
         .collect()
 }
 
+/// The in-Workshop Library entry's action id. The app returns focus here when
+/// the Library closes.
+pub(crate) const WORKSHOP_LIBRARY_ACTION: &str = "save.library";
+
 pub(super) fn build_save_status(snapshot: &WorkshopSessionSnapshot) -> SaveStatusModel {
     SaveStatusModel {
         slot: snapshot.store.slot.map(|slot| slot.0),
@@ -144,6 +148,14 @@ pub(super) fn build_save_status(snapshot: &WorkshopSessionSnapshot) -> SaveStatu
             !snapshot.store.commit_pending && !snapshot.store.load_pending,
             false,
             WorkshopUiIntent::Dispatch(WorkshopAction::RequestSave),
+        ),
+        library_control: WorkshopControl::new(
+            WORKSHOP_LIBRARY_ACTION,
+            "Library",
+            "Manage saved galaxies. The Workshop stays open and unchanged.",
+            true,
+            false,
+            WorkshopUiIntent::OpenLibrary,
         ),
     }
 }

@@ -1427,3 +1427,106 @@ fn modal_paging_controls_meet_the_44px_minimum_when_the_modal_paginates() {
     );
     assert!(checked_controls >= 2 * paginated_frames);
 }
+
+/// Route-design task 10: the in-Workshop Library entry is reachable in every
+/// mode, by pointer and by keyboard, and never lands on another control.
+///
+/// Docked layouts place it in the top bar. Compact places it in the Navigator
+/// header, because its bars are full at the 320 floor; focusing it there opens
+/// the drawer, so a keyboard user reaches it from any section.
+#[test]
+fn the_workshop_library_entry_is_reachable_in_every_mode() {
+    let model = WorkshopUiModel::build(&snapshot(), WorkshopUiContext::default());
+    let library = model.save.library_control.action_id.clone();
+    assert_eq!(library.as_str(), "save.library");
+    assert!(model.save.library_control.enabled);
+    assert_eq!(
+        model.activate(&library, InputModality::Pointer),
+        Some(nyon::ui::workshop::WorkshopUiIntent::OpenLibrary)
+    );
+    assert!(model.focus_order().contains(&library));
+
+    let viewports = [
+        Vec2::new(1920.0, 1080.0),
+        Vec2::new(1440.0, 900.0),
+        Vec2::new(1280.0, 480.0),
+        Vec2::new(1024.0, 768.0),
+        Vec2::new(900.0, 700.0),
+        Vec2::new(723.0, 802.0),
+        Vec2::new(640.0, 480.0),
+        Vec2::new(320.0, 450.0),
+    ];
+    for viewport in viewports {
+        for scale in [0.85, 1.0, 1.15, 1.3] {
+            let layout = WorkshopLayout::resolve(viewport, scale).unwrap();
+            let case = format!("{viewport} at {scale} ({:?})", layout.mode);
+            let mut view = WorkshopViewState::default();
+            let frame = build_workshop_platform_frame_for_view(&model, layout.clone(), &view, None);
+            let placed = frame.controls.iter().find(|c| c.action_id == library);
+            let region = if layout.right_panel.is_some() {
+                layout.top_bar
+            } else {
+                assert!(placed.is_none(), "{case}: Compact placed it with no drawer");
+                assert!(view.reveal_action(&model, &layout, &library), "{case}");
+                assert_eq!(
+                    view.open_drawer,
+                    Some(WorkshopDrawer::Navigator),
+                    "{case}: focus did not open the Navigator"
+                );
+                layout.drawer_sheet
+            };
+            let frame = build_workshop_platform_frame_for_view(&model, layout.clone(), &view, None);
+            let control = frame
+                .controls
+                .iter()
+                .find(|c| c.action_id == library)
+                .unwrap_or_else(|| panic!("{case}: the Library entry was not placed"));
+            assert!(control.enabled, "{case}");
+            assert!(
+                region.contains_rect(control.bounds),
+                "{case}: {:?}",
+                control.bounds
+            );
+            assert!(
+                control.bounds.width() >= 44.0 && control.bounds.height() >= 44.0,
+                "{case}: {:?}",
+                control.bounds
+            );
+            for other in frame.controls.iter().filter(|c| c.action_id != library) {
+                assert!(
+                    !control.bounds.overlaps(other.bounds),
+                    "{case}: overlaps {}",
+                    other.action_id.as_str()
+                );
+            }
+            assert_eq!(
+                frame
+                    .hit_test(control.bounds.center())
+                    .map(|c| &c.action_id),
+                Some(&library)
+            );
+            assert!(frame.focus_order().contains(&library), "{case}");
+            assert!(
+                build_platform_ui_batch(&frame, &AtlasMetrics::embedded().unwrap()).is_ok(),
+                "{case}: the batch refused the frame"
+            );
+            // Every Navigator section keeps it in Compact.
+            if layout.right_panel.is_none() {
+                for action in [
+                    WorkshopViewAction::ShowHierarchy,
+                    WorkshopViewAction::ShowBranches,
+                    WorkshopViewAction::ShowInspector,
+                    WorkshopViewAction::ShowStatus,
+                ] {
+                    view.apply(action, &model, &layout);
+                    let frame =
+                        build_workshop_platform_frame_for_view(&model, layout.clone(), &view, None);
+                    assert!(
+                        frame.controls.iter().any(|c| c.action_id == library),
+                        "{case}: missing in {action:?}"
+                    );
+                }
+            }
+        }
+    }
+}

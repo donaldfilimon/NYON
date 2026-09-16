@@ -31,6 +31,7 @@ use creator_defaults::build_creator_form;
 pub use creator_defaults::default_creator_batch;
 pub(in crate::ui) use creator_defaults::is_ownable;
 pub(crate) use creator_defaults::{CREATOR_SUBMIT_ACTION, creator_modal_order};
+pub(crate) use history::WORKSHOP_LIBRARY_ACTION;
 use history::{build_branches, build_save_status, build_timeline};
 use outliner::build_outliner;
 use removal::build_removal_confirmation;
@@ -56,6 +57,10 @@ pub enum WorkshopUiIntent {
     },
     CloseCreatorForm,
     ReturnToMainMenu,
+    /// Open the Library over the Workshop. A lateral route (route-design task
+    /// 10): the session, its dirty state and any pending save are untouched,
+    /// and closing the Library returns here.
+    OpenLibrary,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -262,6 +267,9 @@ pub struct SaveStatusModel {
     pub load_pending: bool,
     pub status: String,
     pub save_control: WorkshopControl,
+    /// The in-Workshop Library entry. Always enabled: the Library gates each
+    /// action itself, never the door.
+    pub library_control: WorkshopControl,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

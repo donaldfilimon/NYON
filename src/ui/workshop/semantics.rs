@@ -39,6 +39,7 @@ pub(super) fn all_controls<'a>(
     controls.extend(&timeline.controls);
     controls.extend(branches.iter().map(|branch| &branch.control));
     controls.push(&save.save_control);
+    controls.push(&save.library_control);
     controls.push(&preferences.reduced_motion_control);
     controls.push(&preferences.high_contrast_control);
     if let Some(removal) = removal {
@@ -156,6 +157,7 @@ pub(super) fn build_semantic_tree(
             ),
         ),
         semantic_control("save", &save.save_control, SemanticRole::Button),
+        semantic_control("save", &save.library_control, SemanticRole::Button),
     ];
     let diagnostic_nodes = vec![
         SemanticNode::text(

@@ -591,3 +591,75 @@ fn a_refused_confirmation_stays_open_and_leaving_closes_it() {
     assert!(!app.ui_focus.modal_is_open());
     assert!(app.platform_ui.as_ref().unwrap().modal.is_none());
 }
+
+/// Route-design task 10: the in-Workshop entry is a lateral route. Opening
+/// the Library from a dirty, unsaved Workshop changes nothing about the
+/// session, starts no durable exit, and Close returns to the same session
+/// with focus back on the entry. The runtime keeps a session paused while the
+/// Library is up, so ticks are compared across the round trip, not live.
+#[test]
+fn the_workshop_library_entry_returns_to_the_same_untouched_session() {
+    let mut app = crate::app::modal_lifecycle_tests::capacity_app();
+    app.build_frame();
+    assert_eq!(app.runtime.screen(), ClientScreen::GalaxyWorkshop);
+    let before = app.runtime.workshop_snapshot().unwrap().clone();
+    assert!(
+        before.store.dirty,
+        "the fixture should be an unsaved Workshop"
+    );
+    let entry = SemanticActionId::new("save.library");
+    assert!(app.ui_focus.request_focus(&entry));
+
+    for leave in ["close", "escape"] {
+        app.activate_platform_action_id(&entry, InputModality::Keyboard);
+        assert_eq!(app.runtime.screen(), ClientScreen::Library, "{leave}");
+        assert!(
+            !app.durable_exit.is_pending(),
+            "{leave}: a durable exit started"
+        );
+        app.runtime.update(std::time::Duration::ZERO);
+        app.build_frame();
+        assert!(app.library_ui.is_some());
+        let during = app.runtime.workshop_snapshot().unwrap();
+        assert_eq!(
+            during.store, before.store,
+            "{leave}: opening touched the store state"
+        );
+        assert_eq!(during.active_view, before.active_view, "{leave}");
+
+        if leave == "close" {
+            app.activate_platform_action_id(
+                &SemanticActionId::new("library.close"),
+                InputModality::Keyboard,
+            );
+        } else {
+            // Escape reaches `close_library` directly.
+            app.runtime.close_library();
+        }
+        assert_eq!(
+            app.runtime.screen(),
+            ClientScreen::GalaxyWorkshop,
+            "{leave}"
+        );
+        app.build_frame();
+        assert_eq!(
+            app.ui_focus.focused(),
+            Some(&entry),
+            "{leave}: focus not returned"
+        );
+        let after = app.runtime.workshop_snapshot().unwrap();
+        assert_eq!(after.store, before.store, "{leave}");
+        assert_eq!(after.active_view, before.active_view, "{leave}");
+        // One-shot: a later frame does not steal focus back.
+        assert!(
+            app.ui_focus
+                .request_focus(&SemanticActionId::new("save.commit"))
+        );
+        app.build_frame();
+        assert_eq!(
+            app.ui_focus.focused().map(SemanticActionId::as_str),
+            Some("save.commit")
+        );
+        assert!(app.ui_focus.request_focus(&entry));
+    }
+}

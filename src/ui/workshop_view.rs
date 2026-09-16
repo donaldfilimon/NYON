@@ -311,6 +311,14 @@ impl WorkshopViewState {
             }
             return true;
         }
+        // Docked, the Library entry is in the top bar; Compact has no room in
+        // its bars, so it lives in the Navigator drawer's header.
+        if model.save.library_control.action_id == *action {
+            if layout.right_panel.is_none() {
+                self.open_drawer = Some(WorkshopDrawer::Navigator);
+            }
+            return true;
+        }
         if model.menu_control.action_id == *action || model.save.save_control.action_id == *action {
             return true;
         }

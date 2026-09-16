@@ -263,6 +263,8 @@ pub struct App<
     /// name it opened with.
     library_rename_draft: String,
     library_rename_edited: bool,
+    /// The control that opened the Library, focused again when it closes.
+    library_return_focus: Option<SemanticActionId>,
     /// Row window and Compact sheet the Library frame is drawn for.
     library_view: LibraryView,
     /// A control the next frame should focus. `request_focus` only accepts a
@@ -346,6 +348,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             library_confirmation: None,
             library_rename_draft: String::new(),
             library_rename_edited: false,
+            library_return_focus: None,
             library_view: LibraryView::default(),
             pending_focus: None,
             ui_focus: FocusManager::new(std::iter::empty()),
@@ -859,6 +862,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     /// and the next visit starts from nothing. A selection kept across visits
     /// would be filtered against a list it was never made from.
     fn leave_library(&mut self) {
+        // One-shot: the first frame after the Library focuses the control
+        // that opened it. Later frames find nothing to take.
+        if let Some(target) = self.library_return_focus.take() {
+            self.pending_focus = Some(target);
+        }
         self.close_library_confirmation();
         self.library_ui = None;
         self.selected_library_slot = None;
@@ -1523,6 +1531,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 self.active_creator = None;
                 self.close_workshop_modal_focus();
             }
+            WorkshopUiIntent::OpenLibrary => match self.runtime.open_library() {
+                Ok(()) => {
+                    self.library_return_focus = Some(SemanticActionId::new(
+                        crate::ui::workshop::WORKSHOP_LIBRARY_ACTION,
+                    ));
+                }
+                Err(error) => log::warn!("Workshop Library entry was rejected: {error}"),
+            },
             WorkshopUiIntent::ReturnToMainMenu => {
                 self.active_creator = None;
                 self.pending_removal = None;

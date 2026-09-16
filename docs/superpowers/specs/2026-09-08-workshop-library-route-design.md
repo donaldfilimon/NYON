@@ -206,6 +206,12 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
    one-line notice, and a refused submit keeps the dialog and the draft. The
    `slot_changes_available` flag is gone.
 10. In-Workshop entry control in both placements.
+    **Landed 2026-09-16, with both placements moved from the plan above:** the
+    docked entry sits in the top bar left of the guide control, because the
+    right panel has no height to spare at 1280x480 and 1.3 (the Inspector title
+    stopped fitting under Save); Compact's sits in the Navigator header left of
+    Close, because its bottom bar is already full at the 320 floor. Focusing it
+    in Compact opens the Navigator. Close and Escape return focus to it once.
     **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
     MAIN-MENU entry control, and the addendum §2 requires main-menu entry.** Task 10 is
     the in-Workshop control only. Task 6 satisfies the constraint **at the runtime seam

@@ -65,6 +65,24 @@ pub fn build_workshop_platform_frame_for_view(
         focused,
     );
 
+    // Route-design task 10: the docked Library entry, left of the guide
+    // control in the top bar. The right panel has no height to spare at
+    // 1280x480 and 1.3, where the Inspector title needs every pixel below
+    // Save. Compact places it in the Navigator header instead.
+    if layout.right_panel.is_some() {
+        push_workshop_control(
+            &mut controls,
+            &model.save.library_control,
+            PlatformRect::from_xywh(
+                (layout.top_bar.max.x - 454.0 * scale).max(layout.top_bar.min.x + 8.0),
+                layout.top_bar.min.y + (layout.top_bar.height() - 44.0) * 0.5,
+                142.0 * scale,
+                44.0,
+            ),
+            focused,
+        );
+    }
+
     if crate::ui::workshop_view::wide_navigation_fits(&layout) {
         let left = layout
             .left_panel
@@ -353,6 +371,16 @@ pub fn build_workshop_platform_frame_for_view(
             focused,
             false,
         );
+        // Compact's Library entry (route-design task 10): its bars are full at
+        // the 320 floor, so it takes the empty left of the Navigator header.
+        if open_drawer == WorkshopDrawer::Navigator && layout.right_panel.is_none() {
+            push_workshop_control(
+                &mut controls,
+                &model.save.library_control,
+                PlatformRect::from_xywh(drawer.min.x + 8.0, drawer.min.y + 8.0, 100.0, 44.0),
+                focused,
+            );
+        }
         let body_top = drawer.min.y + 60.0;
         if open_drawer == WorkshopDrawer::Navigator {
             let tab_gap = 4.0;
