@@ -377,6 +377,44 @@ pub(crate) fn build_source_records(
     records
 }
 
+/// Makes existing text nodes visible, wrapped, stacked from the top of `body`.
+///
+/// Returns the height actually used. Composed only from the wrap and placement
+/// the modal body already relies on, so a screen that owns its own semantic
+/// tree -- the Library -- shows those nodes in place instead of copying their
+/// text into status lines, which would announce every message twice.
+///
+/// Rows that do not fit `body` are dropped by [`materialize_rows`], so the
+/// caller must size `body` from the height this returns when it needs all of
+/// them; nothing here truncates silently mid-node without the caller seeing it.
+pub(crate) fn materialize_text_block(
+    tree: &mut SemanticTree,
+    ids: &[&str],
+    body: PlatformRect,
+    scale: f32,
+    records: &mut Vec<PlatformVisibleNodeRecord>,
+) -> f32 {
+    let metrics = super::AtlasMetrics::embedded().expect("embedded atlas is valid");
+    let rows: Vec<ModalBodyRow> = ids
+        .iter()
+        .filter_map(|id| tree.node(id))
+        .flat_map(|node| wrapped_source_rows(node, body.width(), scale, &metrics))
+        .collect();
+    // `materialize_rows` accumulates `y` row by row with an exact containment
+    // test, while this sum associates differently, so the last row could miss
+    // the box by one unit in the last place and silently vanish. Half a
+    // logical pixel of slack is invisible and removes that.
+    let needed: f32 = rows.iter().map(|row| row.height).sum::<f32>() + 0.5;
+    let placed = PlatformRect::from_xywh(
+        body.min.x,
+        body.min.y,
+        body.width(),
+        needed.min(body.height()),
+    );
+    materialize_rows(tree, &rows, placed, 0, records);
+    placed.height()
+}
+
 fn set_materialized(node: &mut SemanticNode, id: &str, visible: bool) {
     if node.id.as_str() == id {
         node.visible = visible;

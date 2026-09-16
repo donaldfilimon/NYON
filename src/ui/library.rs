@@ -414,7 +414,7 @@ pub struct LibraryActionsModel {
 }
 
 impl LibraryActionsModel {
-    fn controls(&self) -> [&LibraryControl; 5] {
+    pub(crate) fn controls(&self) -> [&LibraryControl; 5] {
         [
             &self.open,
             &self.rename,
@@ -439,7 +439,7 @@ pub struct LibraryTransferModel {
 }
 
 impl LibraryTransferModel {
-    fn controls(&self) -> [&LibraryControl; 4] {
+    pub(crate) fn controls(&self) -> [&LibraryControl; 4] {
         [
             &self.import_archive,
             &self.import_pack,

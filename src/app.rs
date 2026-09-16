@@ -70,10 +70,11 @@ use crate::{
         },
         creator::CreatorDraft,
         guide::{GuideAction, GuideLocation, build_guide_frame},
+        library::{LibraryUiContext, LibraryUiIntent, LibraryUiModel},
         platform::{
             PlatformUiAction, PlatformUiFrame, ShellPlatformInput, ShellUiAction,
-            build_shell_platform_frame, build_workshop_platform_frame_for_view,
-            draw_workshop_scene,
+            build_library_platform_frame, build_shell_platform_frame,
+            build_workshop_platform_frame_for_view, draw_workshop_scene,
         },
         workshop::{
             CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel, creator_modal_order,
@@ -243,6 +244,13 @@ pub struct App<
     backend_kind: Option<BackendKind>,
     platform_ui: Option<PlatformUiFrame>,
     workshop_ui: Option<WorkshopUiModel>,
+    /// The model behind the Library frame, resolved against
+    /// `PlatformUiAction::Library`. `None` whenever another screen is built,
+    /// so a stale Library control cannot activate after the screen changes.
+    library_ui: Option<LibraryUiModel>,
+    /// Pure client selection, like `selected_workshop_entity`: no runtime
+    /// state owns it, and the model filters it against the current list.
+    selected_library_slot: Option<crate::workshop::store::SlotId>,
     ui_focus: FocusManager,
     player_guide: Option<(GuideLocation, FocusManager)>,
     selected_workshop_entity: Option<nyon_workshop_core::EntityId>,
@@ -315,6 +323,8 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             backend_kind: None,
             platform_ui: None,
             workshop_ui: None,
+            library_ui: None,
+            selected_library_slot: None,
             ui_focus: FocusManager::new(std::iter::empty()),
             player_guide: None,
             selected_workshop_entity: None,
@@ -635,9 +645,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         match self.runtime.screen() {
             ClientScreen::ClassicSector => self.build_classic_frame(),
             ClientScreen::GalaxyWorkshop => self.build_workshop_frame(),
+            ClientScreen::Library => self.build_library_frame(),
             ClientScreen::MainMenu
             | ClientScreen::Settings
-            | ClientScreen::Library
             | ClientScreen::Loading
             | ClientScreen::RecoverableError => self.build_shell_frame(),
         }
@@ -646,6 +656,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     fn build_classic_frame(&mut self) {
         self.platform_ui = None;
         self.workshop_ui = None;
+        self.leave_library();
         let mut guidance_nodes = Vec::new();
         match self.runtime.classic().mode() {
             AppMode::Playing => {
@@ -745,6 +756,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.ui_batch.clear();
         self.underlay_batch.clear();
         self.overlay_batch.clear();
+        self.leave_library();
         let preferences = self.runtime.classic().preferences();
         let Some((snapshot, redo_children)) = (match self.runtime.active_session() {
             ActiveSession::Workshop(session) => {
@@ -819,11 +831,67 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.install_platform_frame(frame);
     }
 
+    /// Every non-Library frame calls this, so leaving the screen by Close, by
+    /// Escape, or by any other route drops the model and the selection alike,
+    /// and the next visit starts from nothing. A selection kept across visits
+    /// would be filtered against a list it was never made from.
+    fn leave_library(&mut self) {
+        self.library_ui = None;
+        self.selected_library_slot = None;
+    }
+
+    fn build_library_frame(&mut self) {
+        self.ui_batch.clear();
+        self.underlay_batch.clear();
+        self.overlay_batch.clear();
+        self.workshop_ui = None;
+        let preferences = self.runtime.classic().preferences();
+        let model = LibraryUiModel::build(LibraryUiContext {
+            slots: self.runtime.library_slots(),
+            status: self.runtime.library_slots_status(),
+            selected_slot: self.selected_library_slot,
+            resident_slot: self.runtime.resident_slot(),
+            workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
+            // Route-design tasks 12, 11 and 9 respectively. Each flag is what
+            // keeps its controls visible-but-disabled rather than live with no
+            // route behind them; `apply_library_intent` relies on it.
+            library_client_available: false,
+            transfer_available: false,
+            slot_changes_available: false,
+        });
+        let viewport = self.runtime.classic().viewport();
+        let scale = preferences.ui_scale.factor();
+        // The Library opens from the main menu, which the shell draws through a
+        // 640 by 480 floor. A window below what the Workshop layout accepts is
+        // reachable in a browser and for a frame at startup, and the
+        // placeholder this replaced never panicked on one, so neither may
+        // this. The floor resolves at every scale the layout allows.
+        let layout = WorkshopLayout::resolve(viewport, scale)
+            .or_else(|_| {
+                let finite = if viewport.is_finite() {
+                    viewport
+                } else {
+                    glam::Vec2::ZERO
+                };
+                WorkshopLayout::resolve(finite.max(glam::Vec2::new(640.0, 480.0)), scale)
+            })
+            .expect("a 640 by 480 floor always resolves");
+        let frame = build_library_platform_frame(
+            &model,
+            layout,
+            self.ui_focus.focused(),
+            preferences.high_contrast,
+        );
+        self.library_ui = Some(model);
+        self.install_platform_frame(frame);
+    }
+
     fn build_shell_frame(&mut self) {
         self.ui_batch.clear();
         self.underlay_batch.clear();
         self.overlay_batch.clear();
         self.workshop_ui = None;
+        self.leave_library();
         let capabilities = self.runtime.menu_capabilities();
         let recovery_message = self
             .runtime
@@ -1013,6 +1081,57 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             PlatformUiAction::WorkshopView(action) => {
                 self.apply_workshop_view_action(action);
             }
+            PlatformUiAction::Library(action_id) => {
+                if let Some(intent) = self
+                    .library_ui
+                    .as_ref()
+                    .and_then(|model| model.activate(&action_id, modality))
+                {
+                    self.apply_library_intent(intent);
+                }
+            }
+        }
+    }
+
+    /// Route-design task 8 slice 1: only the intents with a route today.
+    ///
+    /// The rest cannot arrive, because `build_library_frame` builds the model
+    /// with the three capability flags off and `activate` refuses a disabled
+    /// control. Asserted in debug rather than made unreachable, because a
+    /// gating slip here should cost a logged no-op, not a player's session.
+    fn apply_library_intent(&mut self, intent: LibraryUiIntent) {
+        let result = match intent {
+            LibraryUiIntent::Close => {
+                self.runtime.close_library();
+                Ok(())
+            }
+            LibraryUiIntent::RefreshSlots => self.runtime.refresh_library_slots(),
+            LibraryUiIntent::RetrySlotRequest => self.runtime.retry_library_slot_request(),
+            LibraryUiIntent::CancelSlotRequest => self.runtime.cancel_library_slot_request(),
+            LibraryUiIntent::SelectSlot(slot) => {
+                self.selected_library_slot = Some(slot);
+                Ok(())
+            }
+            deferred @ (LibraryUiIntent::OpenSlot { .. }
+            | LibraryUiIntent::RenameSlot { .. }
+            | LibraryUiIntent::ArchiveSlot { .. }
+            | LibraryUiIntent::UnarchiveSlot { .. }
+            | LibraryUiIntent::UseForContinue { .. }
+            | LibraryUiIntent::ExportSlot { .. }
+            | LibraryUiIntent::ImportArchive
+            | LibraryUiIntent::ImportPack
+            | LibraryUiIntent::ExportActiveArchive
+            | LibraryUiIntent::ExportActivePack) => {
+                debug_assert!(
+                    false,
+                    "a deferred Library intent activated; its capability flag should have disabled it: {deferred:?}"
+                );
+                log::warn!("ignored a deferred Library intent: {deferred:?}");
+                Ok(())
+            }
+        };
+        if let Err(error) = result {
+            log::warn!("Library intent was rejected: {error}");
         }
     }
 
@@ -1061,7 +1180,6 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 Ok(ClientRuntimeEffect::QuitRequested) => self.request_durable_exit(),
                 Err(error) => log::warn!("shell action was rejected: {error}"),
             },
-            ShellUiAction::CloseLibrary => self.runtime.close_library(),
             ShellUiAction::CloseSettings => {
                 self.runtime.close_settings();
                 self.runtime.classic_mut().close_settings();
@@ -1728,6 +1846,8 @@ fn action_for_key(key: &Key) -> Option<Action> {
     }
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod library_frame_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod modal_lifecycle_tests;
 

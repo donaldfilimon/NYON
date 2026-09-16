@@ -1146,7 +1146,7 @@ where
     }
 
     /// The slot a resident Workshop currently occupies, if any.
-    fn resident_slot(&self) -> Option<SlotId> {
+    pub(crate) fn resident_slot(&self) -> Option<SlotId> {
         match &self.active_session {
             ActiveSession::Workshop(session) => session.snapshot().store.slot,
             ActiveSession::None | ActiveSession::Classic => None,

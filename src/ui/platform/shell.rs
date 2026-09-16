@@ -206,29 +206,6 @@ pub fn build_shell_platform_frame(input: ShellPlatformInput<'_>) -> PlatformUiFr
                 );
             }
         }
-        // The Library's own surface is the route design's tasks 7 and 8:
-        // `src/ui/library.rs` for the model and focus order, and
-        // `src/ui/platform/library.rs` for the docked panel, Compact sheet and
-        // transfer strip. What belongs here is only what keeps the screen from
-        // being a dead end before those land: a named title and a Close control
-        // with a real pointer target and focus slot, so the round trip works
-        // for pointer users and not only for Escape.
-        ClientScreen::Library => {
-            title = "NYON // Library".to_owned();
-            status_lines = vec!["Workshop slots and portable transfer".to_owned()];
-            push_shell_control(
-                &mut controls,
-                &mut nodes,
-                "shell.library.close",
-                ShellUiAction::CloseLibrary,
-                "Close library",
-                "Return to the previous product screen.",
-                centered_button(viewport, 0),
-                true,
-                false,
-                input.focused,
-            );
-        }
         ClientScreen::Loading => {
             title = "NYON // Loading".to_owned();
             status_lines = vec!["Validating the explicitly selected Workshop save".to_owned()];
@@ -270,7 +247,10 @@ pub fn build_shell_platform_frame(input: ShellPlatformInput<'_>) -> PlatformUiFr
                 input.focused,
             );
         }
-        ClientScreen::ClassicSector | ClientScreen::GalaxyWorkshop => {
+        // Screens this builder never draws. The Library joined them when route
+        // design task 8 gave it its own frame; its old placeholder here would
+        // otherwise build a second Close control beside the real one.
+        ClientScreen::ClassicSector | ClientScreen::GalaxyWorkshop | ClientScreen::Library => {
             title = "NYON".to_owned();
             status_lines = Vec::new();
         }

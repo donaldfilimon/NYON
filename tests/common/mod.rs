@@ -465,6 +465,11 @@ pub fn assert_action_witnesses(
             PlatformUiAction::WorkshopView(action) => PlatformIconAction::WorkshopView(*action),
             PlatformUiAction::Shell(action) => PlatformIconAction::Shell(*action),
             PlatformUiAction::Guide(action) => PlatformIconAction::Guide(*action),
+            // This helper qualifies Workshop frames, which never hold a Library
+            // control; one appearing here is the defect, not a case to map.
+            PlatformUiAction::Library(action) => {
+                panic!("Library control {action} inside a Workshop frame")
+            }
         };
         let expected = icon_for_action(source);
         assert_eq!(

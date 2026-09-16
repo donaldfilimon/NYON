@@ -22,9 +22,11 @@ use crate::ui::workshop_view::WorkshopViewAction;
 use crate::workshop::session::WorkshopAction;
 use glam::Vec2;
 
+mod library;
 mod shell;
 mod workshop;
 
+pub use library::build_library_platform_frame;
 pub use shell::{
     PlatformFallbackCode, ShellPlatformInput, build_shell_platform_frame, install_guide_batches,
 };
@@ -102,7 +104,6 @@ pub enum PlatformBackground {
 pub enum ShellUiAction {
     Menu(MainMenuRoute),
     CloseSettings,
-    CloseLibrary,
     CycleUiScale,
     ToggleReducedMotion,
     ToggleHighContrast,
@@ -116,6 +117,10 @@ pub enum ShellUiAction {
 pub enum PlatformUiAction {
     Shell(ShellUiAction),
     Workshop(SemanticActionId),
+    /// Resolved against the Library model, never the Workshop one. A separate
+    /// arm because `Workshop` is looked up in `App::workshop_ui`, which is
+    /// `None` while the Library is on screen.
+    Library(SemanticActionId),
     WorkshopView(WorkshopViewAction),
     Guide(super::guide::GuideAction),
 }
@@ -926,7 +931,6 @@ fn icon_for_shell_action(action: ShellUiAction) -> Option<UiIcon> {
     match action {
         ShellUiAction::Menu(MainMenuRoute::Continue) => Some(UiIcon::Load),
         ShellUiAction::CloseSettings
-        | ShellUiAction::CloseLibrary
         | ShellUiAction::DismissCredits
         | ShellUiAction::DismissRecovery => Some(UiIcon::Close),
         ShellUiAction::ContinueRecovery => Some(UiIcon::Check),
