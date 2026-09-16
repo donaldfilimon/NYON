@@ -30,11 +30,12 @@ mod semantics;
 use creator_defaults::build_creator_form;
 pub use creator_defaults::default_creator_batch;
 pub(in crate::ui) use creator_defaults::is_ownable;
+pub(crate) use creator_defaults::{CREATOR_SUBMIT_ACTION, creator_modal_order};
 use history::{build_branches, build_save_status, build_timeline};
 use outliner::build_outliner;
 use removal::build_removal_confirmation;
 pub use removal::removal_blockers;
-pub(crate) use removal::removal_modal_order;
+pub(crate) use removal::{REMOVAL_CONFIRM_ACTION, removal_modal_order};
 use semantics::{all_controls, build_semantic_tree};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

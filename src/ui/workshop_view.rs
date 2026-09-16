@@ -238,15 +238,14 @@ impl WorkshopViewState {
                 }
                 return true;
             }
-            return matches!(
-                action.as_str(),
-                "creator.cancel"
-                    | "creator.submit"
-                    | "remove.cancel"
-                    | "remove.confirm"
-                    | "view.scroll-next"
-                    | "view.scroll-previous"
-            );
+            // Anything else that belongs to the open dialog (its footer buttons; the
+            // body rows were handled above) is revealed without scrolling, as are the
+            // modal's own paging controls. Derived from the rendered dialog rather than
+            // spelled per dialog, so a new dialog type is covered by being in the tree.
+            let in_dialog = super::platform_projection::modal_action_ids(&model.semantics)
+                .is_some_and(|actions| actions.contains(action));
+            return in_dialog
+                || matches!(action.as_str(), "view.scroll-next" | "view.scroll-previous");
         }
         if let Some(index) = model
             .tool_palette

@@ -15,8 +15,8 @@ use crate::ui::platform_inspector::apply_platform_sighted_text_geometry;
 use crate::ui::platform_inspector::build_inspector_sighted_text;
 use crate::ui::platform_projection::build_source_records;
 use crate::ui::platform_projection::{modal_action_ids, modal_presentation};
-use crate::ui::workshop::WorkshopControl;
 use crate::ui::workshop::WorkshopUiModel;
+use crate::ui::workshop::{CREATOR_SUBMIT_ACTION, REMOVAL_CONFIRM_ACTION, WorkshopControl};
 use crate::ui::workshop_layout::WorkshopLayout;
 use crate::ui::workshop_layout::WorkshopLayoutMode;
 use crate::ui::workshop_view::NavigatorSection;
@@ -614,9 +614,15 @@ pub fn build_workshop_platform_frame_for_view(
             {
                 control.bounds = *bounds;
             } else if actions.contains(&control.action_id) {
+                // Which button sits on the right is a *list*, not a derivation: the
+                // affirmative action of each known dialog. It reads the owners'
+                // constants so a rename cannot strand it, but it does not generalize —
+                // a third dialog must be added here to get its affirmative button
+                // right-aligned. Left as a list deliberately rather than inventing a
+                // "last action is primary" convention nothing else declares.
                 let right = matches!(
                     control.action_id.as_str(),
-                    "creator.submit" | "remove.confirm"
+                    CREATOR_SUBMIT_ACTION | REMOVAL_CONFIRM_ACTION
                 );
                 let width = (content.bounds.width() - 32.0) * 0.5;
                 control.bounds = PlatformRect::from_xywh(

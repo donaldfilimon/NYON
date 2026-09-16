@@ -76,7 +76,7 @@ use crate::{
             draw_workshop_scene,
         },
         workshop::{
-            CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel,
+            CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel, creator_modal_order,
             default_creator_batch, removal_modal_order,
         },
         workshop_layout::WorkshopLayout,
@@ -192,15 +192,8 @@ struct ActiveCreatorEditor {
 
 impl ActiveCreatorEditor {
     fn modal_order(&self) -> Vec<SemanticActionId> {
-        self.draft
-            .iter()
-            .flat_map(|draft| draft.fields.iter())
-            .map(|field| SemanticActionId::new(format!("creator.field.{}", field.id)))
-            .chain([
-                SemanticActionId::new("creator.cancel"),
-                SemanticActionId::new("creator.submit"),
-            ])
-            .collect()
+        // Owned by `ui::workshop::creator_defaults`, beside the controls themselves.
+        creator_modal_order(self.draft.as_ref())
     }
 }
 

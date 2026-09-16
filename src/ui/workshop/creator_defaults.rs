@@ -20,6 +20,38 @@ use super::{
 /// form. The defaults are deliberately deterministic and are derived only from
 /// the immutable session snapshot. A missing prerequisite keeps the form open
 /// with an actionable validation message instead of mutating authority.
+/// Action IDs of the creator dialog's fixed controls, and the shape of its field IDs.
+///
+/// `src/app.rs` opens the focus trap while handling `OpenCreatorForm`, before the model
+/// and its semantic tree exist, so it cannot derive the order the way
+/// `platform_projection::modal_action_ids` does. `ActiveCreatorEditor::modal_order` used
+/// to rebuild these strings by hand instead; now it and the builder below read one
+/// definition, so a rename here cannot leave the app focusing actions that no longer
+/// exist. The removal dialog follows the same pattern in `removal.rs`.
+pub(crate) const CREATOR_CANCEL_ACTION: &str = "creator.cancel";
+pub(crate) const CREATOR_SUBMIT_ACTION: &str = "creator.submit";
+
+pub(crate) fn creator_field_action_id(field_id: &str) -> String {
+    format!("creator.field.{field_id}")
+}
+
+/// The creator dialog's focus order for a draft: its fields in order, then cancel,
+/// then submit. Callers that *have* a frame should use `modal_action_ids` instead.
+pub(crate) fn creator_modal_order(
+    draft: Option<&CreatorDraft>,
+) -> Vec<crate::ui::accessibility::SemanticActionId> {
+    use crate::ui::accessibility::SemanticActionId;
+    draft
+        .into_iter()
+        .flat_map(|draft| draft.fields.iter())
+        .map(|field| SemanticActionId::new(creator_field_action_id(field.id)))
+        .chain([
+            SemanticActionId::new(CREATOR_CANCEL_ACTION),
+            SemanticActionId::new(CREATOR_SUBMIT_ACTION),
+        ])
+        .collect()
+}
+
 pub fn default_creator_batch(
     snapshot: &WorkshopSessionSnapshot,
     selected: Option<EntityId>,
@@ -277,7 +309,7 @@ pub(super) fn build_creator_form(
                         value: field.display_value(),
                         kind: field.kind,
                         control: WorkshopControl::new(
-                            format!("creator.field.{}", field.id),
+                            creator_field_action_id(field.id),
                             format!("{}: {}", field.label, field.display_value()),
                             if cycle {
                                 "Activate to choose the next available value."
@@ -336,7 +368,7 @@ pub(super) fn build_creator_form(
         preview,
         validation_message,
         cancel_control: WorkshopControl::new(
-            "creator.cancel",
+            CREATOR_CANCEL_ACTION,
             "Cancel",
             "Close the creator form without changing the Workshop.",
             true,
@@ -344,7 +376,7 @@ pub(super) fn build_creator_form(
             WorkshopUiIntent::CloseCreatorForm,
         ),
         submit_control: WorkshopControl::new(
-            "creator.submit",
+            CREATOR_SUBMIT_ACTION,
             format!("Apply {}", tool.label().to_ascii_lowercase()),
             "Submit this exact recorded creator batch through the typed Workshop mailbox.",
             enabled,
