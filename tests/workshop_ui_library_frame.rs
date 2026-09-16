@@ -18,7 +18,7 @@ use nyon::{
     ui::{
         AtlasMetrics, UiBatch,
         accessibility::SemanticActionId,
-        library::{LibraryUiContext, LibraryUiModel},
+        library::{LibrarySection, LibraryUiContext, LibraryUiModel},
         platform::*,
         workshop_layout::{WorkshopLayout, WorkshopLayoutMode},
     },
@@ -295,6 +295,121 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
                 .all(|id| !placed.contains(*id)),
             "{viewport} at {scale}: rows were placed with a gap"
         );
+    }
+}
+
+/// Where a frame places a section's rows, the section heading is drawn
+/// directly above the first of them and nowhere else; a section with no
+/// placed rows draws no heading.
+fn assert_headings_lead_their_rows(model: &LibraryUiModel, frame: &PlatformUiFrame, case: &str) {
+    for (section, heading) in [
+        (LibrarySection::Active, "library.section.active.heading"),
+        (LibrarySection::Archived, "library.section.archived.heading"),
+    ] {
+        let first_placed = model
+            .rows
+            .iter()
+            .filter(|row| row.section == section)
+            .find_map(|row| {
+                frame
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id == row.control.action_id)
+            });
+        let node = frame.semantics.node(heading);
+        let Some(first) = first_placed else {
+            assert!(
+                node.is_none_or(|node| !node.visible && node.bounds.is_none()),
+                "{case}: {heading} is drawn with no row under it"
+            );
+            assert!(
+                !frame
+                    .visible_nodes
+                    .iter()
+                    .any(|record| record.semantic_id.as_str() == heading),
+                "{case}: {heading} has drawn text with no row under it"
+            );
+            continue;
+        };
+        let node = node.unwrap_or_else(|| panic!("{case}: {heading} missing"));
+        let bounds = node
+            .bounds
+            .unwrap_or_else(|| panic!("{case}: {heading} has rows but is not drawn"));
+        assert!(node.visible, "{case}: {heading} not visible");
+        let bounds = PlatformRect::from_xywh(
+            bounds.min[0],
+            bounds.min[1],
+            bounds.max[0] - bounds.min[0],
+            bounds.max[1] - bounds.min[1],
+        );
+        assert!(
+            bounds.max.y <= first.bounds.min.y,
+            "{case}: {heading} is not above its first row"
+        );
+        assert!(
+            first.bounds.min.y - bounds.max.y <= 16.0,
+            "{case}: {heading} is detached from its first row"
+        );
+        assert!(
+            frame.layout.canvas.contains_rect(bounds),
+            "{case}: {heading} leaves the canvas"
+        );
+        for control in &frame.controls {
+            assert!(
+                !control.bounds.overlaps(bounds),
+                "{case}: {heading} overlaps {}",
+                control.action_id.as_str()
+            );
+        }
+        assert!(
+            frame
+                .visible_nodes
+                .iter()
+                .any(|record| record.semantic_id.as_str() == heading
+                    && record.display_text.starts_with(&node.name)),
+            "{case}: {heading} has no drawn text"
+        );
+    }
+}
+
+#[test]
+fn section_headings_are_drawn_above_their_first_placed_row() {
+    let crowded = crowded_list();
+    let crowded_model = crowded_model(&crowded);
+    for (viewport, scale) in viewports() {
+        let frame = frame_for(&crowded_model, viewport, scale);
+        assert_headings_lead_their_rows(&crowded_model, &frame, &format!("{viewport} at {scale}"));
+    }
+
+    // A short list, so both sections are on screen together.
+    let short = SlotList {
+        slots: crowded_list().slots.into_iter().take(6).collect(),
+        selected_continue: Some(SlotId(0)),
+    };
+    let short_model = LibraryUiModel::build(LibraryUiContext {
+        slots: Some(&short),
+        ..LibraryUiContext::default()
+    });
+    for (viewport, scale) in viewports() {
+        let frame = frame_for(&short_model, viewport, scale);
+        let case = format!("short {viewport} at {scale}");
+        assert_headings_lead_their_rows(&short_model, &frame, &case);
+        // Six rows and two headings need a tall canvas; the short windows
+        // are covered by the ordering check above.
+        if frame.layout.mode != WorkshopLayoutMode::Compact && viewport.y >= 900.0 {
+            for heading in [
+                "library.section.active.heading",
+                "library.section.archived.heading",
+            ] {
+                assert!(
+                    frame
+                        .semantics
+                        .node(heading)
+                        .is_some_and(|node| node.visible),
+                    "{case}: {heading} should fit"
+                );
+            }
+        }
     }
 }
 

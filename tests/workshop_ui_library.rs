@@ -364,6 +364,69 @@ fn archived_rows_are_a_distinct_section_after_the_active_ones() {
     );
 }
 
+/// Each non-empty section opens with a heading a sighted user can read.
+///
+/// Before this, the only thing telling an archived row from an active one was
+/// the list container's accessible name, which nothing draws.
+#[test]
+fn each_nonempty_section_opens_with_a_counted_heading() {
+    let listed = list(vec![
+        summary(1, "Andromeda", true),
+        summary(2, "Bode", false),
+        summary(3, "Cigar", false),
+    ]);
+    let built = model(LibraryUiContext {
+        slots: Some(&listed),
+        ..LibraryUiContext::default()
+    });
+    for (section, heading, name, description, rows) in [
+        (
+            "library.section.active",
+            "library.section.active.heading",
+            "Active",
+            "2 saves",
+            2,
+        ),
+        (
+            "library.section.archived",
+            "library.section.archived.heading",
+            "Archived",
+            "1 save",
+            1,
+        ),
+    ] {
+        let container = built.semantics.node(section).expect(section);
+        let first = &container.children[0];
+        assert_eq!(first.id.as_str(), heading);
+        assert_eq!(first.role, SemanticRole::Heading);
+        assert_eq!(first.name, name);
+        assert_eq!(first.description, description);
+        assert!(first.action_id.is_none() && first.children.is_empty());
+        assert_eq!(container.children.len(), rows + 1, "{section}");
+    }
+
+    // An empty section has neither a container nor a heading.
+    let active_only = list(vec![summary(2, "Bode", false)]);
+    let built = model(LibraryUiContext {
+        slots: Some(&active_only),
+        ..LibraryUiContext::default()
+    });
+    assert!(
+        built
+            .semantics
+            .node("library.section.archived.heading")
+            .is_none()
+    );
+    assert_eq!(
+        built
+            .semantics
+            .node("library.section.active.heading")
+            .unwrap()
+            .description,
+        "1 save"
+    );
+}
+
 /// Every row control takes `SemanticRole::Option`.
 ///
 /// That role is what routes a 64-byte user-authored slot name through the

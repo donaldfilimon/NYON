@@ -1096,18 +1096,34 @@ fn build_semantic_tree(
         if section_rows.is_empty() {
             continue;
         }
-        let (id, name) = match section {
-            LibrarySection::Active => ("library.section.active", "Saved galaxies"),
-            LibrarySection::Archived => ("library.section.archived", "Archived galaxies"),
+        let (id, name, heading) = match section {
+            LibrarySection::Active => ("library.section.active", "Saved galaxies", "Active"),
+            LibrarySection::Archived => {
+                ("library.section.archived", "Archived galaxies", "Archived")
+            }
         };
+        // The container's name is only announced; this heading is what a
+        // sighted user reads to tell an archived row from an active one.
+        let count = match section_rows.len() {
+            1 => "1 save".to_owned(),
+            count => format!("{count} saves"),
+        };
+        let mut children = vec![SemanticNode::text(
+            format!("{id}.heading"),
+            SemanticRole::Heading,
+            heading,
+            count,
+        )];
+        children.extend(
+            section_rows
+                .into_iter()
+                .map(|row| semantic_control(&row.control, SemanticRole::Option)),
+        );
         list_children.push(SemanticNode::container(
             id,
             SemanticRole::List,
             name,
-            section_rows
-                .into_iter()
-                .map(|row| semantic_control(&row.control, SemanticRole::Option))
-                .collect(),
+            children,
         ));
     }
     let list_region = SemanticNode::container(

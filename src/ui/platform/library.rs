@@ -17,6 +17,10 @@
 //! would hide every row, and "row selection opens the sheet" is slice 2. A row
 //! that does not fit the canvas is likewise left for slice 2's reveal.
 //!
+//! **Section headings travel with their first row.** Each section's heading is
+//! drawn directly above its first placed row, and only when that row fits too;
+//! a section with no placed row draws no heading and its node is hidden.
+//!
 //! **Origins are whole logical pixels.** A 44-pixel control placed below
 //! wrapped text at a fractional offset measured 43.99998 tall, which is both
 //! under the minimum and blurry; snapping the origin makes `min + 44` exact.
@@ -30,8 +34,8 @@ use super::{
     PlatformBackground, PlatformControl, PlatformRect, PlatformUiAction, PlatformUiFrame,
     apply_platform_control_geometry,
 };
-use crate::ui::accessibility::{SemanticActionId, SemanticNodeId};
-use crate::ui::library::{LibraryControl, LibraryUiModel};
+use crate::ui::accessibility::{SemanticActionId, SemanticNode, SemanticNodeId};
+use crate::ui::library::{LibraryControl, LibrarySection, LibraryUiModel};
 use crate::ui::platform_projection::materialize_text_block;
 use crate::ui::workshop_layout::{WorkshopLayout, WorkshopLayoutMode};
 
@@ -87,13 +91,52 @@ pub fn build_library_platform_frame(
     );
     top += place_grid(&header, header_area, height, 110.0 * scale, &mut placed);
 
+    let mut section = None;
     for row in &model.rows {
-        let bounds = PlatformRect::from_xywh(canvas.min.x, top, canvas.width(), height);
+        let mut row_top = top;
+        let mut heading = None;
+        if section != Some(row.section) {
+            // Measured into a scratch tree first: a heading is only drawn when
+            // the row it introduces fits too, so no heading is ever stranded at
+            // the bottom of the canvas with nothing under it.
+            let id = section_heading_id(row.section);
+            let mut probe = semantics.clone();
+            let mut probe_records = Vec::new();
+            let used = materialize_text_block(
+                &mut probe,
+                &[id],
+                PlatformRect::from_xywh(canvas.min.x, top, canvas.width(), canvas.max.y - top),
+                scale,
+                &mut probe_records,
+            );
+            row_top = (top + used + GAP * 0.5).ceil();
+            heading = Some((id, used));
+        }
+        let bounds = PlatformRect::from_xywh(canvas.min.x, row_top, canvas.width(), height);
         if !canvas.contains_rect(bounds) {
             break;
         }
+        if let Some((id, used)) = heading {
+            materialize_text_block(
+                &mut semantics,
+                &[id],
+                PlatformRect::from_xywh(canvas.min.x, top, canvas.width(), used),
+                scale,
+                &mut records,
+            );
+            section = Some(row.section);
+        }
         placed.push((&row.control, bounds));
-        top = (top + height + GAP * 0.5).ceil();
+        top = (row_top + height + GAP * 0.5).ceil();
+    }
+
+    // A heading whose section has no placed row is unplaced exactly as an
+    // unplaced control is: in the tree, with no bounds, and not visible.
+    for section in [LibrarySection::Active, LibrarySection::Archived] {
+        if section_placed(&placed, model, section) {
+            continue;
+        }
+        hide_node(&mut semantics.root, section_heading_id(section));
     }
 
     let bar = layout.bottom_bar;
@@ -174,6 +217,39 @@ pub fn build_library_platform_frame(
     };
     frame.rebuild_visible_nodes();
     frame
+}
+
+fn section_placed(
+    placed: &[(&LibraryControl, PlatformRect)],
+    model: &LibraryUiModel,
+    section: LibrarySection,
+) -> bool {
+    model
+        .rows
+        .iter()
+        .filter(|row| row.section == section)
+        .any(|row| {
+            placed
+                .iter()
+                .any(|(control, _)| control.action_id == row.control.action_id)
+        })
+}
+
+fn hide_node(node: &mut SemanticNode, id: &str) {
+    if node.id.as_str() == id {
+        node.visible = false;
+        node.bounds = None;
+    }
+    for child in &mut node.children {
+        hide_node(child, id);
+    }
+}
+
+fn section_heading_id(section: LibrarySection) -> &'static str {
+    match section {
+        LibrarySection::Active => "library.section.active.heading",
+        LibrarySection::Archived => "library.section.archived.heading",
+    }
 }
 
 /// Places `controls` left to right, top to bottom, inside `area`.
