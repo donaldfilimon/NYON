@@ -70,7 +70,10 @@ use crate::{
         },
         creator::CreatorDraft,
         guide::{GuideAction, GuideLocation, build_guide_frame},
-        library::{LibraryUiContext, LibraryUiIntent, LibraryUiModel},
+        library::{
+            LibraryConfirmationKind, LibraryConfirmationRequest, LibraryUiContext, LibraryUiIntent,
+            LibraryUiModel, library_confirmation_order,
+        },
         platform::{
             LibrarySheet, LibraryView, LibraryViewAction, PlatformUiAction, PlatformUiFrame,
             ShellPlatformInput, ShellUiAction, build_library_platform_frame,
@@ -252,6 +255,9 @@ pub struct App<
     /// Pure client selection, like `selected_workshop_entity`: no runtime
     /// state owns it, and the model filters it against the current list.
     selected_library_slot: Option<crate::workshop::store::SlotId>,
+    /// The Library confirmation the user opened. While it is set the focus
+    /// manager holds a modal scope over its two controls.
+    library_confirmation: Option<LibraryConfirmationRequest>,
     /// Row window and Compact sheet the Library frame is drawn for.
     library_view: LibraryView,
     /// A control the next frame should focus. `request_focus` only accepts a
@@ -332,6 +338,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             workshop_ui: None,
             library_ui: None,
             selected_library_slot: None,
+            library_confirmation: None,
             library_view: LibraryView::default(),
             pending_focus: None,
             ui_focus: FocusManager::new(std::iter::empty()),
@@ -845,6 +852,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     /// and the next visit starts from nothing. A selection kept across visits
     /// would be filtered against a list it was never made from.
     fn leave_library(&mut self) {
+        self.close_library_confirmation();
         self.library_ui = None;
         self.selected_library_slot = None;
         self.library_view = LibraryView::default();
@@ -868,7 +876,13 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             library_client_available: false,
             transfer_available: false,
             slot_changes_available: false,
+            confirmation: self.library_confirmation,
         });
+        // A confirmation whose save left the list builds no dialog, so the
+        // trap it opened must close before this frame's order is installed.
+        if model.confirmation.is_none() {
+            self.close_library_confirmation();
+        }
         let viewport = self.runtime.classic().viewport();
         let scale = preferences.ui_scale.factor();
         // The Library opens from the main menu, which the shell draws through a
@@ -1171,6 +1185,45 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     /// with the three capability flags off and `activate` refuses a disabled
     /// control. Asserted in debug rather than made unreachable, because a
     /// gating slip here should cost a logged no-op, not a player's session.
+    /// Opens the trap before the model is rebuilt, from the owning module's
+    /// order, exactly as the Workshop removal dialog does.
+    fn open_library_confirmation(&mut self, request: LibraryConfirmationRequest) {
+        if self.library_confirmation.is_some() {
+            return;
+        }
+        self.library_confirmation = Some(request);
+        let _ = self.ui_focus.open_modal(library_confirmation_order());
+    }
+
+    /// Closes the dialog and its trap; focus returns to the control that
+    /// opened it, whose identifier survives the Archive/Unarchive flip.
+    fn close_library_confirmation(&mut self) {
+        if self.library_confirmation.take().is_some() {
+            self.ui_focus.close_modal();
+        }
+    }
+
+    /// Submits exactly the open request. A request that does not match what is
+    /// open is stale and ignored. A refusal leaves the dialog open, so the user
+    /// sees why nothing happened rather than a dialog that silently vanished.
+    fn submit_library_confirmation(
+        &mut self,
+        request: LibraryConfirmationRequest,
+    ) -> Result<(), crate::app::client_runtime::ClientRuntimeError> {
+        if self.library_confirmation != Some(request) {
+            log::warn!("ignored a stale Library confirmation: {request:?}");
+            return Ok(());
+        }
+        let result = match request.kind {
+            LibraryConfirmationKind::Archive => self.runtime.archive_library_slot(request.slot),
+            LibraryConfirmationKind::Unarchive => self.runtime.unarchive_library_slot(request.slot),
+        };
+        if result.is_ok() {
+            self.close_library_confirmation();
+        }
+        result
+    }
+
     fn apply_library_intent(&mut self, intent: LibraryUiIntent) {
         let result = match intent {
             LibraryUiIntent::Close => {
@@ -1180,6 +1233,27 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             LibraryUiIntent::RefreshSlots => self.runtime.refresh_library_slots(),
             LibraryUiIntent::RetrySlotRequest => self.runtime.retry_library_slot_request(),
             LibraryUiIntent::CancelSlotRequest => self.runtime.cancel_library_slot_request(),
+            LibraryUiIntent::ArchiveSlot { slot } => {
+                self.open_library_confirmation(LibraryConfirmationRequest {
+                    kind: LibraryConfirmationKind::Archive,
+                    slot,
+                });
+                Ok(())
+            }
+            LibraryUiIntent::UnarchiveSlot { slot } => {
+                self.open_library_confirmation(LibraryConfirmationRequest {
+                    kind: LibraryConfirmationKind::Unarchive,
+                    slot,
+                });
+                Ok(())
+            }
+            LibraryUiIntent::CancelConfirmation => {
+                self.close_library_confirmation();
+                Ok(())
+            }
+            LibraryUiIntent::SubmitConfirmation(request) => {
+                self.submit_library_confirmation(request)
+            }
             LibraryUiIntent::SelectSlot(slot) => {
                 self.selected_library_slot = Some(slot);
                 // Compact has no docked panel: selecting a row is the one
@@ -1194,8 +1268,6 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             }
             deferred @ (LibraryUiIntent::OpenSlot { .. }
             | LibraryUiIntent::RenameSlot { .. }
-            | LibraryUiIntent::ArchiveSlot { .. }
-            | LibraryUiIntent::UnarchiveSlot { .. }
             | LibraryUiIntent::UseForContinue { .. }
             | LibraryUiIntent::ExportSlot { .. }
             | LibraryUiIntent::ImportArchive

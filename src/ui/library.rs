@@ -42,6 +42,14 @@
 
 use std::collections::BTreeMap;
 
+mod confirmation;
+
+pub use confirmation::{
+    LIBRARY_CONFIRM_CANCEL_ACTION, LIBRARY_CONFIRM_DIALOG, LIBRARY_CONFIRM_SUBMIT_ACTION,
+    LibraryConfirmationKind, LibraryConfirmationModel, LibraryConfirmationRequest,
+    library_confirmation_order,
+};
+
 use crate::{
     app::client_runtime::{ClientDiagnosticCode, LibrarySlotsStatus, SlotRequestKind},
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotSummary},
@@ -101,6 +109,10 @@ pub enum LibraryUiIntent {
     ImportPack,
     ExportActiveArchive,
     ExportActivePack,
+    /// Close the open confirmation without changing anything.
+    CancelConfirmation,
+    /// Submit exactly the change the open confirmation describes.
+    SubmitConfirmation(LibraryConfirmationRequest),
 }
 
 /// Why a control is present but not activatable.
@@ -139,15 +151,14 @@ pub enum LibraryDisabledReason {
     DecisionPending,
     /// The exact-catalog Library client is not wired to this screen yet.
     LibraryClientUnavailable,
-    /// Rename, Archive and Unarchive have no route to the store yet.
+    /// Rename has no route to the store yet.
     ///
     /// A capability deferral like the two beside it, and for a normative
-    /// reason rather than a missing wire: addendum §3 requires lifecycle and
-    /// destructive actions to use explicit confirmation text, "including
-    /// whether Archive will clear Continue", and Rename needs a validated name.
-    /// Both are route-design task 9. Until then these three stay visible —
-    /// silently omitting them is baseline Finding 5 — but must not fire from a
-    /// bare button, which is what an enabled control would do.
+    /// reason rather than a missing wire: Rename needs a validated name, which
+    /// is route-design task 9b. Archive and Unarchive got their §3
+    /// confirmation in task 9a and no longer carry this. Until then Rename
+    /// stays visible (silently omitting it is baseline Finding 5) but must not
+    /// fire from a bare button, which is what an enabled control would do.
     SlotChangesUnavailable,
     /// No portable transfer adapter is installed.
     TransferUnavailable,
@@ -187,7 +198,7 @@ impl LibraryDisabledReason {
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
             Self::LibraryClientUnavailable => "Opening saved galaxies is not available yet.",
-            Self::SlotChangesUnavailable => "Renaming and archiving saves is not available yet.",
+            Self::SlotChangesUnavailable => "Renaming saves is not available yet.",
             Self::TransferUnavailable => "Portable file transfer is not available yet.",
             Self::WorkshopInactive => "Open a Workshop before exporting it.",
         }
@@ -470,9 +481,13 @@ pub struct LibraryUiContext<'a> {
     pub library_client_available: bool,
     /// Whether a portable transfer adapter is installed.
     pub transfer_available: bool,
-    /// Whether Rename, Archive and Unarchive have their confirmation route.
+    /// Whether Rename has its text-field route. Archive and Unarchive have
+    /// their confirmation since task 9a and no longer read this.
     /// See [`LibraryDisabledReason::SlotChangesUnavailable`].
     pub slot_changes_available: bool,
+    /// The confirmation the user opened, if any. Resolved against the rows:
+    /// one naming a save the list no longer holds builds no dialog.
+    pub confirmation: Option<LibraryConfirmationRequest>,
 }
 
 impl Default for LibraryUiContext<'_> {
@@ -486,6 +501,7 @@ impl Default for LibraryUiContext<'_> {
             library_client_available: false,
             transfer_available: false,
             slot_changes_available: false,
+            confirmation: None,
         }
     }
 }
@@ -501,6 +517,9 @@ pub struct LibraryUiModel {
     pub rows: Vec<LibraryRow>,
     pub actions: LibraryActionsModel,
     pub transfer: LibraryTransferModel,
+    /// The open confirmation dialog. Its controls are in [`Self::controls`]
+    /// and last in [`Self::focus_order`]; the frame traps focus on them.
+    pub confirmation: Option<LibraryConfirmationModel>,
     pub semantics: SemanticTree,
     controls: BTreeMap<SemanticActionId, LibraryControl>,
     focus_order: Vec<SemanticActionId>,
@@ -519,6 +538,9 @@ impl LibraryUiModel {
         let transfer = build_transfer(context);
         let close_control = build_close();
         let refresh_control = build_refresh(&request);
+        let confirmation = context.confirmation.and_then(|request_to_confirm| {
+            confirmation::build_confirmation(request_to_confirm, &rows, lane_reason(&request))
+        });
 
         let mut controls = BTreeMap::new();
         let mut focus_order = Vec::new();
@@ -534,6 +556,9 @@ impl LibraryUiModel {
         ordered.extend(rows.iter().map(|row| &row.control));
         ordered.extend(actions.controls());
         ordered.extend(transfer.controls());
+        if let Some(confirmation) = &confirmation {
+            ordered.extend(confirmation.controls());
+        }
         for control in ordered {
             let previous = controls.insert(control.action_id.clone(), control.clone());
             // A collision is a bug, never input: the ids are hand-named
@@ -563,6 +588,14 @@ impl LibraryUiModel {
             &actions,
             &transfer,
         );
+        // A direct child of the root: `modal_dialog` and the frame both look
+        // for the dialog there.
+        let mut semantics = semantics;
+        semantics.root.children.extend(
+            confirmation.as_ref().map(|confirmation| {
+                confirmation::confirmation_node(confirmation, semantic_control)
+            }),
+        );
 
         Self {
             close_control,
@@ -572,6 +605,7 @@ impl LibraryUiModel {
             rows,
             actions,
             transfer,
+            confirmation,
             semantics,
             controls,
             focus_order,
@@ -892,7 +926,7 @@ fn build_actions(
                 "Move this saved galaxy to the archived section. Clears Continue if it was selected.",
                 false,
                 LibraryUiIntent::ArchiveSlot { slot: subject },
-                &[no_selection, resident, lane, changes],
+                &[no_selection, resident, lane],
             )
         } else {
             LibraryControl::gated(
@@ -901,7 +935,7 @@ fn build_actions(
                 "Return this saved galaxy to the active section. Does not open it or restore Continue.",
                 false,
                 LibraryUiIntent::UnarchiveSlot { slot: subject },
-                &[no_selection, lane, changes],
+                &[no_selection, lane],
             )
         },
         use_for_continue: LibraryControl::gated(

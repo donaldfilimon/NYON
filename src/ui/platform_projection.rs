@@ -141,7 +141,13 @@ pub(crate) fn modal_presentation(
         bounds.min.x + 12.0,
         bounds.min.y + 8.0 + title_height,
         width - 24.0,
-        height - fixed_height - if scrolling { 48.0 } else { 0.0 },
+        // A body that does not scroll holds exactly its rows. Rows are stacked
+        // by accumulating heights from `body.min.y`, which rounds differently
+        // from `min.y + sum`, so without slack the last row can miss the strict
+        // `contains_rect` by a rounding error and be dropped without a trace:
+        // measured at 723x802 and 1.15, where a Library confirmation lost the
+        // sentence saying Continue would be cleared.
+        height - fixed_height + if scrolling { -48.0 } else { 0.01 },
     );
     Some(ModalPresentation {
         bounds,
@@ -359,22 +365,48 @@ pub(crate) fn build_source_records(
         materialize_rows(tree, &summary.rows, summary.body, start, &mut records);
     }
     if let Some((content, start)) = modal_content {
-        for row in &content.rows {
-            set_materialized(&mut tree.root, row.id.as_str(), false);
-        }
-        let title = PlatformRect::from_xywh(
-            content.bounds.min.x + 12.0,
-            content.bounds.min.y + 8.0,
-            content.bounds.width() - 24.0,
-            18.0 * layout.ui_scale * 1.35,
-        );
-        materialize(tree, content.title_id.as_str(), title, title, &mut records);
-        if let Some(record) = records.last_mut() {
-            record.overflow = PlatformTextOverflow::SingleLineEllipsis;
-        }
-        materialize_rows(tree, &content.rows, content.body, start, &mut records);
+        materialize_modal(tree, layout.ui_scale, content, start, &mut records);
     }
     records
+}
+
+/// Places a dialog's title and the body rows visible from `start`.
+///
+/// The title node (`content.title_id`) must already be in the dialog; each
+/// screen adds it where it adds its other dialog chrome.
+pub(crate) fn materialize_modal(
+    tree: &mut SemanticTree,
+    scale: f32,
+    content: &ModalPresentation,
+    start: usize,
+    records: &mut Vec<PlatformVisibleNodeRecord>,
+) {
+    for row in &content.rows {
+        set_materialized(&mut tree.root, row.id.as_str(), false);
+    }
+    let title = PlatformRect::from_xywh(
+        content.bounds.min.x + 12.0,
+        content.bounds.min.y + 8.0,
+        content.bounds.width() - 24.0,
+        18.0 * scale * 1.35,
+    );
+    materialize(tree, content.title_id.as_str(), title, title, records);
+    if let Some(record) = records.last_mut() {
+        record.overflow = PlatformTextOverflow::SingleLineEllipsis;
+    }
+    materialize_rows(tree, &content.rows, content.body, start, records);
+}
+
+/// A dialog footer button: the dismissal on the left, the affirmative action
+/// on the right, each half the footer wide.
+pub(crate) fn modal_footer_bounds(content: &ModalPresentation, right: bool) -> PlatformRect {
+    let width = (content.bounds.width() - 32.0) * 0.5;
+    PlatformRect::from_xywh(
+        content.bounds.min.x + 12.0 + if right { width + 8.0 } else { 0.0 },
+        content.bounds.max.y - content.footer_height - 8.0,
+        width,
+        content.footer_height,
+    )
 }
 
 /// Makes existing text nodes visible, wrapped, stacked from the top of `body`.

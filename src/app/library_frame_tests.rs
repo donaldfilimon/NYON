@@ -117,16 +117,17 @@ fn selecting_a_row_is_client_state_and_enables_nothing_the_store_cannot_serve() 
         "the model did not pick up the selection"
     );
 
-    // With a row selected, every action exists, and the three that would
-    // mutate or open still refuse: their capability flags are off.
+    // With a row selected, every action exists, and the ones that would
+    // mutate or open without a route still refuse: their capability flags are
+    // off. Archive is live since task 9a, but only opens a confirmation.
+    assert!(control_enabled(&app, "library.action.archive"));
     for id in [
         "library.action.open",
         "library.action.rename",
-        "library.action.archive",
         "library.action.use-for-continue",
         "library.action.export",
     ] {
-        assert!(!control_enabled(&app, id), "{id} is live in slice 1");
+        assert!(!control_enabled(&app, id), "{id} is live without a route");
         app.activate_platform_action_id(&SemanticActionId::new(id), InputModality::Keyboard);
         assert_eq!(
             app.runtime.screen(),
@@ -444,4 +445,149 @@ fn in_a_docked_layout_selecting_a_row_opens_no_sheet() {
     assert!(frame.drawer.is_none());
     assert!(has_control(&app, &format!("library.slot.{}", slot.0)));
     assert!(!has_control(&app, "library.sheet.close"));
+}
+
+/// Runs the runtime until the slot-request lane is idle again, bounded.
+fn settle(app: &mut TestApp) {
+    for _ in 0..8 {
+        if app.runtime.library_slots_status() == LibrarySlotsStatus::Idle
+            && app.runtime.library_slots().is_some()
+        {
+            break;
+        }
+        app.runtime.update(std::time::Duration::ZERO);
+    }
+    app.build_frame();
+}
+
+fn archived(app: &TestApp, slot: SlotId) -> bool {
+    app.runtime
+        .library_slots()
+        .unwrap()
+        .slots
+        .iter()
+        .find(|summary| summary.id == slot)
+        .unwrap()
+        .archived
+}
+
+fn select(app: &mut TestApp, slot: SlotId) {
+    let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
+    app.activate_platform_action_id(&row, InputModality::Pointer);
+    app.build_frame();
+}
+
+/// Task 9a, addendum §3: Archive asks first, Cancel changes nothing, and the
+/// confirmed change reaches the store and comes back as Unarchive under the
+/// same identifier, which is where focus returns.
+#[test]
+fn archive_asks_first_and_only_the_confirmed_change_reaches_the_store() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    let archive = SemanticActionId::new("library.action.archive");
+    let cancel = SemanticActionId::new(crate::ui::library::LIBRARY_CONFIRM_CANCEL_ACTION);
+    let submit = SemanticActionId::new(crate::ui::library::LIBRARY_CONFIRM_SUBMIT_ACTION);
+
+    for (answer, changes) in [(cancel.clone(), false), (submit.clone(), true)] {
+        assert!(app.ui_focus.request_focus(&archive));
+        app.activate_platform_action_id(&archive, InputModality::Keyboard);
+        assert_eq!(
+            app.runtime.library_slots_status(),
+            LibrarySlotsStatus::Idle,
+            "Archive reached the store before it was confirmed"
+        );
+        app.build_frame();
+        let frame = app.platform_ui.as_ref().unwrap();
+        assert!(frame.modal.is_some(), "no confirmation");
+        assert!(app.ui_focus.modal_is_open());
+        assert_eq!(
+            app.ui_focus.focused(),
+            Some(&cancel),
+            "focus not in the dialog"
+        );
+        assert!(
+            !control_enabled(&app, "library.close"),
+            "the screen behind the dialog is live"
+        );
+
+        app.activate_platform_action_id(&answer, InputModality::Keyboard);
+        assert!(
+            app.library_confirmation.is_none(),
+            "{answer:?} left it open"
+        );
+        assert!(!app.ui_focus.modal_is_open());
+        settle(&mut app);
+        assert_eq!(archived(&app, slot), changes, "after {answer:?}");
+        assert!(app.platform_ui.as_ref().unwrap().modal.is_none());
+        assert_eq!(app.ui_focus.focused(), Some(&archive), "after {answer:?}");
+    }
+    let unarchive = app
+        .platform_ui
+        .as_ref()
+        .unwrap()
+        .controls
+        .iter()
+        .find(|control| control.action_id == archive)
+        .unwrap();
+    assert_eq!(unarchive.label, "Unarchive");
+
+    // And back: Unarchive also asks, and restores the row.
+    app.activate_platform_action_id(&archive, InputModality::Pointer);
+    app.build_frame();
+    assert!(app.platform_ui.as_ref().unwrap().modal.is_some());
+    app.activate_platform_action_id(&submit, InputModality::Pointer);
+    settle(&mut app);
+    assert!(!archived(&app, slot));
+}
+
+/// A confirm the runtime refuses leaves the dialog open, so the user is not
+/// told by a vanished dialog that something happened. Leaving the Library, or
+/// a save that drops out of the list, closes it together with its trap.
+#[test]
+fn a_refused_confirmation_stays_open_and_leaving_closes_it() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    let request = crate::ui::library::LibraryConfirmationRequest {
+        kind: crate::ui::library::LibraryConfirmationKind::Archive,
+        slot,
+    };
+    app.apply_library_intent(LibraryUiIntent::ArchiveSlot { slot });
+    app.build_frame();
+    // Occupy the one lane behind the dialog's back, then confirm.
+    app.runtime.refresh_library_slots().unwrap();
+    app.apply_library_intent(LibraryUiIntent::SubmitConfirmation(request));
+    assert_eq!(
+        app.library_confirmation,
+        Some(request),
+        "a refusal closed it"
+    );
+    assert!(app.ui_focus.modal_is_open());
+    settle(&mut app);
+    assert!(!archived(&app, slot));
+
+    // A stale request (not the open one) is ignored and closes nothing.
+    let stale = crate::ui::library::LibraryConfirmationRequest {
+        kind: crate::ui::library::LibraryConfirmationKind::Unarchive,
+        slot,
+    };
+    app.apply_library_intent(LibraryUiIntent::SubmitConfirmation(stale));
+    assert_eq!(app.library_confirmation, Some(request));
+
+    app.runtime.close_library();
+    app.build_frame();
+    assert!(app.library_confirmation.is_none());
+    assert!(
+        !app.ui_focus.modal_is_open(),
+        "the trap outlived the Library"
+    );
+
+    // A request naming a save the list no longer holds closes on the next frame.
+    app.runtime.open_library().unwrap();
+    settle(&mut app);
+    app.apply_library_intent(LibraryUiIntent::ArchiveSlot { slot: SlotId(999) });
+    assert!(app.ui_focus.modal_is_open());
+    app.build_frame();
+    assert!(app.library_confirmation.is_none());
+    assert!(!app.ui_focus.modal_is_open());
+    assert!(app.platform_ui.as_ref().unwrap().modal.is_none());
 }

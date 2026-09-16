@@ -1,11 +1,11 @@
-//! The Library platform frame: route-design task 8, slice 1.
+//! The Library platform frame: route-design task 8 and the task 9 dialogs.
 //!
 //! `workshop_ui_library` pins the model. This suite pins what the platform
 //! layer does with it: that every frame survives the real SDF batch, that every
 //! placed control is at least 44 by 44 and reachable by both pointer and
-//! keyboard, and that the two deliberate slice-1 gaps -- Compact's unplaced
-//! actions and transfer controls, and rows past the canvas -- are exactly what
-//! is missing and nothing more.
+//! keyboard, that the Compact sheet, row paging and the docked strip place what
+//! they must, and that a confirmation dialog fits, traps focus and disables
+//! everything behind it.
 
 mod common;
 
@@ -18,7 +18,10 @@ use nyon::{
     ui::{
         AtlasMetrics, UiBatch,
         accessibility::SemanticActionId,
-        library::{LibrarySection, LibraryUiContext, LibraryUiModel},
+        library::{
+            LibraryConfirmationKind, LibraryConfirmationRequest, LibrarySection, LibraryUiContext,
+            LibraryUiModel, library_confirmation_order,
+        },
         platform::*,
         workshop_layout::{WorkshopLayout, WorkshopLayoutMode},
     },
@@ -62,7 +65,11 @@ fn crowded_list() -> SlotList {
 /// The busiest shape the model produces: a selected row, a resident slot, an
 /// active Workshop, and a failed request so Retry and Cancel both appear.
 fn crowded_model(list: &SlotList) -> LibraryUiModel {
-    LibraryUiModel::build(LibraryUiContext {
+    LibraryUiModel::build(crowded_context(list))
+}
+
+fn crowded_context(list: &SlotList) -> LibraryUiContext<'_> {
+    LibraryUiContext {
         slots: Some(list),
         status: LibrarySlotsStatus::Failed {
             kind: SlotRequestKind::Rename,
@@ -73,7 +80,7 @@ fn crowded_model(list: &SlotList) -> LibraryUiModel {
         resident_slot: Some(SlotId(4)),
         workshop_active: true,
         ..LibraryUiContext::default()
-    })
+    }
 }
 
 /// The SDF qualification matrix plus the 320 floor and 1440x900, each of the
@@ -386,6 +393,86 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
                 .all(|id| !placed.contains(*id)),
             "{viewport} at {scale}: rows were placed with a gap"
         );
+    }
+}
+
+/// Every confirmation fits and owns the frame, at every matrix point, with or
+/// without the Compact sheet under it.
+///
+/// The body must show in full without paging: the Workshop's modal paging
+/// controls are Workshop view actions, so a Library dialog that needed them
+/// would have no way to reach its own text. The crowded fixture's 64-byte
+/// names are the widest body this dialog can hold.
+#[test]
+fn every_library_dialog_fits_without_paging_and_owns_the_frame() {
+    let list = crowded_list();
+    let dialogs = [
+        // Slot 0 is the Continue save: the longest Archive sentence.
+        (LibraryConfirmationKind::Archive, SlotId(0)),
+        (LibraryConfirmationKind::Unarchive, SlotId(2)),
+    ];
+    let order: Vec<SemanticActionId> = library_confirmation_order().to_vec();
+    for (kind, slot) in dialogs {
+        let model = LibraryUiModel::build(LibraryUiContext {
+            confirmation: Some(LibraryConfirmationRequest { kind, slot }),
+            ..crowded_context(&list)
+        });
+        let body = model
+            .confirmation
+            .as_ref()
+            .expect("dialog built")
+            .body
+            .clone();
+        for ((viewport, scale), sheet) in sheet_cases() {
+            let case = format!("{kind:?} at {viewport} {scale} {sheet:?}");
+            let frame = frame_with(&model, viewport, scale, view(sheet));
+            let modal = frame.modal.unwrap_or_else(|| panic!("{case}: no modal"));
+            let screen = PlatformRect::from_xywh(0.0, 0.0, viewport.x, viewport.y);
+            assert!(
+                screen.contains_rect(modal),
+                "{case}: modal leaves the screen"
+            );
+            install(&frame).unwrap_or_else(|error| panic!("{case}: refused: {error}"));
+            assert_eq!(
+                frame.logical_focus_order, order,
+                "{case}: focus not trapped"
+            );
+            for control in &frame.controls {
+                let id = control.action_id.as_str();
+                if order.contains(&control.action_id) {
+                    assert!(modal.contains_rect(control.bounds), "{case}: {id} outside");
+                    assert!(
+                        control.bounds.width() >= 44.0 && control.bounds.height() >= 44.0,
+                        "{case}: {id} is {:?}",
+                        control.bounds
+                    );
+                } else {
+                    assert!(!control.enabled, "{case}: {id} is live behind the dialog");
+                }
+            }
+            let shown: String = frame
+                .visible_nodes
+                .iter()
+                .filter(|record| record.semantic_id.as_str() == "library.confirm.body")
+                .flat_map(|record| record.prewrapped_lines.clone().unwrap_or_default())
+                .collect();
+            assert_eq!(shown, body, "{case}: the body was cut");
+            assert!(
+                frame.visible_nodes.iter().all(|record| record
+                    .semantic_id
+                    .as_str()
+                    .starts_with("library.confirm")
+                    || record
+                        .semantic_id
+                        .as_str()
+                        .starts_with("platform.library.confirm")
+                    || record
+                        .action_id
+                        .as_ref()
+                        .is_some_and(|id| order.contains(id))),
+                "{case}: text behind the dialog is still presented"
+            );
+        }
     }
 }
 

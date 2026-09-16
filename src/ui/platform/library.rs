@@ -50,9 +50,12 @@ use super::{
     PlatformBackground, PlatformControl, PlatformRect, PlatformUiAction, PlatformUiFrame,
     apply_platform_control_geometry,
 };
-use crate::ui::accessibility::{SemanticActionId, SemanticNode, SemanticNodeId};
+use crate::ui::accessibility::{SemanticActionId, SemanticNode, SemanticNodeId, SemanticRole};
 use crate::ui::library::{LibraryControl, LibrarySection, LibraryUiModel};
-use crate::ui::platform_projection::materialize_text_block;
+use crate::ui::platform_projection::{
+    materialize_modal, materialize_text_block, modal_action_ids, modal_footer_bounds,
+    modal_presentation,
+};
 use crate::ui::workshop_layout::{WorkshopLayout, WorkshopLayoutMode};
 
 /// Logical gap between controls and from region edges.
@@ -329,6 +332,23 @@ pub fn build_library_platform_frame(
         );
     }
 
+    // The confirmation (task 9) sits over whatever the frame placed. Its body
+    // must fit without paging: the Workshop's paging controls are Workshop
+    // view actions, and `every_library_dialog_fits_without_paging` holds the
+    // Library to that across the matrix.
+    let modal_content = modal_presentation(&model.semantics, &layout);
+    if let (Some(content), Some(confirmation)) = (&modal_content, &model.confirmation) {
+        debug_assert!(!content.scrolling, "a Library dialog needs paging");
+        placed.push((
+            &confirmation.cancel_control,
+            modal_footer_bounds(content, false),
+        ));
+        placed.push((
+            &confirmation.submit_control,
+            modal_footer_bounds(content, true),
+        ));
+    }
+
     view_controls.extend(pager.iter().copied());
     let pager_controls: Vec<PlatformControl> = view_controls
         .iter()
@@ -383,7 +403,31 @@ pub fn build_library_platform_frame(
         })
         .map(|row| row.control.action_id.clone());
     controls.extend(pager_controls);
+    let modal_actions = modal_action_ids(&model.semantics);
+    if let Some(actions) = &modal_actions {
+        for control in &mut controls {
+            if !actions.contains(&control.action_id) {
+                control.enabled = false;
+            }
+        }
+    }
     apply_platform_control_geometry(&mut semantics, &mut controls);
+    if let Some(content) = &modal_content {
+        if let Some(dialog) = semantics
+            .root
+            .children
+            .iter_mut()
+            .find(|node| node.role == SemanticRole::Dialog)
+        {
+            dialog.children.push(SemanticNode::text(
+                content.title_id.as_str(),
+                SemanticRole::Heading,
+                &content.title,
+                "",
+            ));
+        }
+        materialize_modal(&mut semantics, scale, content, 0, &mut records);
+    }
 
     // The model's order, restricted to what this frame placed, with the
     // view controls inserted where a keyboard user expects them: Transfer
@@ -432,12 +476,16 @@ pub fn build_library_platform_frame(
         logical_focus_order.push(LibraryViewAction::CloseSheet.action_id());
     }
 
+    if let Some(actions) = modal_actions {
+        logical_focus_order = actions;
+    }
+
     let mut frame = PlatformUiFrame {
         viewport: glam::Vec2::new(layout.viewport.width(), layout.viewport.height()),
         layout,
         background: PlatformBackground::Full,
         drawer: sheet,
-        modal: None,
+        modal: modal_content.as_ref().map(|content| content.bounds),
         controls,
         logical_focus_order,
         semantics,

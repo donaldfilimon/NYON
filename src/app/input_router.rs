@@ -243,6 +243,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             self.close_workshop_modal_focus();
             return;
         }
+        if self.library_confirmation.is_some() {
+            self.close_library_confirmation();
+            return;
+        }
         if self.runtime.screen() == ClientScreen::GalaxyWorkshop
             && self.workshop_view.open_drawer.is_some()
         {
@@ -647,6 +651,45 @@ mod tests {
         }
 
         // With no sheet open, Escape leaves as before.
+        app.handle_navigation(NavigationAction::Escape);
+        assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
+    }
+
+    /// Escape unwinds one layer at a time: the confirmation, then the sheet it
+    /// was opened from, then the Library.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn escape_closes_a_library_confirmation_before_its_sheet() {
+        use crate::app::library_frame_tests::library_app;
+        use crate::ui::accessibility::SemanticActionId;
+        let (mut app, slot) = library_app();
+        app.runtime
+            .classic_mut()
+            .set_viewport(Vec2::new(723.0, 802.0));
+        app.build_frame();
+        let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
+        let archive = SemanticActionId::new("library.action.archive");
+        app.activate_platform_action_id(&row, InputModality::Pointer);
+        app.build_frame();
+        assert!(app.ui_focus.request_focus(&archive));
+        app.activate_platform_action_id(&archive, InputModality::Keyboard);
+        app.build_frame();
+        assert!(app.platform_ui.as_ref().unwrap().modal.is_some());
+
+        app.handle_navigation(NavigationAction::Escape);
+        app.build_frame();
+        let frame = app.platform_ui.as_ref().unwrap();
+        assert!(frame.modal.is_none(), "Escape left the dialog open");
+        assert!(
+            frame.drawer.is_some(),
+            "Escape closed the sheet with the dialog"
+        );
+        assert_eq!(app.ui_focus.focused(), Some(&archive));
+
+        app.handle_navigation(NavigationAction::Escape);
+        app.build_frame();
+        assert!(app.platform_ui.as_ref().unwrap().drawer.is_none());
+        assert_eq!(app.runtime.screen(), ClientScreen::Library);
         app.handle_navigation(NavigationAction::Escape);
         assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
     }

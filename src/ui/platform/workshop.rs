@@ -14,7 +14,7 @@ use crate::ui::accessibility::SemanticRole;
 use crate::ui::platform_inspector::apply_platform_sighted_text_geometry;
 use crate::ui::platform_inspector::build_inspector_sighted_text;
 use crate::ui::platform_projection::build_source_records;
-use crate::ui::platform_projection::{modal_action_ids, modal_presentation};
+use crate::ui::platform_projection::{modal_action_ids, modal_footer_bounds, modal_presentation};
 use crate::ui::workshop::WorkshopUiModel;
 use crate::ui::workshop::{CREATOR_SUBMIT_ACTION, REMOVAL_CONFIRM_ACTION, WorkshopControl};
 use crate::ui::workshop_layout::WorkshopLayout;
@@ -624,13 +624,7 @@ pub fn build_workshop_platform_frame_for_view(
                     control.action_id.as_str(),
                     CREATOR_SUBMIT_ACTION | REMOVAL_CONFIRM_ACTION
                 );
-                let width = (content.bounds.width() - 32.0) * 0.5;
-                control.bounds = PlatformRect::from_xywh(
-                    content.bounds.min.x + 12.0 + if right { width + 8.0 } else { 0.0 },
-                    content.bounds.max.y - content.footer_height - 8.0,
-                    width,
-                    content.footer_height,
-                );
+                control.bounds = modal_footer_bounds(content, right);
             }
         }
         let dialog = semantics

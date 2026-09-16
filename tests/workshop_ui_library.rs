@@ -19,8 +19,9 @@ use nyon::{
     ui::{
         accessibility::{InputModality, SemanticActionId, SemanticRole},
         library::{
-            LibraryContent, LibraryControl, LibraryDisabledReason, LibrarySection,
-            LibraryUiContext, LibraryUiIntent, LibraryUiModel,
+            LibraryConfirmationKind, LibraryConfirmationRequest, LibraryContent, LibraryControl,
+            LibraryDisabledReason, LibrarySection, LibraryUiContext, LibraryUiIntent,
+            LibraryUiModel, library_confirmation_order,
         },
     },
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotName, SlotSummary},
@@ -241,7 +242,9 @@ const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
         | LibraryUiIntent::ImportArchive
         | LibraryUiIntent::ImportPack
         | LibraryUiIntent::ExportActiveArchive
-        | LibraryUiIntent::ExportActivePack => false,
+        | LibraryUiIntent::ExportActivePack
+        | LibraryUiIntent::CancelConfirmation
+        | LibraryUiIntent::SubmitConfirmation(_) => false,
     }
 }
 
@@ -1124,6 +1127,7 @@ fn the_semantic_tree_validates_in_every_shape() {
             transfer_available: true,
             slot_changes_available: true,
             workshop_active: true,
+            confirmation: None,
             status: LibrarySlotsStatus::Failed {
                 kind: SlotRequestKind::Unarchive,
                 slot: Some(SlotId(2)),
@@ -1224,6 +1228,7 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
         resident_slot: None,
+        confirmation: None,
     });
     let generation = listed.slots[0].generation;
     let expected: Vec<(&str, LibraryUiIntent)> = vec![
@@ -1471,17 +1476,16 @@ fn a_colliding_action_id_is_loud_rather_than_silently_dropped() {
     });
 }
 
-/// Rename, Archive and Unarchive are visible and disabled until their
-/// confirmation route exists (route-design task 9).
+/// Rename is visible and disabled until its text-field route exists
+/// (route-design task 9b); Archive and Unarchive are live since task 9a,
+/// because their activation only opens the §3 confirmation.
 ///
-/// Addendum §3 requires explicit confirmation text for lifecycle actions,
-/// including whether Archive will clear Continue, so an enabled bare button
-/// would fire one without it. Omitting them instead is baseline Finding 5.
-/// The deferral ranks last, after the subject and the row's own facts, so a
-/// resident row still says it is resident rather than "not available yet" —
-/// the more specific truth wins, which is the documented precedence.
+/// Omitting Rename instead is baseline Finding 5. The deferral ranks last,
+/// after the subject and the row's own facts, so a resident row still says it
+/// is resident rather than "not available yet": the more specific truth wins,
+/// which is the documented precedence.
 #[test]
-fn slot_changes_are_visible_but_deferred_until_their_confirmation_route_exists() {
+fn rename_is_deferred_until_its_route_exists_and_archive_is_not() {
     let listed = list(vec![
         summary(1, "Andromeda", false),
         summary(2, "Bode", true),
@@ -1493,25 +1497,21 @@ fn slot_changes_are_visible_but_deferred_until_their_confirmation_route_exists()
             selected_slot: Some(selected),
             ..LibraryUiContext::default()
         });
-        for (action, label) in [
-            ("library.action.rename", "Rename"),
-            ("library.action.archive", archive_label),
-        ] {
-            let control = control(&built, action);
-            assert_eq!(control.label, label);
-            assert!(!control.enabled, "{action} fired from a bare button");
-            assert_eq!(
-                control.disabled_reason,
-                Some(LibraryDisabledReason::SlotChangesUnavailable),
-                "{action} must say why it is unavailable"
-            );
-            assert!(
-                built
-                    .activate(&control.action_id, InputModality::Pointer)
-                    .is_none(),
-                "{action} must hand out no intent"
-            );
-        }
+        let rename = control(&built, "library.action.rename");
+        assert!(!rename.enabled, "Rename fired from a bare button");
+        assert_eq!(
+            rename.disabled_reason,
+            Some(LibraryDisabledReason::SlotChangesUnavailable)
+        );
+        assert!(
+            built
+                .activate(&rename.action_id, InputModality::Pointer)
+                .is_none()
+        );
+        let archive = control(&built, "library.action.archive");
+        assert_eq!(archive.label, archive_label);
+        assert!(archive.enabled, "{archive_label} still waits on the flag");
+        assert_eq!(archive.disabled_reason, None);
     }
 
     let resident = model(LibraryUiContext {
@@ -1523,7 +1523,7 @@ fn slot_changes_are_visible_but_deferred_until_their_confirmation_route_exists()
     assert_eq!(
         control(&resident, "library.action.archive").disabled_reason,
         Some(LibraryDisabledReason::ResidentSlot),
-        "the row's own fact must outrank the capability deferral"
+        "the resident save must not be archivable"
     );
 
     let enabled = model(LibraryUiContext {
@@ -1533,5 +1533,144 @@ fn slot_changes_are_visible_but_deferred_until_their_confirmation_route_exists()
         ..LibraryUiContext::default()
     });
     assert!(control(&enabled, "library.action.rename").enabled);
-    assert!(control(&enabled, "library.action.archive").enabled);
+}
+
+fn confirm_model<'a>(
+    listed: &'a SlotList,
+    kind: LibraryConfirmationKind,
+    slot: u64,
+    tweak: impl FnOnce(&mut LibraryUiContext<'a>),
+) -> LibraryUiModel {
+    let mut context = LibraryUiContext {
+        slots: Some(listed),
+        selected_slot: Some(SlotId(slot)),
+        confirmation: Some(LibraryConfirmationRequest {
+            kind,
+            slot: SlotId(slot),
+        }),
+        ..LibraryUiContext::default()
+    };
+    tweak(&mut context);
+    model(context)
+}
+
+/// Addendum §3: the confirmation names the save and says whether Archive will
+/// clear Continue, and its confirm control submits exactly the change the text
+/// describes. The dialog is a direct child of the root, where the frame and
+/// `modal_dialog` look for it, and its two controls close the focus order.
+#[test]
+fn archive_and_unarchive_confirm_with_text_that_states_the_consequence() {
+    let mut continue_row = summary(1, "Andromeda", false);
+    continue_row.selected_for_continue = true;
+    let listed = list(vec![
+        continue_row,
+        summary(2, "Bode", true),
+        summary(3, "Cartwheel", false),
+    ]);
+    for (kind, slot, name, sentence, label, forbidden) in [
+        (
+            LibraryConfirmationKind::Archive,
+            1,
+            "Andromeda",
+            "Continue will be cleared",
+            "Archive",
+            "not affected",
+        ),
+        (
+            LibraryConfirmationKind::Archive,
+            3,
+            "Cartwheel",
+            "Continue is not affected",
+            "Archive",
+            "will be cleared",
+        ),
+        (
+            LibraryConfirmationKind::Unarchive,
+            2,
+            "Bode",
+            "does not become the Continue save",
+            "Unarchive",
+            "cleared",
+        ),
+    ] {
+        let built = confirm_model(&listed, kind, slot, |_| {});
+        let dialog = built.confirmation.as_ref().expect("no dialog");
+        assert!(dialog.body.contains(name), "{kind:?} body omits the name");
+        assert!(dialog.body.contains(sentence), "{kind:?}: {}", dialog.body);
+        assert!(
+            !dialog.body.contains(forbidden),
+            "{kind:?}: {}",
+            dialog.body
+        );
+        assert!(!dialog.title.contains(name), "the title must stay short");
+        let submit = control(&built, "library.confirm.submit");
+        assert_eq!(submit.label, label);
+        let request = LibraryConfirmationRequest {
+            kind,
+            slot: SlotId(slot),
+        };
+        assert_eq!(
+            built.activate(&submit.action_id, InputModality::Keyboard),
+            Some(LibraryUiIntent::SubmitConfirmation(request))
+        );
+        assert_eq!(
+            built.activate(
+                &SemanticActionId::new("library.confirm.cancel"),
+                InputModality::Keyboard
+            ),
+            Some(LibraryUiIntent::CancelConfirmation)
+        );
+        let node = built
+            .semantics
+            .root
+            .children
+            .iter()
+            .find(|node| node.role == SemanticRole::Dialog)
+            .expect("the dialog is not a child of the root");
+        assert_eq!(node.name, dialog.title);
+        assert_eq!(
+            built.focus_order()[built.focus_order().len() - 2..],
+            library_confirmation_order()
+        );
+    }
+
+    // The confirm control never offers what the runtime would refuse.
+    let resident = confirm_model(&listed, LibraryConfirmationKind::Archive, 3, |context| {
+        context.resident_slot = Some(SlotId(3));
+    });
+    assert_eq!(
+        control(&resident, "library.confirm.submit").disabled_reason,
+        Some(LibraryDisabledReason::ResidentSlot)
+    );
+    let busy = confirm_model(&listed, LibraryConfirmationKind::Unarchive, 2, |context| {
+        context.status = LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::List,
+            slot: None,
+        };
+    });
+    assert_eq!(
+        control(&busy, "library.confirm.submit").disabled_reason,
+        Some(LibraryDisabledReason::RequestInFlight)
+    );
+    assert!(control(&busy, "library.confirm.cancel").enabled);
+
+    // A request naming a save the list no longer holds builds no dialog.
+    let gone = confirm_model(&listed, LibraryConfirmationKind::Archive, 9, |_| {});
+    assert!(gone.confirmation.is_none());
+    assert!(
+        gone.semantics
+            .root
+            .children
+            .iter()
+            .all(|node| node.role != SemanticRole::Dialog)
+    );
+    let closed = model(LibraryUiContext {
+        slots: Some(&listed),
+        ..LibraryUiContext::default()
+    });
+    assert!(
+        closed
+            .controls()
+            .all(|control| !control.action_id.as_str().starts_with("library.confirm"))
+    );
 }

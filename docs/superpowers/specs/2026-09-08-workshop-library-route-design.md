@@ -197,6 +197,10 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
 8. `src/ui/platform/library.rs` and dispatch: docked panel, Compact sheet,
    transfer strip on the probe pattern.
 9. Library confirmations on the shared modal; rename via a text-input field.
+   **9a landed 2026-09-16:** Archive and Unarchive confirm in a dialog whose body
+   names the save and says whether Continue will be cleared. The body must fit
+   without paging (the Library has no dialog paging), which at 320x460 and 1.3
+   limits it to about seven lines, four of them a 64-byte name.
 10. In-Workshop entry control in both placements.
     **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
     MAIN-MENU entry control, and the addendum §2 requires main-menu entry.** Task 10 is
