@@ -669,11 +669,16 @@ pub fn build_workshop_platform_frame_for_view(
                     &mut controls,
                     action,
                     label,
+                    // 44px is the modal's minimum touch target (Task 0, `a27fc7f`). The
+                    // scrolling body reserves a 48px band for these; 40 under-used it and
+                    // was the one site that review deferred as unmeasured. Measured at
+                    // 108x40 by `modal_paging_controls_meet_the_44px_minimum…` before
+                    // this change.
                     PlatformRect::from_xywh(
                         x,
                         content.bounds.max.y - content.footer_height - 56.0,
                         108.0,
-                        40.0,
+                        44.0,
                     ),
                     focused,
                     false,

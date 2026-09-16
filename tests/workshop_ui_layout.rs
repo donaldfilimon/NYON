@@ -1293,3 +1293,111 @@ fn overflowing_redo_choices_are_reachable_by_pointer_alone() {
         );
     }
 }
+
+/// The scrolling modal's paging controls must meet the same 44px minimum as its footer.
+///
+/// Task 0 (`a27fc7f`) raised the modal's body rows and footer buttons to 44px. Its review
+/// deferred one site: the `Previous`/`Next` paging controls were still pushed at a literal
+/// `40.0`. Unlike the dialog's own buttons — which the modal path retains out and
+/// re-pushes at modal geometry, so their literals are dead — the paging controls are
+/// pushed *inside* the modal path, so their literal is live. It was left **unmeasured**
+/// because reaching it needs a modal that actually paginates.
+///
+/// This sweeps the same viewport/scale/context grid as the fixed-layout test and reads the
+/// controls' real bounds from the built frame. The final assertion is the guard: a sweep
+/// that never met a paginated modal would prove nothing, and this repository has logged
+/// six tests named for a property they never exercised.
+#[test]
+fn modal_paging_controls_meet_the_44px_minimum_when_the_modal_paginates() {
+    let mut paginated_frames = 0_usize;
+    let mut checked_controls = 0_usize;
+    for (viewport, scale) in [
+        Vec2::new(640.0, 480.0),
+        Vec2::new(723.0, 802.0),
+        Vec2::new(1_280.0, 720.0),
+        Vec2::new(1_440.0, 900.0),
+    ]
+    .into_iter()
+    .flat_map(|viewport| [0.85, 1.0, 1.15, 1.3].map(|scale| (viewport, scale)))
+    {
+        let layout = WorkshopLayout::resolve(viewport, scale).unwrap();
+        for context in [WorkshopUiContext {
+            pending_removal: Some(entity(2)),
+            ..WorkshopUiContext::default()
+        }]
+        .into_iter()
+        .chain(CreatorTool::ALL.map(|tool| WorkshopUiContext {
+            creator_form: Some(tool),
+            ..WorkshopUiContext::default()
+        })) {
+            let model = WorkshopUiModel::build(&snapshot(), context);
+            let frame = build_workshop_platform_frame_for_view(
+                &model,
+                layout.clone(),
+                &WorkshopViewState::default(),
+                None,
+            );
+            let paging = frame
+                .controls
+                .iter()
+                .filter(|control| {
+                    matches!(
+                        control.action_id.as_str(),
+                        "view.scroll-next" | "view.scroll-previous"
+                    )
+                })
+                .collect::<Vec<_>>();
+            if paging.is_empty() {
+                continue;
+            }
+            paginated_frames += 1;
+            let modal = frame
+                .modal
+                .expect("paging controls only exist inside a presented modal");
+            // Growing the control must not push it into the dialog's own footer buttons.
+            let footer = frame
+                .controls
+                .iter()
+                .filter(|control| {
+                    matches!(
+                        control.action_id.as_str(),
+                        "creator.cancel" | "creator.submit" | "remove.cancel" | "remove.confirm"
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                !footer.is_empty(),
+                "a presented modal always has footer buttons"
+            );
+            for control in paging {
+                for button in &footer {
+                    assert!(
+                        !control.bounds.overlaps(button.bounds),
+                        "{} overlaps {} at {viewport:?} scale {scale}",
+                        control.action_id,
+                        button.action_id
+                    );
+                }
+                checked_controls += 1;
+                assert!(
+                    control.bounds.height() >= 44.0 && control.bounds.width() >= 44.0,
+                    "{} is {}x{} at {viewport:?} scale {scale} form {:?}; the minimum is 44",
+                    control.action_id,
+                    control.bounds.width(),
+                    control.bounds.height(),
+                    model.creator_form.as_ref().map(|form| form.tool)
+                );
+                assert!(
+                    modal.contains_rect(control.bounds),
+                    "{} escaped the modal bounds at {viewport:?} scale {scale}",
+                    control.action_id
+                );
+            }
+        }
+    }
+    assert!(
+        paginated_frames > 0,
+        "no viewport/scale/context in the grid produced a paginated modal, so nothing above was measured"
+    );
+    assert!(checked_controls >= 2 * paginated_frames);
+}
