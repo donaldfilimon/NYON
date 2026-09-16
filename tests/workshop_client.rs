@@ -2288,3 +2288,131 @@ fn a_retained_failure_survives_closing_and_reopening_the_library() {
     settle_library(&mut runtime);
     assert_eq!(slot_named(&runtime, first), "Survives");
 }
+
+/// Answers the first Rename with a slot the user never activated, then refuses
+/// to start the Retry outright.
+///
+/// The two failures land under *different* diagnostic codes — `StoreProtocol`
+/// then `Store` — which is what makes the retained-code question observable at
+/// all. Every other double in this file fails under `Store` both times, so a
+/// stale code overwriting a fresh one would look identical to the correct
+/// behaviour.
+struct ProtocolThenRejectStore {
+    inner: MemoryWorkshopStore,
+    answered_wrong: bool,
+    rejected_retry: bool,
+    wrong_slot: SlotId,
+    pending: Option<(StoreJobId, StoreJobState)>,
+}
+
+impl ProtocolThenRejectStore {
+    fn new(inner: MemoryWorkshopStore, wrong_slot: SlotId) -> Self {
+        Self {
+            inner,
+            answered_wrong: false,
+            rejected_retry: false,
+            wrong_slot,
+            pending: None,
+        }
+    }
+}
+
+impl WorkshopStore for ProtocolThenRejectStore {
+    fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
+        if matches!(request, WorkshopStoreRequest::RenameSlot { .. }) {
+            if !self.answered_wrong {
+                self.answered_wrong = true;
+                let job = StoreJobId(u64::MAX);
+                self.pending = Some((
+                    job,
+                    StoreJobState::Complete(Ok(WorkshopStoreResult::SlotRenamed {
+                        slot: self.wrong_slot,
+                    })),
+                ));
+                return Ok(job);
+            }
+            if !self.rejected_retry {
+                self.rejected_retry = true;
+                return Err(WorkshopStoreError::CorruptManifest);
+            }
+        }
+        self.inner.start(request)
+    }
+
+    fn abandon(&mut self, job: StoreJobId) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            self.pending = None;
+            return true;
+        }
+        self.inner.abandon(job)
+    }
+
+    fn poll(&mut self, job: StoreJobId) -> StoreJobState {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.0 == job)
+        {
+            let (_, state) = self
+                .pending
+                .take()
+                .expect("the pending job was just matched");
+            return state;
+        }
+        self.inner.poll(job)
+    }
+}
+
+#[test]
+fn a_refused_retry_reports_its_own_failure_rather_than_the_one_it_replaced() {
+    // `retry_library_slot_request` restores the retained request only when the
+    // dispatch left the machine `Idle`. A dispatch that failed by retaining a
+    // failure of its *own* is not Idle, so the restore is skipped and the newer
+    // code survives. Without that guard the Library would answer "why did this
+    // fail?" with the reason the *previous* attempt failed, which is the one
+    // thing a Retry button must never do.
+    let (inner, first, second) = two_slot_store();
+    let mut runtime = ClientRuntime::new(classic(), ProtocolThenRejectStore::new(inner, second));
+    runtime.open_library().unwrap();
+    settle_library(&mut runtime);
+
+    // Attempt 1 fails as a protocol violation: the store renamed another row.
+    runtime
+        .rename_library_slot(first, SlotName::new("Recoded").unwrap())
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Rename,
+            slot: Some(first),
+            code: ClientDiagnosticCode::StoreProtocol,
+        }
+    );
+
+    // Attempt 2 is refused by the store before a job exists, which is an
+    // ordinary storage failure and retains itself under `Store`.
+    assert!(matches!(
+        runtime.retry_library_slot_request(),
+        Err(ClientRuntimeError::Store(_))
+    ));
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Rename,
+            slot: Some(first),
+            code: ClientDiagnosticCode::Store,
+        },
+        "the retained StoreProtocol code must not overwrite this attempt's own"
+    );
+
+    // Replacing the code must not have cost the pending decision: the same
+    // request is still retryable, and Cancel still clears it.
+    runtime.retry_library_slot_request().unwrap();
+    settle_library(&mut runtime);
+    assert_eq!(slot_named(&runtime, first), "Recoded");
+}
