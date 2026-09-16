@@ -118,6 +118,20 @@ pub enum LibraryDisabledReason {
     /// The row is archived and must be unarchived first. §3.
     ArchivedSlot,
     /// The row is already the selected Continue target.
+    ///
+    /// **Correct only because of a store invariant this model does not
+    /// enforce** (task 7 review F12). Addendum §4 requires `CommitSlot` and
+    /// `PromoteRecoveredSlot` to clear `selected_continue` atomically when they
+    /// name the marked slot, so a set marker always names the current head and
+    /// re-selecting it would be a no-op compare-and-swap. If that atomic clear
+    /// were ever relaxed, this would strand a stale marker the user cannot
+    /// re-select past, and no test here would fail.
+    ///
+    /// Read from `SlotSummary::selected_for_continue`, not
+    /// `SlotList::selected_continue`: the two represent one fact, and the test
+    /// fixtures derive the second from the first, so no fixture can make them
+    /// disagree. Anything that starts reading `selected_continue` should not
+    /// assume they are checked against each other.
     AlreadyContinue,
     /// The single slot-request lane is occupied by a request in flight.
     RequestInFlight,
@@ -506,10 +520,21 @@ impl LibraryUiModel {
         ordered.extend(actions.controls());
         ordered.extend(transfer.controls());
         for control in ordered {
-            if controls
-                .insert(control.action_id.clone(), control.clone())
-                .is_none()
-            {
+            let previous = controls.insert(control.action_id.clone(), control.clone());
+            // A collision is a bug, never input: the ids are hand-named
+            // constants plus `library.slot.{SlotId}`, so two controls sharing
+            // one means two constants were given the same name or an adapter
+            // minted a duplicate slot id. Silently absorbing it cost one control
+            // its focus slot while `activate` resolved to the other, and no
+            // count-based test could see it (task 7 review F10). Loud in debug;
+            // release keeps the old drop rather than pushing a slot for a
+            // control the map no longer holds.
+            debug_assert!(
+                previous.is_none(),
+                "duplicate Library action id: {}",
+                control.action_id.as_str()
+            );
+            if previous.is_none() {
                 focus_order.push(control.action_id.clone());
             }
         }

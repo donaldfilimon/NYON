@@ -135,6 +135,9 @@ But the test named for it does not check it. See F1.
 
 ## Findings
 
+**Status update, 2026-09-16.** This file carried twelve findings marked open for a week after `0dc00ae` had closed nine of them, because only `2773bd5` ever touched it. Each status below was re-verified against source and tests rather than copied from that commit's message.
+
+
 ### F1 — P2 — Contract 3 has no discriminating witness, and the commit message says it does
 
 `tests/workshop_ui_library.rs:227–247`, assertion at `:246`.
@@ -167,7 +170,7 @@ test checks.
 that adding a variant fails to compile rather than passing silently. Correct the
 commit-message claim in the task-7 ledger entry rather than leaving it standing.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* `leaves_screen` is an exhaustive match with no wildcard arm, and `a_store_failure_offers_no_intent_that_leaves_the_screen` now asserts leaving-iff-Close per control.
 
 ### F2 — P2 — The Archive direction is unwitnessed, which is the one thing the shared identifier depends on
 
@@ -203,7 +206,7 @@ Some(&LibraryUiIntent::ArchiveSlot { slot })` in the active-row case, beside the
 existing archived-row assertion. Ideally in the same test, so the two directions
 are read together.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* `ArchiveSlot` is now named by the suite, and both Archive directions are read together in one test.
 
 ### F3 — P2 — `NotListed` under `Failed { List }` tells the user to press a disabled control
 
@@ -242,7 +245,7 @@ the other, and rarer, `NotListed` cause.
 `None`+`Failed{List}` case to the content suite either way; it is the first-run
 failure path.
 
-*Status: open.*
+*Status: closed by `0dc00ae`, and the defect was wider than reported.* `content_message` takes the lane reason, and all three `NotListed` arms (resting, in flight, failed) are pinned.
 
 ### F4 — P3 — The §6 docstring has one omission, one misattribution, and one thing this model does not represent at all
 
@@ -282,7 +285,7 @@ directions, one of them an over-inclusion rather than an omission.
 disposition (gate here / gate in `build_transfer` / not applicable, §4 / not
 modelled yet, task 9), and put a matching two-line note on `build_transfer`.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* The §6 docstring is restated as §6's own four items with a disposition each.
 
 ### F5 — P3 — Permitting Export of an archived row is an unpinned decision
 
@@ -301,7 +304,7 @@ which would silently remove the only way to get bytes out of an archived save.
 `assert!(built.actions.export.enabled)` — turns a silent reading of the spec into
 a pinned one.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* Archived Export stays enabled and is asserted: §3 forbids opening an archived save, not reading it.
 
 ### F6 — P3 — Six of fifteen intent variants are never named by the suite
 
@@ -318,7 +321,7 @@ transfer strip's three remaining intents are three more untested payloads.
 control in a fully-enabled shape. It costs about fifteen lines and closes F1,
 F2, F5 and this finding at once.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* `every_control_submits_its_own_intent_in_a_fully_enabled_shape` pins every control's payload.
 
 ### F7 — P3 — Transfer-strip reason precedence is unpinned
 
@@ -342,7 +345,7 @@ actually sees.
 *Suggestion:* add `(workshop_active: false, transfer_available: false)` to the
 existing loop and assert `WorkshopInactive` wins.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* Precedence is observable in the no-session, no-adapter shape and documented on the test.
 
 ### F8 — P4 — `Debug` on `LibraryControl` prints the private `intent`
 
@@ -370,7 +373,7 @@ save into any log or panic message.
 *Suggestion:* hand-write `Debug` to render `intent` as `<disabled>` when
 `!enabled`, or omit the field.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* A hand-written `Debug` renders a disabled control's intent as `<disabled>`, asserted by the suite.
 
 ### F9 — P4 — `controls()` iterates lexicographically, not in focus order, and says so nowhere
 
@@ -385,7 +388,7 @@ existing tests cannot see, because both current consumers look controls up by id
 *Suggestion:* one line on `controls()`: lookup set, unspecified order, use
 `focus_order()` for presentation.
 
-*Status: open.*
+*Status: closed by `0dc00ae`.* `controls()` now documents lexicographic order and points at `focus_order` for traversal.
 
 ### F10 — P4 — `build` silently deduplicates colliding action ids
 
@@ -404,7 +407,7 @@ Task 8 adding a control is exactly when that stops being reliable.
 *Suggestion:* `debug_assert!(controls.insert(...).is_none(), "duplicate Library
 action id: {}", control.action_id)`.
 
-*Status: open.*
+*Status: closed on 2026-09-16 by the commit that adds `a_colliding_action_id_is_loud_rather_than_silently_dropped`.* A `debug_assert!` in `build`, witnessed by a `#[should_panic]` test with two rows sharing a `SlotId`; deleting the assertion reports "did not panic". **Deliberately not the one-liner suggested above:** `debug_assert!(controls.insert(..).is_none())` consumes the return value, so the push would have to become unconditional, and a release-build collision would then leave `focus_order` longer than `controls()`, which is worse than the silent drop. The insert result is bound first, asserted, then used, so release behaviour is unchanged.
 
 ### F11 — P4 — Every control is cloned into the lookup map
 
@@ -418,7 +421,7 @@ per frame. Correct, and small at fifteen controls plus sixteen rows, but the map
 could hold indices or `&`-free `SemanticActionId` keys pointing at the owned
 controls instead. Noting it because the model is on the per-frame path.
 
-*Status: open, non-blocking.*
+*Status: open, non-blocking.* Unchanged on 2026-09-16.
 
 ### F12 — P4 — `AlreadyContinue` inherits a store invariant that nothing here records, and `SlotList::selected_continue` is never read
 
@@ -450,7 +453,7 @@ Two residuals worth a note rather than a change:
   can make them disagree. Not a defect; worth knowing before task 8 reads
   `selected_continue`.
 
-*Status: open, documentation only.*
+*Status: closed on 2026-09-16, documentation only, in the same commit as F10.* Both residuals are now recorded on `LibraryDisabledReason::AlreadyContinue` itself: the inherited §4 atomic-clear invariant, and that the model reads `selected_for_continue` rather than `selected_continue`.
 
 ---
 

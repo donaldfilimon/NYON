@@ -1371,3 +1371,32 @@ fn a_disabled_controls_debug_output_names_no_slot() {
         "an enabled control still prints its intent: {rendered}"
     );
 }
+
+/// Task 7 review F10: a colliding action id is loud, not silently absorbed.
+///
+/// `build` inserts every control into a map keyed by action id and pushes a
+/// focus slot only for a fresh key. On a collision the later control overwrote
+/// the earlier one and no slot was pushed, so one control lost its focus slot
+/// while `activate` resolved to the other — and
+/// `focus_order_covers_every_control_exactly_once` could not see it, because
+/// `order.len()` and `controls().len()` shrink together.
+///
+/// Row ids derive from `SlotId`, so two rows sharing one is the collision this
+/// test can build through the public API. Hand-named constants colliding is
+/// the other source, and it is the one task 8 creates when it adds controls.
+/// Either is a bug rather than input, which is why this is a debug assertion
+/// and not a fallible `build`: every caller is a frame builder, and release
+/// behaviour is deliberately unchanged.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "duplicate Library action id")]
+fn a_colliding_action_id_is_loud_rather_than_silently_dropped() {
+    let colliding = list(vec![
+        summary(7, "First", false),
+        summary(7, "Second", false),
+    ]);
+    let _ = model(LibraryUiContext {
+        slots: Some(&colliding),
+        ..LibraryUiContext::default()
+    });
+}
