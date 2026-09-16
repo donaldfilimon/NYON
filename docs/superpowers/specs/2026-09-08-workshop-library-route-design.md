@@ -136,6 +136,16 @@ timeline's probe-then-reserve algorithm so a squeezed panel degrades into a
 scrollable strip rather than silently dropping controls. Silently dropping
 controls is exactly baseline Finding 5.
 
+**Measured 2026-09-16 (task 8, slice 3): the docked strip cannot be squeezed.**
+The Library's transfer strip lives in `bottom_bar`, which spans the whole
+window, and a docked layout needs at least 900 logical pixels, so four
+controls always share one line; a scroll pair would be unreachable from any
+real frame and was not built. The Finding 5 guarantee is kept by a sweep of
+every docked width at every scale
+(`every_docked_width_places_every_transfer_control_and_action_on_screen`) and
+a debug assertion in the builder, both mutation-checked. Revisit if the strip
+moves into a panel, gains controls, or its labels grow.
+
 **Slot names are the only user-authored string on screen** and may be 64 bytes,
 far wider than any panel. The row control takes `SemanticRole::Option`, which
 routes it through the variable-label path to single-line ellipsis. Any other role

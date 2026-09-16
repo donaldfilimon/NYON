@@ -39,7 +39,7 @@ fn store_with_one_slot() -> (MemoryWorkshopStore, SlotId) {
     (store, slot)
 }
 
-fn library_app() -> (TestApp, SlotId) {
+pub(super) fn library_app() -> (TestApp, SlotId) {
     let core = AppCore::new_with_preferences(
         ScenarioDraft::factory_default().validated().unwrap(),
         MemoryScenarioStore::default(),

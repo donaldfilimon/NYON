@@ -1,4 +1,4 @@
-//! Library platform frame: route-design task 8, slices 1 and 2.
+//! Library platform frame: route-design task 8, slices 1 to 3.
 //!
 //! The model in `crate::ui::library` owns the semantic tree, every label, every
 //! disabled reason and the focus order. This layer only assigns geometry, so it
@@ -304,6 +304,12 @@ pub fn build_library_platform_frame(
             place_grid(&page_controls, body, height, min_width, &mut placed);
         }
     } else {
+        // Docked, nothing here is allowed to go missing (baseline Finding 5).
+        // The bar spans the window and the narrowest docked window is 900
+        // logical pixels, so the strip never wraps and needs no scroll pair;
+        // `every_docked_width_places_every_transfer_control_and_action_on_screen`
+        // sweeps that, and this makes any future drop loud.
+        let before = placed.len();
         if let Some(panel) = layout.right_panel {
             let actions = model.actions.controls();
             place_grid(
@@ -316,6 +322,11 @@ pub fn build_library_platform_frame(
         }
         let transfer = model.transfer.controls();
         place_grid(&transfer, strip, height, 100.0 * scale, &mut placed);
+        debug_assert_eq!(
+            placed.len() - before,
+            model.actions.controls().len() + transfer.len(),
+            "a docked Library frame dropped an action or transfer control"
+        );
     }
 
     view_controls.extend(pager.iter().copied());

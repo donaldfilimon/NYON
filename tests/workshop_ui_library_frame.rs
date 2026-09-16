@@ -389,6 +389,67 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
     }
 }
 
+/// The design asks the docked transfer strip to degrade into a scrolling strip
+/// rather than drop a control (baseline Finding 5). The strip spans the whole
+/// bottom bar, and the narrowest docked window is 900 logical pixels, so four
+/// controls never wrap and there is nothing to scroll. This sweep is what
+/// makes that a checked fact instead of arithmetic: every docked width from
+/// each mode's floor to 1920, at every scale and at the shortest and a tall
+/// height, places all four transfer controls on one line inside the bar and
+/// all five selected-save actions in the panel. If a label, a scale or a
+/// control count ever changes that, this fails before a control goes missing.
+#[test]
+fn every_docked_width_places_every_transfer_control_and_action_on_screen() {
+    let list = crowded_list();
+    let model = crowded_model(&list);
+    for scale in [0.85_f32, 1.0, 1.15, 1.3] {
+        let medium_floor = (900.0 * scale).ceil() as u32;
+        let wide_floor = (1200.0 * scale).ceil() as u32;
+        // Every width near a mode floor, every seventh one elsewhere.
+        let widths = (medium_floor..=1920).filter(|width| {
+            width % 7 == 0
+                || width.abs_diff(medium_floor) <= 3
+                || width.abs_diff(wide_floor) <= 3
+                || *width == 1920
+        });
+        let shortest = (300.0 + 114.0 * scale).ceil();
+        for width in widths {
+            for height in [shortest, 900.0] {
+                let viewport = Vec2::new(width as f32, height);
+                let case = format!("{viewport} at {scale}");
+                let frame = frame_for(&model, viewport, scale);
+                assert_ne!(frame.layout.mode, WorkshopLayoutMode::Compact, "{case}");
+                let bar = frame.layout.bottom_bar;
+                let panel = frame.layout.right_panel.expect("docked layouts have one");
+                let bounds = |id: &str| {
+                    frame
+                        .controls
+                        .iter()
+                        .find(|control| control.action_id.as_str() == id)
+                        .map(|control| control.bounds)
+                        .unwrap_or_else(|| panic!("{case}: {id} was dropped"))
+                };
+                let strip: Vec<PlatformRect> = TRANSFER_IDS.iter().map(|id| bounds(id)).collect();
+                for (id, rect) in TRANSFER_IDS.iter().zip(&strip) {
+                    assert!(bar.contains_rect(*rect), "{case}: {id} leaves the bar");
+                    assert_eq!(rect.min.y, strip[0].min.y, "{case}: {id} wrapped");
+                }
+                for id in ACTION_IDS {
+                    assert!(
+                        panel.contains_rect(bounds(id)),
+                        "{case}: {id} leaves the panel"
+                    );
+                }
+                if width.abs_diff(medium_floor) <= 3 || width.abs_diff(wide_floor) <= 3 {
+                    install(&frame).unwrap_or_else(|error| {
+                        panic!("{case}: the SDF batch refused the frame: {error}")
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// Where a frame places a section's rows, the section heading is drawn
 /// directly above the first of them and nowhere else; a section with no
 /// placed rows draws no heading.

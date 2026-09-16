@@ -249,6 +249,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             self.apply_workshop_view_action(WorkshopViewAction::CloseDrawer);
             return;
         }
+        // Through Back's own path, so focus returns to the sheet's opener.
+        if self.runtime.screen() == ClientScreen::Library && self.library_view.sheet.is_some() {
+            self.apply_library_view_action(crate::ui::platform::LibraryViewAction::CloseSheet);
+            return;
+        }
         if self.runtime.credits_visible() {
             self.runtime.dismiss_credits();
             return;
@@ -598,6 +603,52 @@ mod tests {
             app.build_workshop_frame();
             assert_eq!(app.platform_ui.as_ref().unwrap().visible_nodes, next);
         }
+    }
+
+    /// Escape closes the Compact Library sheet before it leaves the Library,
+    /// as it closes a Workshop drawer before leaving the Workshop, and focus
+    /// goes back to whatever opened the sheet, exactly as Back does.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn escape_closes_the_library_sheet_before_it_leaves_the_library() {
+        use crate::app::library_frame_tests::library_app;
+        use crate::ui::accessibility::SemanticActionId;
+        use crate::ui::platform::LibraryViewAction;
+        let (mut app, slot) = library_app();
+        app.runtime
+            .classic_mut()
+            .set_viewport(Vec2::new(723.0, 802.0));
+        app.build_frame();
+
+        let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
+        let transfer = LibraryViewAction::OpenTransfer.action_id();
+        for (opener, modality) in [
+            (row.clone(), InputModality::Keyboard),
+            (transfer.clone(), InputModality::Pointer),
+        ] {
+            assert!(app.ui_focus.request_focus(&opener), "{opener:?} not placed");
+            app.activate_platform_action_id(&opener, modality);
+            app.build_frame();
+            assert!(app.platform_ui.as_ref().unwrap().drawer.is_some());
+
+            app.handle_navigation(NavigationAction::Escape);
+            assert_eq!(
+                app.runtime.screen(),
+                ClientScreen::Library,
+                "Escape left the Library with the sheet from {opener:?} open"
+            );
+            app.build_frame();
+            assert!(
+                app.platform_ui.as_ref().unwrap().drawer.is_none(),
+                "Escape left the sheet from {opener:?} open"
+            );
+            assert_eq!(app.ui_focus.focused(), Some(&opener));
+            assert_eq!(app.selected_library_slot, Some(slot));
+        }
+
+        // With no sheet open, Escape leaves as before.
+        app.handle_navigation(NavigationAction::Escape);
+        assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
