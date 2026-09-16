@@ -244,3 +244,92 @@ fn the_main_menu_library_control_opens_the_library_and_close_returns_to_it() {
     app.build_frame();
     assert!(has_control(&app, "shell.menu.library"));
 }
+
+fn placed_slot_ids(app: &TestApp) -> Vec<String> {
+    app.platform_ui
+        .as_ref()
+        .unwrap()
+        .controls
+        .iter()
+        .map(|control| control.action_id.as_str())
+        .filter(|id| id.starts_with("library.slot."))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn next_and_previous_page_through_every_save_and_keep_focus_on_the_pager() {
+    let core = AppCore::new_with_preferences(
+        ScenarioDraft::factory_default().validated().unwrap(),
+        MemoryScenarioStore::default(),
+        MemoryPreferencesStore::default(),
+    );
+    let (mut store, first) = store_with_one_slot();
+    let catalog =
+        decode_catalog_pack(include_bytes!("../../assets/workshop/core-pack-v1.json")).unwrap();
+    for seed in 1..16u64 {
+        let archive = encode_archive(&WorkshopHistory::from_seed_u64(catalog.clone(), seed))
+            .unwrap()
+            .bytes
+            .into_boxed_slice();
+        let job = store
+            .start(WorkshopStoreRequest::CreateSlot {
+                name: SlotName::new(format!("Forge {seed}")).unwrap(),
+                archive,
+            })
+            .unwrap();
+        assert!(matches!(store.poll(job), StoreJobState::Complete(Ok(_))));
+    }
+    let mut app = App::with_event_proxy(core, store, AppEventProxy::Headless);
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(1280.0, 480.0));
+    app.runtime.open_library().unwrap();
+    app.runtime.update(std::time::Duration::ZERO);
+    app.build_frame();
+    assert_eq!(app.runtime.library_slots().unwrap().slots.len(), 16);
+    let first_page = placed_slot_ids(&app);
+    assert!(
+        first_page.len() < 16,
+        "the viewport must overflow for this test"
+    );
+    assert!(first_page.contains(&format!("library.slot.{}", first.0)));
+
+    let next = SemanticActionId::new("library.rows.next");
+    let previous = SemanticActionId::new("library.rows.previous");
+    let mut seen: std::collections::BTreeSet<String> = first_page.iter().cloned().collect();
+    for _ in 0..16 {
+        app.activate_platform_action_id(&next, InputModality::Keyboard);
+        app.build_frame();
+        assert_eq!(app.ui_focus.focused(), Some(&next), "focus left the pager");
+        seen.extend(placed_slot_ids(&app));
+    }
+    assert_eq!(seen.len(), 16, "Next did not reach every save");
+    // Next at the end is a no-op, not a blank page.
+    assert!(!placed_slot_ids(&app).is_empty());
+
+    for _ in 0..16 {
+        app.activate_platform_action_id(&previous, InputModality::Pointer);
+        app.build_frame();
+    }
+    assert_eq!(
+        placed_slot_ids(&app),
+        first_page,
+        "Previous did not return to the top"
+    );
+
+    // Leaving forgets the window, like the selection.
+    app.activate_platform_action_id(&next, InputModality::Keyboard);
+    app.build_frame();
+    assert_ne!(placed_slot_ids(&app), first_page);
+    app.runtime.close_library();
+    app.build_frame();
+    app.runtime.open_library().unwrap();
+    app.runtime.update(std::time::Duration::ZERO);
+    app.build_frame();
+    assert_eq!(
+        placed_slot_ids(&app),
+        first_page,
+        "reopening kept the old window"
+    );
+}

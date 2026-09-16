@@ -72,9 +72,9 @@ use crate::{
         guide::{GuideAction, GuideLocation, build_guide_frame},
         library::{LibraryUiContext, LibraryUiIntent, LibraryUiModel},
         platform::{
-            PlatformUiAction, PlatformUiFrame, ShellPlatformInput, ShellUiAction,
-            build_library_platform_frame, build_shell_platform_frame,
-            build_workshop_platform_frame_for_view, draw_workshop_scene,
+            LibraryViewAction, PlatformUiAction, PlatformUiFrame, ShellPlatformInput,
+            ShellUiAction, build_library_platform_frame, build_shell_platform_frame,
+            build_workshop_platform_frame_for_view, clamp_library_row_start, draw_workshop_scene,
         },
         workshop::{
             CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel, creator_modal_order,
@@ -251,6 +251,8 @@ pub struct App<
     /// Pure client selection, like `selected_workshop_entity`: no runtime
     /// state owns it, and the model filters it against the current list.
     selected_library_slot: Option<crate::workshop::store::SlotId>,
+    /// First model row the Library frame places; moved only by the pager.
+    library_row_start: usize,
     ui_focus: FocusManager,
     player_guide: Option<(GuideLocation, FocusManager)>,
     selected_workshop_entity: Option<nyon_workshop_core::EntityId>,
@@ -325,6 +327,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             workshop_ui: None,
             library_ui: None,
             selected_library_slot: None,
+            library_row_start: 0,
             ui_focus: FocusManager::new(std::iter::empty()),
             player_guide: None,
             selected_workshop_entity: None,
@@ -838,6 +841,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     fn leave_library(&mut self) {
         self.library_ui = None;
         self.selected_library_slot = None;
+        self.library_row_start = 0;
     }
 
     fn build_library_frame(&mut self) {
@@ -876,9 +880,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 WorkshopLayout::resolve(finite.max(glam::Vec2::new(640.0, 480.0)), scale)
             })
             .expect("a 640 by 480 floor always resolves");
+        self.library_row_start = clamp_library_row_start(&model, self.library_row_start);
         let frame = build_library_platform_frame(
             &model,
             layout,
+            self.library_row_start,
             self.ui_focus.focused(),
             preferences.high_contrast,
         );
@@ -1090,7 +1096,37 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                     self.apply_library_intent(intent);
                 }
             }
+            PlatformUiAction::LibraryView(action) => self.apply_library_view_action(action),
         }
+    }
+
+    /// Moves the row window by the rows the current frame placed, so Next
+    /// starts at the first row not yet shown and never skips one. Both ends
+    /// are no-ops. Focus stays on the pager, because the row it was on may
+    /// have just left the frame.
+    fn apply_library_view_action(&mut self, action: LibraryViewAction) {
+        let (Some(model), Some(frame)) = (self.library_ui.as_ref(), self.platform_ui.as_ref())
+        else {
+            return;
+        };
+        let shown = model
+            .rows
+            .iter()
+            .filter(|row| {
+                frame
+                    .controls
+                    .iter()
+                    .any(|control| control.action_id == row.control.action_id)
+            })
+            .count()
+            .max(1);
+        let start = self.library_row_start;
+        self.library_row_start = match action {
+            LibraryViewAction::NextRows if start + shown < model.rows.len() => start + shown,
+            LibraryViewAction::NextRows => start,
+            LibraryViewAction::PreviousRows => start.saturating_sub(shown),
+        };
+        self.ui_focus.request_focus(&action.action_id());
     }
 
     /// Route-design task 8 slice 1: only the intents with a route today.

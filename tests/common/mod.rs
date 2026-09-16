@@ -470,6 +470,9 @@ pub fn assert_action_witnesses(
             PlatformUiAction::Library(action) => {
                 panic!("Library control {action} inside a Workshop frame")
             }
+            PlatformUiAction::LibraryView(action) => {
+                panic!("Library pager {action:?} inside a Workshop frame")
+            }
         };
         let expected = icon_for_action(source);
         assert_eq!(

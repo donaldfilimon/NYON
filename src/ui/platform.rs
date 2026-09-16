@@ -26,7 +26,7 @@ mod library;
 mod shell;
 mod workshop;
 
-pub use library::build_library_platform_frame;
+pub use library::{LibraryViewAction, build_library_platform_frame, clamp_library_row_start};
 pub use shell::{
     PlatformFallbackCode, ShellPlatformInput, build_shell_platform_frame, install_guide_batches,
 };
@@ -122,6 +122,8 @@ pub enum PlatformUiAction {
     /// `None` while the Library is on screen.
     Library(SemanticActionId),
     WorkshopView(WorkshopViewAction),
+    /// Moves the Library's row window; resolved by the app, not the model.
+    LibraryView(LibraryViewAction),
     Guide(super::guide::GuideAction),
 }
 

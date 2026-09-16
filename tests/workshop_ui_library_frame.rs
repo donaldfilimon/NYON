@@ -92,8 +92,30 @@ fn viewports() -> Vec<(Vec2, f32)> {
 }
 
 fn frame_for(model: &LibraryUiModel, viewport: Vec2, scale: f32) -> PlatformUiFrame {
+    frame_at(model, viewport, scale, 0)
+}
+
+fn frame_at(
+    model: &LibraryUiModel,
+    viewport: Vec2,
+    scale: f32,
+    row_start: usize,
+) -> PlatformUiFrame {
     let layout = WorkshopLayout::resolve(viewport, scale).expect("test viewport resolves");
-    build_library_platform_frame(model, layout, None, false)
+    build_library_platform_frame(model, layout, row_start, None, false)
+}
+
+const PAGER_IDS: [&str; 2] = ["library.rows.previous", "library.rows.next"];
+
+fn placed_rows(model: &LibraryUiModel, frame: &PlatformUiFrame) -> Vec<usize> {
+    let placed = placed_ids(frame);
+    model
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| placed.contains(row.control.action_id.as_str()))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 fn install(frame: &PlatformUiFrame) -> Result<(), String> {
@@ -199,7 +221,11 @@ fn pointer_and_keyboard_reach_exactly_the_same_controls() {
             .map(SemanticActionId::as_str)
             .filter(|id| focus_set.contains(*id))
             .collect();
-        let frame_order: Vec<&str> = focus.iter().map(SemanticActionId::as_str).collect();
+        let frame_order: Vec<&str> = focus
+            .iter()
+            .map(SemanticActionId::as_str)
+            .filter(|id| !PAGER_IDS.contains(id))
+            .collect();
         assert_eq!(frame_order, model_order, "{viewport} at {scale}");
         for control in &frame.controls {
             let hit = frame.hit_test(control.bounds.center());
@@ -217,9 +243,15 @@ fn pointer_and_keyboard_reach_exactly_the_same_controls() {
             let hit = hit
                 .unwrap_or_else(|| panic!("{} has no pointer target", control.action_id.as_str()));
             assert_eq!(hit.action_id, control.action_id);
+            let expected = match control.action_id.as_str() {
+                "library.rows.previous" => {
+                    PlatformUiAction::LibraryView(LibraryViewAction::PreviousRows)
+                }
+                "library.rows.next" => PlatformUiAction::LibraryView(LibraryViewAction::NextRows),
+                id => PlatformUiAction::Library(SemanticActionId::new(id)),
+            };
             assert_eq!(
-                hit.action,
-                PlatformUiAction::Library(control.action_id.clone()),
+                hit.action, expected,
                 "a Library control must resolve against the Library model"
             );
         }
@@ -411,6 +443,75 @@ fn section_headings_are_drawn_above_their_first_placed_row() {
             }
         }
     }
+}
+
+#[test]
+fn next_reaches_every_row_and_each_window_keeps_its_invariants() {
+    // Slice 2b: a row that does not fit is reached by paging, through two
+    // placed controls, so pointer and keyboard still agree about every slot.
+    let list = crowded_list();
+    let model = crowded_model(&list);
+    for (viewport, scale) in viewports() {
+        let mut seen = BTreeSet::new();
+        let mut start = 0;
+        for step in 0..=model.rows.len() {
+            let case = format!("{viewport} at {scale}, start {start}");
+            let frame = frame_at(&model, viewport, scale, start);
+            install(&frame).unwrap_or_else(|error| panic!("{case}: {error}"));
+            assert_headings_lead_their_rows(&model, &frame, &case);
+            let rows = placed_rows(&model, &frame);
+            assert!(!rows.is_empty(), "{case}: no row placed");
+            assert_eq!(rows[0], start, "{case}: the window must start at row_start");
+            assert!(
+                rows.windows(2).all(|pair| pair[1] == pair[0] + 1),
+                "{case}: rows were placed with a gap"
+            );
+            let placed = placed_ids(&frame);
+            let paged = PAGER_IDS.iter().all(|id| placed.contains(*id));
+            assert_eq!(
+                paged,
+                rows.len() < model.rows.len(),
+                "{case}: the pager must appear exactly when rows overflow"
+            );
+            assert!(
+                PAGER_IDS.iter().all(|id| placed.contains(*id))
+                    || !PAGER_IDS.iter().any(|id| placed.contains(*id)),
+                "{case}: only one pager control was placed"
+            );
+            seen.extend(rows.iter().copied());
+            let next = rows[rows.len() - 1] + 1;
+            if next >= model.rows.len() {
+                break;
+            }
+            assert!(step < model.rows.len(), "{case}: paging did not terminate");
+            start = next;
+        }
+        assert_eq!(
+            seen.len(),
+            model.rows.len(),
+            "{viewport} at {scale}: some rows are unreachable"
+        );
+    }
+}
+
+#[test]
+fn a_list_that_fits_has_no_pager_and_a_stale_start_is_clamped() {
+    let short = SlotList {
+        slots: crowded_list().slots.into_iter().take(3).collect(),
+        selected_continue: Some(SlotId(0)),
+    };
+    let model = LibraryUiModel::build(LibraryUiContext {
+        slots: Some(&short),
+        ..LibraryUiContext::default()
+    });
+    let frame = frame_for(&model, Vec2::new(1440.0, 900.0), 1.0);
+    let placed = placed_ids(&frame);
+    assert!(PAGER_IDS.iter().all(|id| !placed.contains(*id)));
+    assert_eq!(placed_rows(&model, &frame), vec![0, 1, 2]);
+
+    // Refresh can shrink the list under a window that had moved on.
+    let frame = frame_at(&model, Vec2::new(1440.0, 900.0), 1.0, 40);
+    assert_eq!(placed_rows(&model, &frame), vec![2]);
 }
 
 #[test]

@@ -25,6 +25,15 @@
 //! wrapped text at a fractional offset measured 43.99998 tall, which is both
 //! under the minimum and blurry; snapping the origin makes `min + 44` exact.
 //!
+//! **Rows that do not fit are reached by paging (slice 2b).** When rows
+//! overflow, Previous and Next sit on the first placed row's line, to the right
+//! of a narrower row column, so paging costs no height: at the 320 floor and
+//! the largest scale the canvas had 13 pixels left under its only row. The
+//! Workshop outliner instead keeps off-screen rows in the focus order and
+//! scrolls to the focused one; that would give an unplaced row a focus slot,
+//! which the next paragraph rules out. Both pager controls are always enabled
+//! and do nothing at the ends, as the Workshop's Previous and Next do.
+//!
 //! An unplaced control is **not** a platform control. It stays in the semantic
 //! tree with no bounds, is invisible, and gets no focus slot, so pointer and
 //! keyboard agree that it cannot be reached rather than disagreeing about a
@@ -48,12 +57,44 @@ fn control_height(scale: f32) -> f32 {
     (48.0 * scale).max(44.0)
 }
 
+/// The two view-only Library actions. They move the row window and touch
+/// neither the model nor the store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LibraryViewAction {
+    PreviousRows,
+    NextRows,
+}
+
+impl LibraryViewAction {
+    pub fn action_id(self) -> SemanticActionId {
+        SemanticActionId::new(match self {
+            Self::PreviousRows => "library.rows.previous",
+            Self::NextRows => "library.rows.next",
+        })
+    }
+
+    const fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::PreviousRows => ("Previous", "Show the previous saved galaxies."),
+            Self::NextRows => ("Next", "Show the next saved galaxies."),
+        }
+    }
+}
+
+/// Clamps a row window start to the rows the model holds, so a Refresh that
+/// shrinks the list never leaves an empty window.
+pub fn clamp_library_row_start(model: &LibraryUiModel, row_start: usize) -> usize {
+    row_start.min(model.rows.len().saturating_sub(1))
+}
+
 pub fn build_library_platform_frame(
     model: &LibraryUiModel,
     layout: WorkshopLayout,
+    row_start: usize,
     focused: Option<&SemanticActionId>,
     high_contrast: bool,
 ) -> PlatformUiFrame {
+    let row_start = clamp_library_row_start(model, row_start);
     let scale = layout.ui_scale;
     let height = control_height(scale);
     let mut semantics = model.semantics.clone();
@@ -92,7 +133,8 @@ pub fn build_library_platform_frame(
     top += place_grid(&header, header_area, height, 110.0 * scale, &mut placed);
 
     let mut section = None;
-    for row in &model.rows {
+    let first_row = placed.len();
+    for row in model.rows.iter().skip(row_start) {
         let mut row_top = top;
         let mut heading = None;
         if section != Some(row.section) {
@@ -130,6 +172,24 @@ pub fn build_library_platform_frame(
         top = (row_top + height + GAP * 0.5).ceil();
     }
 
+    let rows_placed = placed.len() - first_row;
+    let mut pager = Vec::new();
+    if rows_placed > 0 && rows_placed < model.rows.len() {
+        let line = placed[first_row].1;
+        let mut right = canvas.max.x;
+        for action in [LibraryViewAction::NextRows, LibraryViewAction::PreviousRows] {
+            let width = pager_width(action.label().0, scale, height);
+            let bounds = PlatformRect::from_xywh(right - width, line.min.y, width, height);
+            right = bounds.min.x - GAP;
+            pager.push((action, bounds));
+        }
+        pager.reverse();
+        let row_width = (right - canvas.min.x).floor();
+        for (_, bounds) in &mut placed[first_row..] {
+            *bounds = PlatformRect::from_xywh(bounds.min.x, bounds.min.y, row_width, height);
+        }
+    }
+
     // A heading whose section has no placed row is unplaced exactly as an
     // unplaced control is: in the tree, with no bounds, and not visible.
     for section in [LibrarySection::Active, LibrarySection::Archived] {
@@ -164,6 +224,25 @@ pub fn build_library_platform_frame(
         place_grid(&transfer, strip, height, 100.0 * scale, &mut placed);
     }
 
+    let pager_controls: Vec<PlatformControl> = pager
+        .iter()
+        .map(|&(action, bounds)| {
+            let action_id = action.action_id();
+            let (label, description) = action.label();
+            PlatformControl {
+                semantic_id: SemanticNodeId::new(format!("platform.{}", action_id.as_str())),
+                focused: focused == Some(&action_id),
+                action: PlatformUiAction::LibraryView(action),
+                action_id,
+                bounds,
+                label: label.to_owned(),
+                description: description.to_owned(),
+                enabled: true,
+                selected: false,
+                icon: None,
+            }
+        })
+        .collect();
     let mut controls: Vec<PlatformControl> = placed
         .into_iter()
         .map(|(control, bounds)| PlatformControl {
@@ -187,16 +266,32 @@ pub fn build_library_platform_frame(
             icon: None,
         })
         .collect();
+    let last_row = model
+        .rows
+        .iter()
+        .rev()
+        .find(|row| {
+            controls
+                .iter()
+                .any(|control| control.action_id == row.control.action_id)
+        })
+        .map(|row| row.control.action_id.clone());
+    controls.extend(pager_controls);
     apply_platform_control_geometry(&mut semantics, &mut controls);
 
     // The model's order, restricted to what this frame placed. Order is
     // preserved, so slice 2 placing more controls only inserts slots.
-    let logical_focus_order = model
-        .focus_order()
-        .iter()
-        .filter(|id| controls.iter().any(|control| &control.action_id == *id))
-        .cloned()
-        .collect();
+    let mut logical_focus_order: Vec<SemanticActionId> = Vec::new();
+    for id in model.focus_order() {
+        if controls.iter().any(|control| &control.action_id == id) {
+            logical_focus_order.push(id.clone());
+        }
+        // Previous and Next follow the last placed row, where a keyboard user
+        // who has run out of rows is.
+        if last_row.as_ref() == Some(id) {
+            logical_focus_order.extend(pager.iter().map(|(action, _)| action.action_id()));
+        }
+    }
 
     let mut frame = PlatformUiFrame {
         viewport: glam::Vec2::new(layout.viewport.width(), layout.viewport.height()),
@@ -217,6 +312,18 @@ pub fn build_library_platform_frame(
     };
     frame.rebuild_visible_nodes();
     frame
+}
+
+/// Wide enough for the label at the control font, never under the minimum.
+fn pager_width(label: &str, scale: f32, minimum: f32) -> f32 {
+    let metrics = crate::ui::AtlasMetrics::embedded().expect("embedded atlas is valid");
+    let advance = metrics
+        .measure_text(13.0 * scale, crate::ui::FontWeight::SemiBold, label)
+        .expect("pager labels are atlas text")
+        .advance;
+    (advance + 6.0 + 2.0 * crate::ui::platform_sdf::text_ink_padding(scale) + 12.0)
+        .ceil()
+        .max(minimum)
 }
 
 fn section_placed(
