@@ -53,7 +53,12 @@ the root are session tooling, not project files.
   intents and never mutates authority) with private builders under
   `workshop/{creator_defaults,history,outliner,removal,semantics}.rs`, plus the
   siblings `workshop_inspector`, `workshop_layout`, `workshop_view` and
-  `creator`, `guide`, `accessibility`, `virtual_list`, `start_marker`.
+  `creator`, `guide`, `library`, `accessibility`, `virtual_list`,
+  `start_marker`. **Four files are named for the library and they are two
+  different layers:** `ui/library.rs` is the Library screen's UI model, intents
+  and focus order, covered by `tests/workshop_ui_library.rs`;
+  `app/client_runtime/library.rs` is the open algorithm below it (next bullet),
+  covered by `tests/workshop_library.rs`. Neither test reaches the other layer.
 - `workshop` is the client side of the Workshop. `session.rs` paces it;
   `store.rs` is the facade holding the `WorkshopStore` trait, the request/result
   and error taxonomy, `SlotId`/`SlotName`/`SaveGeneration` and the job table,
@@ -67,7 +72,12 @@ the root are session tooling, not project files.
   five phases and returns events, while `client_runtime.rs` keeps *screen
   policy* — the client never enters recovery, never picks a screen and never
   installs a session. Startup Continue runs on it, so there is one
-  implementation rather than two.
+  implementation rather than two. `app/modal_lifecycle_tests.rs` is an in-tree
+  module declared `#[cfg(all(test, not(target_arch = "wasm32")))]` at
+  `app.rs:1732`, not a root integration binary: only `cargo test --lib` reaches
+  it and `--test <name>` will not find it. It is **also a fixture provider** —
+  `app/input_router.rs` tests import `capacity_app` and `open` from it — so
+  deleting or renaming those helpers breaks tests in another module.
 - `platform` splits the entry points into `native.rs` and `web.rs`; `main.rs` is
   native only, and `src/lib.rs` is also the cdylib the wasm build exports.
 - `scenario` (`codec`, `store`) and `preferences` (`store`) own versioned,
@@ -75,6 +85,39 @@ the root are session tooling, not project files.
 - `presentation` (`camera`, `interaction`, `picking`, `scene`, `ui`, `workshop`),
   `editor` (`layout`, `render`), `advisory` (`gpu`), and `classic` are the
   remaining view, editor and advisory surfaces. None of them enqueue commands.
+
+### Modal projection
+
+Three answers used to be derived three ways, and `WorkshopUiModel` can hold the
+creator form and the removal confirmation at once (`src/app.rs` clears neither
+when opening the other), so they could disagree about which dialog was live.
+Since `6ef114b` every modal projection routes through `ui/platform_projection.rs`
+and reads the same `modal_dialog(tree)`: `modal_presentation` for what is drawn,
+`modal_action_ids` for the focus trap's Tab order, `modal_identity` for the
+change-detection key. Add a projection and it must take the dialog from there.
+The pin is `every_modal_projection_describes_the_same_dialog`, and
+`modal_action_ids_covers_a_dialog_type_no_model_field_names` pins the payoff:
+because the action list comes from the semantic tree rather than named model
+fields, a new dialog type gets a focus trap without touching
+`platform/workshop.rs`. No user path into the both-open state has been
+demonstrated — treat it as a latent inconsistency now impossible by
+construction, not a fixed user-visible bug.
+
+Each modal module owns its own action identifiers and focus order rather than
+`src/app.rs` holding either: `creator_defaults.rs` exports `CREATOR_*_ACTION`
+with `creator_modal_order`, `removal.rs` exports `REMOVAL_*_ACTION` with
+`removal_modal_order`. A new control belongs in that module, not in the app.
+
+Interactive controls are laid out to a 44 logical-pixel minimum on both axes,
+and `tests/workshop_ui_layout.rs` asserts `>= 44.0` on control rects across the
+Workshop screens — most recently the modal paging controls raised in `21ab3c3`
+(`modal_paging_controls_meet_the_44px_minimum_when_the_modal_paginates`).
+**The two UI surfaces spell it differently and only one has a symbol:**
+`presentation/ui.rs` defines `MIN_CONTROL_EXTENT = 44.0` and clamps against it,
+while the SDF platform UI under `ui/` writes bare `44.0` literals
+(`platform/workshop.rs`, `platform/shell.rs`, `platform_projection.rs`,
+`workshop_view.rs`). Grep the literal, not the constant, when working in `ui/`,
+and do not assume changing `MIN_CONTROL_EXTENT` moves the Workshop screens.
 
 ## Living Galaxy V2
 
@@ -115,8 +158,8 @@ mechanically, and one it cannot:
   never from this crate's output. **The tool that does it is now checked in:
   `tools/living-v2-vectors.py`.** Its `verify` mode re-derives every stored digest
   from the spec formulas, and the discipline that makes it evidence is running
-  that control on the *unmodified* corpus first — Task 4 reproduced all 52 stored
-  digests before changing five of them, so the transcription was validated against
+  that control on the *unmodified* corpus first — Task 4 reproduced every stored
+  digest before changing five of them, so the transcription was validated against
   frozen values rather than trusted. Use it, and never regenerate a vector from
   the implementation. The suite only compares against the file, so
   regenerating it from a changed implementation passes while destroying the
@@ -154,14 +197,18 @@ seeds and digest in `AGENTS.md`), `campaign`, `scenario`, `scenario_editor`,
 `preferences`, `usability`, `player_guide`, `browser_contract`, `workshop_web`,
 `workshop_store_web`, `workshop_library` (added 2026-09-08 with the library
 client), and the `workshop_*` family covering session, store, recovery, client,
-presentation, accessibility and the four `workshop_ui_*` UI suites. Shared
-fixtures are in `tests/common/`.
+presentation, accessibility, bare `workshop_ui` and the five `workshop_ui_*`
+UI suites (`sdf`, `layout`, `inspector`, `creator`, `library`). Shared fixtures
+are in `tests/common/`.
 
 `crates/nyon-workshop-core` has its own `tests/`: `archive`, `creator`,
-`history`, `pack`, `simulation`, `two_system_forge`, and the three Living V2
-suites `living_wire`, `living_model`, `living_catalog`, with `common/` and
-`fixtures/living-v2/`. The suite list in the CI workflow comment predates all
-three; do not read it as complete.
+`history`, `pack`, `simulation`, `two_system_forge`, and the six Living V2
+suites `living_wire`, `living_catalog`, `living_model`, `living_genesis`,
+`living_command`, `living_receipt`, with `common/` and `fixtures/living-v2/`.
+The suite list in the comment above the core-crate Clippy step in
+`.github/workflows/ci.yml` names only the first six and predates every Living
+suite; do not read it as complete. `--workspace`
+runs them regardless, so the stale comment costs documentation, not coverage.
 
 ## Docs
 
