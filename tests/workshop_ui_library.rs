@@ -515,6 +515,7 @@ fn the_resident_slot_cannot_be_archived_and_says_why_in_the_runtimes_words() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(1)),
         resident_slot: Some(SlotId(1)),
+        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     let archive = control(&resident, "library.action.archive");
@@ -533,6 +534,7 @@ fn the_resident_slot_cannot_be_archived_and_says_why_in_the_runtimes_words() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(2)),
         resident_slot: Some(SlotId(1)),
+        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     assert!(control(&neighbour, "library.action.archive").enabled);
@@ -560,12 +562,14 @@ fn the_archive_control_submits_each_direction_under_one_stable_identifier() {
         slots: Some(&active),
         selected_slot: Some(SlotId(9)),
         library_client_available: true,
+        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     let built_archived = model(LibraryUiContext {
         slots: Some(&archived),
         selected_slot: Some(SlotId(9)),
         library_client_available: true,
+        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
 
@@ -787,6 +791,7 @@ fn open_continue_and_export_carry_the_generation_observed_in_the_row() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(5)),
         library_client_available: true,
+        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     assert_eq!(
@@ -1054,6 +1059,7 @@ fn the_semantic_tree_validates_in_every_shape() {
             resident_slot: Some(SlotId(1)),
             library_client_available: true,
             transfer_available: true,
+            slot_changes_available: true,
             workshop_active: true,
             status: LibrarySlotsStatus::Failed {
                 kind: SlotRequestKind::Unarchive,
@@ -1151,6 +1157,7 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         selected_slot: Some(SlotId(4)),
         library_client_available: true,
         transfer_available: true,
+        slot_changes_available: true,
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
         resident_slot: None,
@@ -1399,4 +1406,69 @@ fn a_colliding_action_id_is_loud_rather_than_silently_dropped() {
         slots: Some(&colliding),
         ..LibraryUiContext::default()
     });
+}
+
+/// Rename, Archive and Unarchive are visible and disabled until their
+/// confirmation route exists (route-design task 9).
+///
+/// Addendum §3 requires explicit confirmation text for lifecycle actions,
+/// including whether Archive will clear Continue, so an enabled bare button
+/// would fire one without it. Omitting them instead is baseline Finding 5.
+/// The deferral ranks last, after the subject and the row's own facts, so a
+/// resident row still says it is resident rather than "not available yet" —
+/// the more specific truth wins, which is the documented precedence.
+#[test]
+fn slot_changes_are_visible_but_deferred_until_their_confirmation_route_exists() {
+    let listed = list(vec![
+        summary(1, "Andromeda", false),
+        summary(2, "Bode", true),
+        summary(3, "Cartwheel", false),
+    ]);
+    for (selected, archive_label) in [(SlotId(1), "Archive"), (SlotId(2), "Unarchive")] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(selected),
+            ..LibraryUiContext::default()
+        });
+        for (action, label) in [
+            ("library.action.rename", "Rename"),
+            ("library.action.archive", archive_label),
+        ] {
+            let control = control(&built, action);
+            assert_eq!(control.label, label);
+            assert!(!control.enabled, "{action} fired from a bare button");
+            assert_eq!(
+                control.disabled_reason,
+                Some(LibraryDisabledReason::SlotChangesUnavailable),
+                "{action} must say why it is unavailable"
+            );
+            assert!(
+                built
+                    .activate(&control.action_id, InputModality::Pointer)
+                    .is_none(),
+                "{action} must hand out no intent"
+            );
+        }
+    }
+
+    let resident = model(LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(3)),
+        resident_slot: Some(SlotId(3)),
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        control(&resident, "library.action.archive").disabled_reason,
+        Some(LibraryDisabledReason::ResidentSlot),
+        "the row's own fact must outrank the capability deferral"
+    );
+
+    let enabled = model(LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(1)),
+        slot_changes_available: true,
+        ..LibraryUiContext::default()
+    });
+    assert!(control(&enabled, "library.action.rename").enabled);
+    assert!(control(&enabled, "library.action.archive").enabled);
 }

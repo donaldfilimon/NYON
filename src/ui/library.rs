@@ -139,6 +139,16 @@ pub enum LibraryDisabledReason {
     DecisionPending,
     /// The exact-catalog Library client is not wired to this screen yet.
     LibraryClientUnavailable,
+    /// Rename, Archive and Unarchive have no route to the store yet.
+    ///
+    /// A capability deferral like the two beside it, and for a normative
+    /// reason rather than a missing wire: addendum §3 requires lifecycle and
+    /// destructive actions to use explicit confirmation text, "including
+    /// whether Archive will clear Continue", and Rename needs a validated name.
+    /// Both are route-design task 9. Until then these three stay visible —
+    /// silently omitting them is baseline Finding 5 — but must not fire from a
+    /// bare button, which is what an enabled control would do.
+    SlotChangesUnavailable,
     /// No portable transfer adapter is installed.
     TransferUnavailable,
     /// There is no active Workshop session to export.
@@ -177,6 +187,7 @@ impl LibraryDisabledReason {
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
             Self::LibraryClientUnavailable => "Opening saved galaxies is not available yet.",
+            Self::SlotChangesUnavailable => "Renaming and archiving saves is not available yet.",
             Self::TransferUnavailable => "Portable file transfer is not available yet.",
             Self::WorkshopInactive => "Open a Workshop before exporting it.",
         }
@@ -459,6 +470,9 @@ pub struct LibraryUiContext<'a> {
     pub library_client_available: bool,
     /// Whether a portable transfer adapter is installed.
     pub transfer_available: bool,
+    /// Whether Rename, Archive and Unarchive have their confirmation route.
+    /// See [`LibraryDisabledReason::SlotChangesUnavailable`].
+    pub slot_changes_available: bool,
 }
 
 impl Default for LibraryUiContext<'_> {
@@ -471,6 +485,7 @@ impl Default for LibraryUiContext<'_> {
             workshop_active: false,
             library_client_available: false,
             transfer_available: false,
+            slot_changes_available: false,
         }
     }
 }
@@ -833,6 +848,8 @@ fn build_actions(
     let lane = lane_reason(request);
     let client = (!context.library_client_available)
         .then_some(LibraryDisabledReason::LibraryClientUnavailable);
+    let changes =
+        (!context.slot_changes_available).then_some(LibraryDisabledReason::SlotChangesUnavailable);
     let slot = row.map(|row| row.slot);
     let generation = row.map_or(SaveGeneration(0), |row| row.generation);
     let subject = slot.unwrap_or(SlotId(0));
@@ -857,7 +874,7 @@ fn build_actions(
             "Give this saved galaxy a different name.",
             false,
             LibraryUiIntent::RenameSlot { slot: subject },
-            &[no_selection, lane],
+            &[no_selection, lane, changes],
         ),
         // One action identifier for both directions, deliberately. The label,
         // the description and the intent all flip, but the identifier must not:
@@ -875,7 +892,7 @@ fn build_actions(
                 "Move this saved galaxy to the archived section. Clears Continue if it was selected.",
                 false,
                 LibraryUiIntent::ArchiveSlot { slot: subject },
-                &[no_selection, resident, lane],
+                &[no_selection, resident, lane, changes],
             )
         } else {
             LibraryControl::gated(
@@ -884,7 +901,7 @@ fn build_actions(
                 "Return this saved galaxy to the active section. Does not open it or restore Continue.",
                 false,
                 LibraryUiIntent::UnarchiveSlot { slot: subject },
-                &[no_selection, lane],
+                &[no_selection, lane, changes],
             )
         },
         use_for_continue: LibraryControl::gated(
