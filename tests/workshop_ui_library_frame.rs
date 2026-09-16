@@ -101,8 +101,17 @@ fn install(frame: &PlatformUiFrame) -> Result<(), String> {
     let mut ui = UiBatch::default();
     let mut overlay = PrimitiveBatch::default();
     install_platform_batches(frame, &metrics, &mut ui, &mut overlay)
-        .map(|_| ())
-        .map_err(|error| format!("{error:?}"))
+        .map_err(|error| format!("{error:?}"))?;
+    // An `Ok` that drew nothing would pass every caller. `renderer_contracts`
+    // guards its installs the same way, for the same reason.
+    if ui.glyphs().is_empty() || ui.panels().is_empty() {
+        return Err(format!(
+            "installed but drew {} glyphs and {} panels",
+            ui.glyphs().len(),
+            ui.panels().len()
+        ));
+    }
+    Ok(())
 }
 
 fn placed_ids(frame: &PlatformUiFrame) -> BTreeSet<String> {
