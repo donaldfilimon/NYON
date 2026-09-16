@@ -77,7 +77,7 @@ use crate::{
         },
         workshop::{
             CreatorTool, WorkshopUiContext, WorkshopUiIntent, WorkshopUiModel,
-            default_creator_batch,
+            default_creator_batch, removal_modal_order,
         },
         workshop_layout::WorkshopLayout,
         workshop_view::WorkshopViewState,
@@ -1167,10 +1167,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             WorkshopUiIntent::OpenRemovalConfirmation(entity) => {
                 self.workshop_view.reset_modal();
                 self.pending_removal = Some(entity);
-                let _ = self.ui_focus.open_modal([
-                    SemanticActionId::new("remove.cancel"),
-                    SemanticActionId::new("remove.confirm"),
-                ]);
+                // The IDs belong to `ui::workshop::removal`; spelling them here again is
+                // how a rename there would silently point the trap at nothing.
+                let _ = self.ui_focus.open_modal(removal_modal_order());
             }
             WorkshopUiIntent::CloseRemovalConfirmation => {
                 self.pending_removal = None;

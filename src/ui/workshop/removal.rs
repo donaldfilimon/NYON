@@ -11,6 +11,26 @@ use super::{
     RemovalBlocker, RemovalConfirmation, WorkshopControl, WorkshopUiIntent, entity_display_name,
 };
 
+/// Action IDs of the removal dialog's controls, in focus order.
+///
+/// `src/app.rs` opens the focus trap when it handles `OpenRemovalConfirmation`, before
+/// the model — and therefore the semantic tree — has been rebuilt, so it cannot derive
+/// the order the way `platform_projection::modal_action_ids` does. It used to spell the
+/// two IDs as literals instead, which is a fourth copy of knowledge this module owns:
+/// renaming a control here would have left the app focusing actions that no longer
+/// exist. Both the controls below and the app now read these constants.
+pub(crate) const REMOVAL_CANCEL_ACTION: &str = "remove.cancel";
+pub(crate) const REMOVAL_CONFIRM_ACTION: &str = "remove.confirm";
+
+/// The removal dialog's focus order, for callers that must open the trap before a frame
+/// exists. Anything that *has* a frame should use `modal_action_ids` instead.
+pub(crate) fn removal_modal_order() -> [crate::ui::accessibility::SemanticActionId; 2] {
+    [
+        crate::ui::accessibility::SemanticActionId::new(REMOVAL_CANCEL_ACTION),
+        crate::ui::accessibility::SemanticActionId::new(REMOVAL_CONFIRM_ACTION),
+    ]
+}
+
 pub(super) fn build_removal_confirmation(
     snapshot: &WorkshopSessionSnapshot,
     target: EntityId,
@@ -28,7 +48,7 @@ pub(super) fn build_removal_confirmation(
         target_label: entity_display_name(&snapshot.state, target),
         blockers,
         cancel_control: WorkshopControl::new(
-            "remove.cancel",
+            REMOVAL_CANCEL_ACTION,
             "Cancel removal",
             "Close this confirmation without changing the Workshop.",
             true,
@@ -36,7 +56,7 @@ pub(super) fn build_removal_confirmation(
             WorkshopUiIntent::CloseRemovalConfirmation,
         ),
         confirm_control: WorkshopControl::new(
-            "remove.confirm",
+            REMOVAL_CONFIRM_ACTION,
             "Remove object",
             if can_remove {
                 "Submit one explicit non-cascading removal batch."

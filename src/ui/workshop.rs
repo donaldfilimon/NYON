@@ -34,6 +34,7 @@ use history::{build_branches, build_save_status, build_timeline};
 use outliner::build_outliner;
 use removal::build_removal_confirmation;
 pub use removal::removal_blockers;
+pub(crate) use removal::removal_modal_order;
 use semantics::{all_controls, build_semantic_tree};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
