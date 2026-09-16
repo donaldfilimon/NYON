@@ -226,14 +226,20 @@ fn an_idle_lane_offers_neither_retry_nor_cancel() {
 /// `LibraryUiIntent` must fail to compile here rather than default quietly to
 /// "stays". §6 forbids collapsing a Library failure into `RecoverableError`, and
 /// a future variant that did so would otherwise be invisible.
+///
+/// Open and its acceptance leave on success, which is what opening is for.
+/// They count as leaving here, so the test below proves neither is offered
+/// while a failure is pending: Open takes the lane reason, and acceptance
+/// exists only for a held candidate.
 const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
     match intent {
-        LibraryUiIntent::Close => true,
+        LibraryUiIntent::Close | LibraryUiIntent::OpenSlot { .. } | LibraryUiIntent::AcceptOpen => {
+            true
+        }
         LibraryUiIntent::RefreshSlots
         | LibraryUiIntent::RetrySlotRequest
         | LibraryUiIntent::CancelSlotRequest
         | LibraryUiIntent::SelectSlot(_)
-        | LibraryUiIntent::OpenSlot { .. }
         | LibraryUiIntent::RenameSlot { .. }
         | LibraryUiIntent::ArchiveSlot { .. }
         | LibraryUiIntent::UnarchiveSlot { .. }
@@ -535,11 +541,7 @@ fn client_and_transfer_controls_are_present_and_disabled_with_a_reason() {
         workshop_active: true,
         ..LibraryUiContext::default()
     });
-    for id in [
-        "library.action.open",
-        "library.action.use-for-continue",
-        "library.action.export",
-    ] {
+    for id in ["library.action.use-for-continue", "library.action.export"] {
         let found = control(&built, id);
         assert!(!found.enabled, "{id}");
         assert_eq!(
@@ -689,11 +691,11 @@ fn row_state_outranks_capability_in_the_reported_reason() {
         ..LibraryUiContext::default()
     });
     assert_eq!(
-        built.actions.open.disabled_reason,
+        built.actions.use_for_continue.disabled_reason,
         Some(LibraryDisabledReason::ArchivedSlot)
     );
     assert_ne!(
-        built.actions.open.disabled_reason,
+        built.actions.use_for_continue.disabled_reason,
         Some(LibraryDisabledReason::LibraryClientUnavailable)
     );
 }
@@ -745,8 +747,10 @@ fn a_selection_the_store_no_longer_reports_falls_back_to_no_selection() {
 /// The single slot-request lane disables exactly the controls that use it.
 ///
 /// `start_slot_request` accepts only from `Idle`, so Refresh, Rename and
-/// Archive would be refused outright. Open, Use for Continue and Export take
-/// the exact-catalog client instead and are not gated by this lane.
+/// Archive would be refused outright. Open joined them in task 12a: its
+/// `SelectContinue` needs the Commit lane a Rename holds, and its progress and
+/// failures are shown in the same request strip. Use for Continue and Export
+/// take the exact-catalog client and are not gated by this lane yet.
 #[test]
 fn an_occupied_lane_disables_only_the_controls_that_share_it() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
@@ -776,16 +780,13 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
         });
         for id in [
             "library.refresh",
+            "library.action.open",
             "library.action.rename",
             "library.action.archive",
         ] {
             assert_eq!(control(&built, id).disabled_reason, Some(reason), "{id}");
         }
-        for id in [
-            "library.action.open",
-            "library.action.use-for-continue",
-            "library.action.export",
-        ] {
+        for id in ["library.action.use-for-continue", "library.action.export"] {
             assert!(control(&built, id).enabled, "{id}");
         }
     }
@@ -1118,6 +1119,7 @@ fn the_semantic_tree_validates_in_every_shape() {
             slots: Some(&listed),
             selected_slot: Some(SlotId(2)),
             resident_slot: Some(SlotId(1)),
+            replacement_blocked: true,
             library_client_available: true,
             transfer_available: true,
             workshop_active: true,
@@ -1222,6 +1224,7 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
         resident_slot: None,
+        replacement_blocked: false,
         confirmation: None,
         rename_draft: None,
     });
@@ -1780,4 +1783,175 @@ fn rename_validates_the_draft_and_keeps_the_field_first() {
         rename_draft_acceptable(" padded "),
         "spacing is validated live, not filtered"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Route-design task 12a: Open through the exact-catalog client
+// ---------------------------------------------------------------------------
+
+fn request_line(built: &LibraryUiModel) -> String {
+    built
+        .semantics
+        .node("library.request.status")
+        .expect("request status node")
+        .description
+        .clone()
+}
+
+/// Open is live, and each §6 or row fact that forbids it reports itself.
+///
+/// It no longer reads the Library-client flag: Use for Continue and row
+/// Export still do, so this also pins that the flag stayed where it belongs.
+#[test]
+fn open_is_live_and_refused_only_by_the_facts_that_forbid_it() {
+    let listed = list(vec![
+        summary(1, "Andromeda", false),
+        summary(2, "Bode", true),
+    ]);
+    let base = LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(1)),
+        ..LibraryUiContext::default()
+    };
+    let live = model(base);
+    let open = control(&live, "library.action.open");
+    assert!(open.enabled, "{:?}", open.disabled_reason);
+    assert_eq!(
+        live.activate(&open.action_id, InputModality::Keyboard),
+        Some(LibraryUiIntent::OpenSlot {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+        })
+    );
+    assert_eq!(
+        control(&live, "library.action.use-for-continue").disabled_reason,
+        Some(LibraryDisabledReason::LibraryClientUnavailable)
+    );
+
+    for (context, reason) in [
+        (
+            LibraryUiContext {
+                replacement_blocked: true,
+                ..base
+            },
+            LibraryDisabledReason::ReplacementBlocked,
+        ),
+        (
+            LibraryUiContext {
+                resident_slot: Some(SlotId(1)),
+                ..base
+            },
+            LibraryDisabledReason::AlreadyOpen,
+        ),
+        (
+            LibraryUiContext {
+                status: LibrarySlotsStatus::Working {
+                    kind: SlotRequestKind::Rename,
+                    slot: Some(SlotId(1)),
+                },
+                ..base
+            },
+            LibraryDisabledReason::RequestInFlight,
+        ),
+        (
+            LibraryUiContext {
+                selected_slot: Some(SlotId(2)),
+                ..base
+            },
+            LibraryDisabledReason::ArchivedSlot,
+        ),
+    ] {
+        let built = model(context);
+        let open = control(&built, "library.action.open");
+        assert!(!open.enabled, "{reason:?}");
+        assert_eq!(open.disabled_reason, Some(reason));
+    }
+}
+
+/// A held open offers its own Open and Cancel, and says which generation.
+#[test]
+fn a_held_open_offers_acceptance_and_cancel_and_blocks_the_lane() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (recovered, label, line) in [
+        (
+            true,
+            "Open previous",
+            "The latest save is invalid. Open its previous generation or cancel.",
+        ),
+        (false, "Open", "A saved galaxy is ready. Open it or cancel."),
+    ] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(1)),
+            status: LibrarySlotsStatus::Held {
+                slot: SlotId(1),
+                recovered,
+            },
+            ..LibraryUiContext::default()
+        });
+        let accept = control(&built, "library.request.retry");
+        assert_eq!(accept.label, label);
+        assert_eq!(accept.intent(), Some(&LibraryUiIntent::AcceptOpen));
+        assert_eq!(
+            control(&built, "library.request.cancel").intent(),
+            Some(&LibraryUiIntent::CancelSlotRequest)
+        );
+        assert_eq!(request_line(&built), line);
+        assert!(built.request.decision_pending());
+        let status = built
+            .semantics
+            .node("library.request.status")
+            .expect("request status node");
+        assert_eq!(status.role, SemanticRole::Alert);
+        for id in [
+            "library.action.open",
+            "library.action.rename",
+            "library.refresh",
+        ] {
+            assert_eq!(
+                control(&built, id).disabled_reason,
+                Some(LibraryDisabledReason::DecisionPending),
+                "{id}"
+            );
+        }
+    }
+}
+
+/// A conflicted open is resolved by Refresh; any other failure by Retry.
+#[test]
+fn a_conflicted_open_offers_refresh_where_a_failure_offers_retry() {
+    for (code, label, line) in [
+        (
+            ClientDiagnosticCode::StaleSave,
+            "Refresh",
+            "That save changed. Refresh, then open it again.",
+        ),
+        (
+            ClientDiagnosticCode::Store,
+            "Retry",
+            "Opening a saved galaxy failed. Retry or cancel.",
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            status: LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::Open,
+                slot: Some(SlotId(1)),
+                code,
+            },
+            ..LibraryUiContext::default()
+        });
+        let retry = control(&built, "library.request.retry");
+        assert_eq!(retry.label, label);
+        assert_eq!(retry.intent(), Some(&LibraryUiIntent::RetrySlotRequest));
+        assert_eq!(built.request.failure_code, Some(code));
+        assert_eq!(request_line(&built), line);
+    }
+    let working = model(LibraryUiContext {
+        status: LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Open,
+            slot: Some(SlotId(1)),
+        },
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(request_line(&working), "Opening a saved galaxy.");
 }

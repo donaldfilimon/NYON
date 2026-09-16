@@ -113,6 +113,8 @@ pub enum LibraryUiIntent {
     CancelConfirmation,
     /// Submit exactly the change the open confirmation describes.
     SubmitConfirmation(LibraryConfirmationRequest),
+    /// Install the validated open the runtime is holding.
+    AcceptOpen,
 }
 
 /// Why a control is present but not activatable.
@@ -157,6 +159,11 @@ pub enum LibraryDisabledReason {
     TransferUnavailable,
     /// There is no active Workshop session to export.
     WorkshopInactive,
+    /// The resident Workshop has unsaved work or a persistence obligation,
+    /// so nothing may replace it. §6.
+    ReplacementBlocked,
+    /// The row is the save the resident Workshop already has open.
+    AlreadyOpen,
 }
 
 impl LibraryDisabledReason {
@@ -190,12 +197,16 @@ impl LibraryDisabledReason {
             Self::AlreadyContinue => "This save is already the Continue target.",
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
-            Self::LibraryClientUnavailable => "Opening saved galaxies is not available yet.",
+            Self::LibraryClientUnavailable => {
+                "Continue selection and export are not available yet."
+            }
             Self::InvalidName => {
                 "Names use 1 to 64 printable characters with single spaces between words."
             }
             Self::TransferUnavailable => "Portable file transfer is not available yet.",
             Self::WorkshopInactive => "Open a Workshop before exporting it.",
+            Self::ReplacementBlocked => "Save the open Workshop before opening another save.",
+            Self::AlreadyOpen => "This save is already open in the Workshop.",
         }
     }
 }
@@ -390,7 +401,10 @@ pub struct LibraryRequestModel {
 impl LibraryRequestModel {
     /// Whether the lane holds a decision the user has not resolved.
     pub const fn decision_pending(&self) -> bool {
-        matches!(self.status, LibrarySlotsStatus::Failed { .. })
+        matches!(
+            self.status,
+            LibrarySlotsStatus::Failed { .. } | LibrarySlotsStatus::Held { .. }
+        )
     }
 
     /// Whether a request currently occupies the lane.
@@ -471,8 +485,12 @@ pub struct LibraryUiContext<'a> {
     pub resident_slot: Option<SlotId>,
     /// Whether a Workshop session is active and therefore exportable.
     pub workshop_active: bool,
-    /// Whether the exact-catalog Library client is wired to Open, Use for
-    /// Continue and row Export.
+    /// Whether the resident Workshop cannot be replaced right now. Read from
+    /// `ClientRuntime::resident_workshop_blocks_replacement`, the same rule the
+    /// runtime refuses an open with.
+    pub replacement_blocked: bool,
+    /// Whether the exact-catalog Library client is wired to Use for Continue
+    /// and row Export. Open no longer reads it.
     pub library_client_available: bool,
     /// Whether a portable transfer adapter is installed.
     pub transfer_available: bool,
@@ -491,6 +509,7 @@ impl Default for LibraryUiContext<'_> {
             selected_slot: None,
             resident_slot: None,
             workshop_active: false,
+            replacement_blocked: false,
             library_client_available: false,
             transfer_available: false,
             confirmation: None,
@@ -700,7 +719,9 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
     match request.status {
         LibrarySlotsStatus::Idle => None,
         LibrarySlotsStatus::Working { .. } => Some(LibraryDisabledReason::RequestInFlight),
-        LibrarySlotsStatus::Failed { .. } => Some(LibraryDisabledReason::DecisionPending),
+        LibrarySlotsStatus::Failed { .. } | LibrarySlotsStatus::Held { .. } => {
+            Some(LibraryDisabledReason::DecisionPending)
+        }
     }
 }
 
@@ -721,6 +742,52 @@ fn build_request(status: LibrarySlotsStatus) -> LibraryRequestModel {
                 "library.request.cancel",
                 "Cancel",
                 "Stop waiting for the Library request. Nothing already stored is removed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // A conflicted open is retried by re-listing; the runtime does exactly
+        // that for this code, so the label says so.
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Open,
+            code: code @ ClientDiagnosticCode::StaleSave,
+            ..
+        } => (
+            Some(code),
+            Some(LibraryControl::enabled(
+                "library.request.retry",
+                "Refresh",
+                "List the saved galaxies again, then open the save once more.",
+                false,
+                LibraryUiIntent::RetrySlotRequest,
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Discard the failed Library request. Nothing already stored is removed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // Same identifiers as Retry and Cancel, so focus held on the request
+        // strip survives the open moving from in flight to held.
+        LibrarySlotsStatus::Held { recovered, .. } => (
+            None,
+            Some(LibraryControl::enabled(
+                "library.request.retry",
+                if recovered { "Open previous" } else { "Open" },
+                if recovered {
+                    "Open the previous valid generation of this save. The invalid latest one is replaced when it saves."
+                } else {
+                    "Open the validated save in the Workshop."
+                },
+                false,
+                LibraryUiIntent::AcceptOpen,
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Do not open this save. Nothing stored is removed.",
                 false,
                 LibraryUiIntent::CancelSlotRequest,
             )),
@@ -838,24 +905,30 @@ fn row_description(summary: &SlotSummary, resident: bool) -> String {
 /// control that disappears takes its focus slot and its layout box with it,
 /// which is the defect this screen was told not to repeat.
 ///
-/// Open, Use for Continue and row Export do not take the lane reason: §4 routes
-/// them through the exact-catalog client instead of the slot-request lane.
+/// Open takes the lane reason since task 12a: its `SelectContinue` contends for
+/// the Commit lane a Rename holds, and its progress, failure and held
+/// candidate are all shown in the one request strip. Use for Continue and row
+/// Export do not take it yet; task 12b and 12c decide that when they wire them.
 ///
 /// **§6's replacement-and-persistence gate, item by item, so task 12 adds it
 /// where it belongs rather than where an earlier summary of this list said.**
 /// §6 names exactly four things that "remain disabled until replacement and
 /// persistence invariants are safe":
 ///
-/// 1. **Library Open** — this function. Gate it here when the client is wired.
+/// 1. **Library Open** — this function, gated since task 12a on
+///    [`LibraryDisabledReason::ReplacementBlocked`]. The runtime refuses the
+///    same case in `dispatch_open`, and re-checks it when a held candidate is
+///    accepted.
 /// 2. **Workshop Archive import** — *not here*. That is `ImportArchive` in
 ///    [`build_transfer`], which carries a matching note. `ImportPack` is exempt:
 ///    §6 explicitly permits content-pack storage that requests no session
 ///    replacement.
 /// 3. **Use for Continue** — this function. Gate it here.
-/// 4. **Recovery of another slot** — **not modelled at all.** No recovery or
-///    repair control exists in this model, and none of §4's recovery offers
-///    appear. Tasks 9 and 12 own them; this note exists so the §6 list does not
-///    read as complete while a quarter of it is out of scope.
+/// 4. **Recovery of another slot** — reached through Open since task 12a. An
+///    open whose head is invalid is held as
+///    [`LibrarySlotsStatus::Held`] with `recovered: true`, and its acceptance
+///    is refused by the same replacement gate. There is no separate repair
+///    control.
 ///
 /// **Row Export is deliberately absent from that list.** §6 does not name it and
 /// §4 states it "does not mutate storage, select Continue, or install/replace a
@@ -874,6 +947,12 @@ fn build_actions(
     let resident = row
         .filter(|row| row.resident)
         .map(|_| LibraryDisabledReason::ResidentSlot);
+    let already_open = row
+        .filter(|row| row.resident)
+        .map(|_| LibraryDisabledReason::AlreadyOpen);
+    let replacement = context
+        .replacement_blocked
+        .then_some(LibraryDisabledReason::ReplacementBlocked);
     let already_continue = row
         .filter(|row| row.selected_for_continue)
         .map(|_| LibraryDisabledReason::AlreadyContinue);
@@ -896,7 +975,7 @@ fn build_actions(
                 slot: subject,
                 generation,
             },
-            &[no_selection, archived, client],
+            &[no_selection, archived, already_open, replacement, lane],
         ),
         rename: LibraryControl::gated(
             "library.action.rename",
@@ -1062,13 +1141,26 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
             SlotRequestKind::Rename => "Renaming a saved galaxy.",
             SlotRequestKind::Archive => "Archiving a saved galaxy.",
             SlotRequestKind::Unarchive => "Unarchiving a saved galaxy.",
+            SlotRequestKind::Open => "Opening a saved galaxy.",
         },
-        LibrarySlotsStatus::Failed { kind, .. } => match kind {
+        LibrarySlotsStatus::Failed { kind, code, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies failed. Retry or cancel.",
             SlotRequestKind::Rename => "Renaming a saved galaxy failed. Retry or cancel.",
             SlotRequestKind::Archive => "Archiving a saved galaxy failed. Retry or cancel.",
             SlotRequestKind::Unarchive => "Unarchiving a saved galaxy failed. Retry or cancel.",
+            SlotRequestKind::Open => match code {
+                ClientDiagnosticCode::StaleSave => {
+                    "That save changed. Refresh, then open it again."
+                }
+                _ => "Opening a saved galaxy failed. Retry or cancel.",
+            },
         },
+        LibrarySlotsStatus::Held {
+            recovered: true, ..
+        } => "The latest save is invalid. Open its previous generation or cancel.",
+        LibrarySlotsStatus::Held {
+            recovered: false, ..
+        } => "A saved galaxy is ready. Open it or cancel.",
     }
 }
 

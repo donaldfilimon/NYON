@@ -882,3 +882,60 @@ fn disabled_reasons_and_the_content_line_survive_into_the_frame() {
     );
     assert!(frame.status_lines.is_empty());
 }
+
+/// Task 12a's request states carry the longest request labels ("Open
+/// previous", "Refresh") and the longest status lines, so every one of them
+/// must still install, keep 44-pixel controls, and place Cancel wherever the
+/// crowded Rename failure places it.
+#[test]
+fn every_open_request_state_installs_and_keeps_its_decision_controls() {
+    let list = crowded_list();
+    let open_failed = |code| LibrarySlotsStatus::Failed {
+        kind: SlotRequestKind::Open,
+        slot: Some(SlotId(1)),
+        code,
+    };
+    let statuses = [
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Open,
+            slot: Some(SlotId(1)),
+        },
+        open_failed(ClientDiagnosticCode::StaleSave),
+        open_failed(ClientDiagnosticCode::Store),
+        LibrarySlotsStatus::Held {
+            slot: SlotId(1),
+            recovered: true,
+        },
+        LibrarySlotsStatus::Held {
+            slot: SlotId(1),
+            recovered: false,
+        },
+    ];
+    let reference = crowded_model(&list);
+    for status in statuses {
+        let model = LibraryUiModel::build(LibraryUiContext {
+            status,
+            ..crowded_context(&list)
+        });
+        for ((viewport, scale), sheet) in sheet_cases() {
+            let case = format!("{status:?} at {viewport} x{scale} {sheet:?}");
+            let frame = frame_with(&model, viewport, scale, view(sheet));
+            install(&frame).unwrap_or_else(|error| panic!("{case}: refused: {error}"));
+            for control in &frame.controls {
+                assert!(
+                    control.bounds.width() >= 44.0 && control.bounds.height() >= 44.0,
+                    "{case}: {} is undersized",
+                    control.action_id.as_str()
+                );
+            }
+            let placed = placed_ids(&frame);
+            let expected = placed_ids(&frame_with(&reference, viewport, scale, view(sheet)));
+            for id in ["library.request.retry", "library.request.cancel"] {
+                let offered = model.controls().any(|c| c.action_id.as_str() == id);
+                if offered && expected.contains(id) {
+                    assert!(placed.contains(id), "{case}: {id} was dropped");
+                }
+            }
+        }
+    }
+}

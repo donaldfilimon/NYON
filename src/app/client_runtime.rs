@@ -20,7 +20,7 @@ use crate::{
             WorkshopUpdate,
         },
         store::{
-            SlotId, SlotList, SlotName, StoreJobId, StoreJobState, WorkshopStore,
+            SaveGeneration, SlotId, SlotList, SlotName, StoreJobId, StoreJobState, WorkshopStore,
             WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
         },
     },
@@ -110,6 +110,11 @@ pub enum ClientDiagnosticCode {
     /// user-visible reason is a different one: the row is not wrong, the
     /// timing is.
     ResidentSlot,
+    /// A Library open found the row changed under it: a newer head, an
+    /// archive, or a Continue compare-and-swap the store refused. Addendum §4
+    /// calls this a refreshable conflict, not a failure, so the remedy offered
+    /// is to re-list rather than to repeat the same stale request.
+    StaleSave,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,6 +168,8 @@ pub enum SlotRequestKind {
     Rename,
     Archive,
     Unarchive,
+    /// An exact-catalog open of one row.
+    Open,
 }
 
 /// The bounded typed facts the Library presents for its slot-request machine.
@@ -192,6 +199,10 @@ pub enum LibrarySlotsStatus {
         slot: Option<SlotId>,
         code: ClientDiagnosticCode,
     },
+    /// A validated open is waiting for the user. `recovered` says it is the
+    /// slot's retained predecessor rather than its head. Offers Open and
+    /// Cancel.
+    Held { slot: SlotId, recovered: bool },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -268,7 +279,7 @@ enum CatalogImport {
 /// it — the wedged-lane defect [`WorkshopStore::abandon`] exists to close, and
 /// three of the four requests sit in the Commit lane the resident Workshop
 /// needs to save.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum LibrarySlots {
     Idle,
     Working {
@@ -278,6 +289,30 @@ enum LibrarySlots {
     Failed {
         request: WorkshopStoreRequest,
         code: ClientDiagnosticCode,
+    },
+    /// Route-design task 12: an exact-catalog open of one row is in flight.
+    /// Its jobs live in [`ClientRuntime::open_client`], not here; this state is
+    /// what keeps the lane occupied while they run, so a Rename cannot contend
+    /// for the Commit lane the open's `SelectContinue` needs.
+    Opening {
+        slot: SlotId,
+        generation: SaveGeneration,
+    },
+    /// The open failed or conflicted. A conflict is retried by re-listing,
+    /// never by repeating the request with the generation it already found
+    /// stale.
+    OpenFailed {
+        slot: SlotId,
+        generation: SaveGeneration,
+        code: ClientDiagnosticCode,
+    },
+    /// A fully validated candidate the runtime did not install on arrival:
+    /// a retained predecessor, which needs the user's explicit acceptance
+    /// (§4's recovery offer), or a clean head that arrived while the resident
+    /// Workshop could not be replaced or the Library was no longer on screen
+    /// (§4 item 9 preserves it).
+    Held {
+        candidate: Box<LibraryCandidate>,
     },
 }
 
@@ -327,6 +362,10 @@ where
     bootstrap_return: ClientScreen,
     library_return: ClientScreen,
     library: WorkshopLibraryClient,
+    /// The second client instance, for Library Open. Separate from
+    /// [`Self::library`] because startup Continue's outcomes are screen policy
+    /// for the Loading screen, while an open's are the Library's own.
+    open_client: WorkshopLibraryClient,
     slot_requests: LibrarySlots,
     slot_list: Option<SlotList>,
     continue_candidate: Option<LibraryCandidate>,
@@ -355,6 +394,7 @@ where
             bootstrap_return: ClientScreen::MainMenu,
             library_return: ClientScreen::MainMenu,
             library: WorkshopLibraryClient::default(),
+            open_client: WorkshopLibraryClient::default(),
             slot_requests: LibrarySlots::Idle,
             slot_list: None,
             continue_candidate: None,
@@ -548,6 +588,7 @@ where
         // closes it must still reach a terminal state, or its lane leaks for
         // the store's lifetime.
         self.poll_library_slots();
+        self.poll_library_open();
         match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
@@ -1038,6 +1079,19 @@ where
                 slot: slot_request_slot(request),
                 code: *code,
             },
+            LibrarySlots::Opening { slot, .. } => LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::Open,
+                slot: Some(*slot),
+            },
+            LibrarySlots::OpenFailed { slot, code, .. } => LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::Open,
+                slot: Some(*slot),
+                code: *code,
+            },
+            LibrarySlots::Held { candidate } => LibrarySlotsStatus::Held {
+                slot: candidate.loaded.slot,
+                recovered: candidate.loaded.recovered_from_previous,
+            },
         }
     }
 
@@ -1091,6 +1145,30 @@ where
                 }
                 outcome
             }
+            // A conflict is resolved by re-listing: repeating the request would
+            // only find the same stale generation again.
+            LibrarySlots::OpenFailed {
+                code: ClientDiagnosticCode::StaleSave,
+                ..
+            } => {
+                self.slot_list = None;
+                self.dispatch_slot_request(WorkshopStoreRequest::ListSlots)
+            }
+            LibrarySlots::OpenFailed {
+                slot,
+                generation,
+                code,
+            } => {
+                let outcome = self.dispatch_open(slot, generation);
+                if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
+                    self.slot_requests = LibrarySlots::OpenFailed {
+                        slot,
+                        generation,
+                        code,
+                    };
+                }
+                outcome
+            }
             other => {
                 self.slot_requests = other;
                 self.push_diagnostic(
@@ -1129,6 +1207,19 @@ where
                 }
                 Ok(())
             }
+            // An open that reached `Selecting`, or finished it and is held, may
+            // have moved the Continue marker (see
+            // `WorkshopLibraryClient::abandon`), so the list is dropped with it.
+            LibrarySlots::Opening { .. } => {
+                self.open_client.abandon(&mut self.workshop_store);
+                self.slot_list = None;
+                Ok(())
+            }
+            LibrarySlots::Held { .. } => {
+                self.slot_list = None;
+                Ok(())
+            }
+            LibrarySlots::OpenFailed { .. } => Ok(()),
             LibrarySlots::Idle => {
                 self.slot_requests = LibrarySlots::Idle;
                 self.push_diagnostic(
@@ -1138,6 +1229,179 @@ where
                 Err(ClientRuntimeError::RouteUnavailable)
             }
         }
+    }
+
+    /// Opens one listed row through the exact-catalog client (addendum §4).
+    ///
+    /// `generation` is the head the activated row displayed. The client
+    /// compares it before replaying, and on a clean head claims the Continue
+    /// marker with a compare-and-swap before anything is installed, so the
+    /// resident session is replaced only after every store mutation the open
+    /// needs has succeeded (§4 item 10).
+    ///
+    /// Refused, with nothing started, while another Library request holds the
+    /// lane, while startup Continue is running, while the resident Workshop
+    /// cannot be replaced (§6), or for the resident Workshop's own slot.
+    pub fn open_library_slot(
+        &mut self,
+        slot: SlotId,
+        generation: SaveGeneration,
+    ) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.dispatch_open(slot, generation)
+    }
+
+    /// Installs the held candidate the user accepted.
+    ///
+    /// Still refused while the resident Workshop cannot be replaced; the
+    /// candidate stays held, so accepting again once it is safe needs no
+    /// replay.
+    pub fn accept_library_open(&mut self) -> Result<(), ClientRuntimeError> {
+        match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
+            LibrarySlots::Held { candidate } => {
+                if let Err(error) = self.ensure_resident_workshop_replaceable() {
+                    self.slot_requests = LibrarySlots::Held { candidate };
+                    return Err(error);
+                }
+                self.install_opened(*candidate);
+                Ok(())
+            }
+            other => {
+                self.slot_requests = other;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No validated Workshop Library open is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
+        }
+    }
+
+    /// The one point at which a Library open starts, for the first attempt and
+    /// for Retry alike, so both are gated by the same rules.
+    ///
+    /// Every refusal here is checked before the client begins, so a refused
+    /// open reaches no store lane and needs no compensation.
+    fn dispatch_open(
+        &mut self,
+        slot: SlotId,
+        generation: SaveGeneration,
+    ) -> Result<(), ClientRuntimeError> {
+        if self.library.is_active() {
+            return Err(ClientRuntimeError::BootstrapActive);
+        }
+        if self.resident_slot() == Some(slot) {
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "The resident Workshop's own slot is already open",
+            );
+            return Err(ClientRuntimeError::RouteUnavailable);
+        }
+        self.ensure_resident_workshop_replaceable()?;
+        match self.open_client.begin(
+            &mut self.workshop_store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        ) {
+            Ok(()) => {
+                self.slot_requests = LibrarySlots::Opening { slot, generation };
+                Ok(())
+            }
+            // `open_client` is active only while the lane holds `Opening`,
+            // which the callers have already ruled out.
+            Err(LibraryBeginError::Active) => Err(ClientRuntimeError::LibraryRequestActive),
+            Err(LibraryBeginError::Store(error)) => {
+                self.push_diagnostic(ClientDiagnosticCode::Store, error.to_string());
+                self.slot_requests = LibrarySlots::OpenFailed {
+                    slot,
+                    generation,
+                    code: ClientDiagnosticCode::Store,
+                };
+                Err(ClientRuntimeError::Store(error))
+            }
+        }
+    }
+
+    /// Translates one open outcome into Library state. Never
+    /// [`Self::enter_recovery`]: §6 keeps Library failures on the Library.
+    fn poll_library_open(&mut self) {
+        let LibrarySlots::Opening { slot, generation } = self.slot_requests else {
+            return;
+        };
+        let failed = |code| LibrarySlots::OpenFailed {
+            slot,
+            generation,
+            code,
+        };
+        match self.open_client.poll(&mut self.workshop_store) {
+            LibraryEvent::Pending => {}
+            LibraryEvent::Ready(candidate) => {
+                // Installing swaps the screen, so it happens only while the
+                // user is still looking at the Library and nothing forbids
+                // it. A predecessor always waits for explicit acceptance.
+                if candidate.loaded.recovered_from_previous
+                    || self.screen != ClientScreen::Library
+                    || self.resident_workshop_blocks_replacement()
+                {
+                    self.slot_requests = LibrarySlots::Held { candidate };
+                } else {
+                    self.slot_requests = LibrarySlots::Idle;
+                    self.install_opened(*candidate);
+                }
+            }
+            LibraryEvent::Failed(diagnostic) => {
+                self.slot_requests = failed(diagnostic.code);
+                self.push_diagnostic(diagnostic.code, diagnostic.message);
+            }
+            LibraryEvent::ProtocolFailure(message) => {
+                self.slot_requests = failed(ClientDiagnosticCode::StoreProtocol);
+                self.push_diagnostic(ClientDiagnosticCode::StoreProtocol, message);
+            }
+            // An explicit open reads its row from the list, never the marker.
+            LibraryEvent::NoCandidate => {
+                self.slot_requests = failed(ClientDiagnosticCode::StoreProtocol);
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "A Library open reported no Continue candidate it never asked for",
+                );
+            }
+            // §4's refreshable conflict. The validated candidate a refused
+            // compare-and-swap carries is not kept: it is a generation the
+            // store no longer calls the head, so nothing could install it, and
+            // the retry §4 offers is "after refresh", which re-lists.
+            LibraryEvent::StaleRow { .. }
+            | LibraryEvent::ArchivedRow { .. }
+            | LibraryEvent::ContinueConflict { .. } => {
+                self.slot_requests = failed(ClientDiagnosticCode::StaleSave);
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StaleSave,
+                    "The Library row changed before it could be opened",
+                );
+            }
+        }
+    }
+
+    /// Replaces the active session with a validated candidate.
+    ///
+    /// The cached list and any startup Continue candidate are dropped: a clean
+    /// open has just moved the Continue marker, and a recovered one is about to
+    /// through the session's own promotion obligation.
+    fn install_opened(&mut self, candidate: LibraryCandidate) {
+        self.active_session = ActiveSession::Workshop(WorkshopSession::from_loaded(
+            candidate.history,
+            candidate.loaded.slot,
+            candidate.loaded.generation,
+            candidate.loaded.head_generation,
+            candidate.loaded.recovered_from_previous,
+        ));
+        self.continue_candidate = None;
+        self.slot_list = None;
+        self.screen = ClientScreen::GalaxyWorkshop;
+        self.recovery = None;
     }
 
     /// Drops a validated Continue candidate that names `slot`.
@@ -1385,7 +1649,9 @@ where
         matches!(&self.active_session, ActiveSession::Workshop(session) if session.continue_ready())
     }
 
-    fn resident_workshop_blocks_replacement(&self) -> bool {
+    /// Whether the resident Workshop holds unsaved work or a persistence
+    /// obligation, so no route may replace it. §6's gate for Library Open.
+    pub fn resident_workshop_blocks_replacement(&self) -> bool {
         match &self.active_session {
             ActiveSession::Workshop(session) => session.replacement_blocked(),
             ActiveSession::None | ActiveSession::Classic => false,

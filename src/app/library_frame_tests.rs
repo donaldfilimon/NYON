@@ -117,16 +117,14 @@ fn selecting_a_row_is_client_state_and_enables_nothing_the_store_cannot_serve() 
         "the model did not pick up the selection"
     );
 
-    // With a row selected, every action exists, and the ones that would open
-    // or select without a route still refuse: their capability flags are off.
-    // Rename and Archive are live since task 9, but only open a dialog.
+    // With a row selected, every action exists, and the ones that would
+    // select or export without a route still refuse: their capability flags
+    // are off. Rename and Archive are live since task 9, but only open a
+    // dialog; Open is live since task 12a and is exercised below.
     assert!(control_enabled(&app, "library.action.archive"));
     assert!(control_enabled(&app, "library.action.rename"));
-    for id in [
-        "library.action.open",
-        "library.action.use-for-continue",
-        "library.action.export",
-    ] {
+    assert!(control_enabled(&app, "library.action.open"));
+    for id in ["library.action.use-for-continue", "library.action.export"] {
         assert!(!control_enabled(&app, id), "{id} is live without a route");
         app.activate_platform_action_id(&SemanticActionId::new(id), InputModality::Keyboard);
         assert_eq!(
@@ -662,4 +660,132 @@ fn the_workshop_library_entry_returns_to_the_same_untouched_session() {
         );
         assert!(app.ui_focus.request_focus(&entry));
     }
+}
+
+/// Task 12a: Open from the real frame shows its progress in the request strip,
+/// then lands in the Workshop on exactly that save, and the next frame is the
+/// Workshop's own.
+#[test]
+fn open_from_the_frame_shows_progress_then_lands_in_the_workshop_on_that_save() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    let open = SemanticActionId::new("library.action.open");
+    assert!(app.ui_focus.request_focus(&open));
+    app.activate_platform_action_id(&open, InputModality::Keyboard);
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::Working { .. }
+    ));
+    app.build_frame();
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(
+        control_enabled(&app, "library.request.cancel"),
+        "an open in flight must offer Cancel"
+    );
+    assert!(!control_enabled(&app, "library.action.open"));
+
+    for _ in 0..16 {
+        if app.runtime.screen() != ClientScreen::Library {
+            break;
+        }
+        app.runtime.update(std::time::Duration::ZERO);
+    }
+    assert_eq!(app.runtime.screen(), ClientScreen::GalaxyWorkshop);
+    app.build_frame();
+    assert!(
+        app.library_ui.is_none(),
+        "the Library model survived leaving"
+    );
+    assert!(app.workshop_ui.is_some());
+    assert!(!has_control(&app, "library.close"));
+    assert_eq!(
+        app.runtime.workshop_snapshot().unwrap().store.slot,
+        Some(slot)
+    );
+}
+
+/// §6 on the real screen: an unsaved resident Workshop disables Open with the
+/// reason the runtime would refuse it with, and activating it anyway starts
+/// nothing.
+#[test]
+fn an_unsaved_resident_disables_open_on_the_frame_and_the_store_is_untouched() {
+    let (mut app, slot) = library_app();
+    app.runtime.close_library();
+    app.runtime.start_new_workshop(3).unwrap();
+    let snapshot = app.runtime.workshop_snapshot().unwrap();
+    let batch = nyon_workshop_core::CreatorBatchV1 {
+        expected_cursor: snapshot.active_view.view_cursor,
+        expected_tick: snapshot.active_view.tick,
+        operations: vec![nyon_workshop_core::CreatorOpV1::CreateSystem {
+            local: nyon_workshop_core::BatchLocalId(1),
+            name: nyon_workshop_core::ObjectName::new("Unsaved Forge").unwrap(),
+            position: nyon_workshop_core::GalaxyPointV1::new(64, 64).unwrap(),
+        }],
+    };
+    app.runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(batch))
+        .unwrap();
+    app.runtime.update(std::time::Duration::ZERO);
+    assert!(app.runtime.resident_workshop_blocks_replacement());
+    app.runtime.open_library().unwrap();
+    app.runtime.update(std::time::Duration::ZERO);
+    app.build_frame();
+    select(&mut app, slot);
+
+    assert!(!control_enabled(&app, "library.action.open"));
+    assert_eq!(
+        app.library_ui
+            .as_ref()
+            .unwrap()
+            .actions
+            .open
+            .disabled_reason,
+        Some(crate::ui::library::LibraryDisabledReason::ReplacementBlocked)
+    );
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.action.open"),
+        InputModality::Keyboard,
+    );
+    assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert_ne!(
+        app.runtime.workshop_snapshot().unwrap().store.slot,
+        Some(slot)
+    );
+}
+
+/// A held open is accepted from the request strip's own control.
+#[test]
+fn a_held_open_is_accepted_from_the_request_strip() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.action.open"),
+        InputModality::Pointer,
+    );
+    app.runtime.close_library();
+    for _ in 0..16 {
+        app.runtime.update(std::time::Duration::ZERO);
+    }
+    app.build_frame();
+    assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
+    app.runtime.open_library().unwrap();
+    app.build_frame();
+    assert_eq!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::Held {
+            slot,
+            recovered: false,
+        }
+    );
+    let accept = SemanticActionId::new("library.request.retry");
+    assert!(control_enabled(&app, accept.as_str()));
+    app.activate_platform_action_id(&accept, InputModality::Keyboard);
+    assert_eq!(app.runtime.screen(), ClientScreen::GalaxyWorkshop);
+    app.build_frame();
+    assert!(app.library_ui.is_none());
+    assert_eq!(
+        app.runtime.workshop_snapshot().unwrap().store.slot,
+        Some(slot)
+    );
 }

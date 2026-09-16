@@ -885,9 +885,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             selected_slot: self.selected_library_slot,
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
+            replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
             // Route-design tasks 12 and 11 respectively. Each flag is what
             // keeps its controls visible-but-disabled rather than live with no
-            // route behind them; `apply_library_intent` relies on it.
+            // route behind them; `apply_library_intent` relies on it. Open no
+            // longer reads the first: task 12a wired it.
             library_client_available: false,
             transfer_available: false,
             confirmation: self.library_confirmation,
@@ -1338,8 +1340,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 }
                 Ok(())
             }
-            deferred @ (LibraryUiIntent::OpenSlot { .. }
-            | LibraryUiIntent::UseForContinue { .. }
+            LibraryUiIntent::OpenSlot { slot, generation } => {
+                self.runtime.open_library_slot(slot, generation)
+            }
+            LibraryUiIntent::AcceptOpen => self.runtime.accept_library_open(),
+            deferred @ (LibraryUiIntent::UseForContinue { .. }
             | LibraryUiIntent::ExportSlot { .. }
             | LibraryUiIntent::ImportArchive
             | LibraryUiIntent::ImportPack
@@ -2049,6 +2054,9 @@ pub(crate) const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'stat
         }
         ClientDiagnosticCode::RouteUnavailable => {
             "That product route is unavailable from the current screen."
+        }
+        ClientDiagnosticCode::StaleSave => {
+            "That save changed before it opened. Refresh the list and try again."
         }
     }
 }

@@ -6,9 +6,15 @@ Status: Design. Authorized by
 `docs/superpowers/reviews/2026-09-04-workshop-library-addendum-review.md`, which
 granted "APPROVE FOR IMPLEMENTATION PLANNING" and was explicit that it "does not
 claim that any Library/store/transfer source has been implemented, tested, built,
-or exercised." Nothing here is implemented. It closes
+or exercised." It closes
 `docs/superpowers/reviews/2026-09-04-workshop-v1-baseline-review.md` Finding 2
 only when built.
+
+**Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
+first slice (12a, Library Open) has landed. Still open: Use for Continue and row
+Export (12b, 12c), Import archive, and all of task 11 (transfer protocol). The
+main-menu gap noted under task 10 is closed: `3b0e229` added the entry. The
+notes under each task below say what landed and where it moved from this plan.
 
 Binding contract: `docs/superpowers/specs/2026-09-04-nyon-workshop-library-addendum.md`,
 cited below by section.
@@ -226,6 +232,31 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     to the existing byte sources.
 12. Enable Open, Import archive, Set Continue and row Export on the library
     client.
+    **12a landed 2026-09-16: Open.** It runs on a second `WorkshopLibraryClient`
+    (startup Continue keeps the first), and it occupies the Library's one
+    request lane rather than running beside it, for two reasons: its
+    `SelectContinue` needs the Commit lane a Rename holds, and its progress,
+    failure and held candidate all belong in the request strip that already
+    offers Retry and Cancel. So Open now takes the lane reason, which this plan
+    and the task 7 model had excluded. Gated in the model and refused in the
+    runtime on §6's replacement invariant (`ReplacementBlocked`) and on the
+    resident Workshop's own slot (`AlreadyOpen`). Outcomes: a clean head
+    installs only while the Library is on screen and replacement is safe,
+    otherwise it is **held** and offered as Open (§4 item 9); an invalid head is
+    always held and offered as **Open previous**, whose acceptance installs the
+    predecessor so the session runs its existing promote-then-select
+    obligation. That is how §6's "recovery of another slot" is reached; there
+    is no separate repair control. A stale row, an archived row and a refused
+    Continue compare-and-swap are one `StaleSave` state whose Retry is labelled
+    **Refresh** and re-lists instead of repeating the stale request.
+    **One deviation from §4:** a refused compare-and-swap does not keep the
+    validated candidate. §4 says to preserve it, but it is a generation the
+    store no longer calls the head, so nothing could install it, and §4's own
+    remedy is "retry after refresh", which re-lists and replays anyway.
+    Cancel from an open that reached `Selecting` can leave the Continue marker
+    claimed, as `WorkshopLibraryClient::abandon` documents, so Cancel drops the
+    cached list. Use for Continue and row Export still read
+    `library_client_available`, which stays false.
 
 Ship the screen after tasks 1-4, in two slices: the wiring subset first with the
 client-dependent controls **rendered disabled with a visible reason**, then
