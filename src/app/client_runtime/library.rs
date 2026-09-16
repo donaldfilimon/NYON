@@ -213,6 +213,19 @@ impl WorkshopLibraryClient {
     /// trusting one.** That is safe rather than corrupting only because every
     /// head-dependent mutation compares and swaps.
     ///
+    /// **The consequence a Cancel control must absorb: abandoning from
+    /// `Selecting` can leave the Continue marker CLAIMED for the open that was
+    /// cancelled.** The memory and browser adapters have executed the
+    /// `SelectContinue` by the time `start` returned, so there is nothing left
+    /// to call off — `selected_continue` is already the abandoned candidate's
+    /// slot, and it stays there. This is not corruption and not a defect in
+    /// this method; it is what "abandons the outcome, not the work" means for
+    /// this particular request, measured rather than reasoned about and pinned
+    /// by `abandoning_a_selecting_open_leaves_the_continue_marker_claimed`.
+    /// A screen that must present Cancel as *nothing happened* has to select
+    /// the previous marker back itself, and cannot do it from a generation it
+    /// held before abandoning.
+    ///
     /// The validated candidate in `Selecting` is **discarded**, unlike
     /// [`LibraryEvent::ContinueConflict`], which preserves it. The distinction
     /// is who decided to stop: a conflict is the store refusing work the caller
@@ -245,10 +258,12 @@ impl WorkshopLibraryClient {
             // the decoder is still giving it up.
             Phase::Decoding { .. } => true,
         }
-        // `expected_generation` and `selects_continue` are deliberately left
-        // as they are. `begin` sets both on every open and no terminal event
-        // resets them either, so clearing them here would invent a second
-        // discipline for the same two fields.
+        // `expected_generation` and `selects_continue` are deliberately left as
+        // they are, and the reason is checkable rather than a symmetry argument:
+        // both are read only from inside a phase (the `Loading` generation check
+        // and the selection decision), every phase originates in a `begin`, and
+        // `begin` assigns both on both of its arms. An `Idle` client never reads
+        // either, so a stale value cannot be observed.
     }
 
     /// Advances one bounded step.

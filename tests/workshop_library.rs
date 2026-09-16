@@ -596,3 +596,53 @@ fn an_abandoned_client_accepts_a_fresh_begin_and_polls_as_idle() {
     assert_eq!(candidate.loaded.generation, generation);
     assert_eq!(list(&mut store).selected_continue, Some(slot));
 }
+
+#[test]
+fn abandoning_a_selecting_open_leaves_the_continue_marker_claimed() {
+    // Measured, not reasoned about, and it is the one consequence of this
+    // escape that a user can see. `Selecting` holds a `SelectContinue` job that
+    // the memory adapter has *already executed* by the time `start` returned, so
+    // abandoning it calls nothing off: the marker stays pointed at the candidate
+    // whose open was cancelled. Consistent with the store's "abandons the
+    // outcome, not the work", but a Cancel control that presents itself as
+    // "nothing happened" would be lying, and this is the layer to learn that in
+    // rather than filing it against the screen in Task 9.
+    let mut store = MemoryWorkshopStore::default();
+    let (before, before_generation) = create(&mut store, "Predecessor", 0x0D17);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot: before,
+            expected_generation: before_generation,
+        },
+    );
+    assert_eq!(list(&mut store).selected_continue, Some(before));
+
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0D18);
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(
+            &mut store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        )
+        .unwrap();
+    assert!(matches!(client.poll(&mut store), LibraryEvent::Pending));
+    assert!(matches!(client.poll(&mut store), LibraryEvent::Pending));
+    assert!(client.abandon(&mut store));
+
+    assert_eq!(
+        list(&mut store).selected_continue,
+        Some(slot),
+        "the marker is expected to stay claimed by the cancelled open; if this \
+         now reports the predecessor, an adapter learned to call the mutation \
+         off and the `abandon` doc must be corrected"
+    );
+    assert_ne!(
+        list(&mut store).selected_continue,
+        Some(before),
+        "abandon must not be read as restoring the previous marker"
+    );
+}
