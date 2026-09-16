@@ -339,6 +339,24 @@ pub fn build_library_platform_frame(
     let modal_content = modal_presentation(&model.semantics, &layout);
     if let (Some(content), Some(confirmation)) = (&modal_content, &model.confirmation) {
         debug_assert!(!content.scrolling, "a Library dialog needs paging");
+        // The rename field is a body row; the two buttons are the footer.
+        if let Some(field) = &confirmation.name_field {
+            let row = content
+                .visible_rows(0)
+                .find(|(row, _)| row.action.as_ref() == Some(&field.action_id));
+            debug_assert!(row.is_some(), "the rename field did not fit its dialog");
+            if let Some((_, bounds)) = row {
+                // Whole-pixel origin, as everywhere in this frame: the row's
+                // fractional origin measured 43.99998 tall.
+                let snapped = PlatformRect::from_xywh(
+                    bounds.min.x.round(),
+                    bounds.min.y.round(),
+                    bounds.width().floor(),
+                    bounds.height(),
+                );
+                placed.push((field, snapped));
+            }
+        }
         placed.push((
             &confirmation.cancel_control,
             modal_footer_bounds(content, false),

@@ -1,10 +1,15 @@
-//! Library confirmations: route-design task 9.
+//! Library confirmations and the rename field: route-design task 9.
 //!
 //! Addendum §3 requires lifecycle actions to use explicit confirmation text,
-//! "including whether Archive will clear Continue". The Archive and Unarchive
-//! controls therefore do not reach the store themselves: they ask the
-//! dispatcher to open one of these dialogs, and only the dialog's confirm
-//! control submits the change.
+//! "including whether Archive will clear Continue", and Rename to validate
+//! through the canonical `SlotName`. Rename, Archive and Unarchive therefore
+//! do not reach the store themselves: they ask the dispatcher to open one of
+//! these dialogs, and only the dialog submits the change.
+//!
+//! **The rename draft is client state and survives refusal.** A name the store
+//! would reject disables the confirm control with [`LibraryDisabledReason::InvalidName`]
+//! and shows a one-line notice, but the draft stays; only Cancel, Escape or a
+//! submitted rename discard it.
 //!
 //! **The confirm control carries the request it was built for.** The
 //! dialog's wording and its submitted intent are derived from the same
@@ -23,7 +28,7 @@
 
 use crate::{
     ui::accessibility::{SemanticActionId, SemanticNode, SemanticRole},
-    workshop::store::SlotId,
+    workshop::store::{MAX_SLOT_NAME_BYTES, SlotId, SlotName},
 };
 
 use super::{LibraryControl, LibraryDisabledReason, LibraryRow, LibraryUiIntent};
@@ -37,21 +42,39 @@ use super::{LibraryControl, LibraryDisabledReason, LibraryRow, LibraryUiIntent};
 pub const LIBRARY_CONFIRM_CANCEL_ACTION: &str = "library.confirm.cancel";
 pub const LIBRARY_CONFIRM_SUBMIT_ACTION: &str = "library.confirm.submit";
 
+/// The rename dialog's text field.
+pub const LIBRARY_RENAME_FIELD_ACTION: &str = "library.confirm.name";
+
 /// The dialog's semantic node id.
 pub const LIBRARY_CONFIRM_DIALOG: &str = "library.confirm-dialog";
 
 /// The confirmation's focus order, for callers that must open the trap before
-/// a frame exists.
-pub fn library_confirmation_order() -> [SemanticActionId; 2] {
-    [
-        SemanticActionId::new(LIBRARY_CONFIRM_CANCEL_ACTION),
-        SemanticActionId::new(LIBRARY_CONFIRM_SUBMIT_ACTION),
-    ]
+/// a frame exists. Rename starts in its field, so typing replaces the name.
+pub fn library_confirmation_order(kind: LibraryConfirmationKind) -> Vec<SemanticActionId> {
+    let mut order = Vec::with_capacity(3);
+    if kind == LibraryConfirmationKind::Rename {
+        order.push(SemanticActionId::new(LIBRARY_RENAME_FIELD_ACTION));
+    }
+    order.push(SemanticActionId::new(LIBRARY_CONFIRM_CANCEL_ACTION));
+    order.push(SemanticActionId::new(LIBRARY_CONFIRM_SUBMIT_ACTION));
+    order
+}
+
+/// Whether a keystroke or browser edit may put `value` into the rename field.
+///
+/// Printable ASCII up to the store's byte limit, the characters `SlotName`
+/// accepts: the atlas draws nothing else, and a longer draft could only ever
+/// be refused. Spacing rules are left to live validation, because a name is
+/// typed through states (a trailing space before the next word) that are
+/// invalid only as a final answer.
+pub fn rename_draft_acceptable(value: &str) -> bool {
+    value.len() <= MAX_SLOT_NAME_BYTES && value.bytes().all(|byte| (b' '..=b'~').contains(&byte))
 }
 
 /// Which change a confirmation guards.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryConfirmationKind {
+    Rename,
     Archive,
     Unarchive,
 }
@@ -71,13 +94,23 @@ pub struct LibraryConfirmationModel {
     pub title: &'static str,
     /// The explicit confirmation text §3 requires, naming the save.
     pub body: String,
+    /// Rename only: the text field. Its label shows the draft on one line;
+    /// activating it submits, like Enter in any single-line form.
+    pub name_field: Option<LibraryControl>,
+    /// Rename only: the draft as typed.
+    pub name_value: Option<String>,
+    /// Rename only: why the draft cannot be submitted, when it cannot.
+    pub problem: Option<&'static str>,
     pub cancel_control: LibraryControl,
     pub submit_control: LibraryControl,
 }
 
 impl LibraryConfirmationModel {
-    pub(crate) fn controls(&self) -> [&LibraryControl; 2] {
-        [&self.cancel_control, &self.submit_control]
+    pub(crate) fn controls(&self) -> Vec<&LibraryControl> {
+        self.name_field
+            .iter()
+            .chain([&self.cancel_control, &self.submit_control])
+            .collect()
     }
 }
 
@@ -94,10 +127,39 @@ pub(super) fn build_confirmation(
     request: LibraryConfirmationRequest,
     rows: &[LibraryRow],
     lane: Option<LibraryDisabledReason>,
+    rename_draft: Option<&str>,
 ) -> Option<LibraryConfirmationModel> {
     let row = rows.iter().find(|row| row.slot == request.slot)?;
     let name = &row.name;
+    let mut name_field = None;
+    let mut name_value = None;
+    let mut problem = None;
     let (title, body, label, description, reasons) = match request.kind {
+        LibraryConfirmationKind::Rename => {
+            // A draft the field could never hold is not shown; the row's own
+            // name is. The dispatcher filters edits, so this is a backstop.
+            let draft = rename_draft
+                .filter(|draft| rename_draft_acceptable(draft))
+                .unwrap_or(name);
+            let invalid = SlotName::new(draft).is_err();
+            problem = invalid.then_some("This name cannot be used yet.");
+            name_field = Some(LibraryControl::enabled(
+                LIBRARY_RENAME_FIELD_ACTION,
+                format!("Name: {draft}"),
+                "The new name for this save. Enter renames it.",
+                false,
+                LibraryUiIntent::SubmitConfirmation(request),
+            ));
+            name_value = Some(draft.to_owned());
+            (
+                "Rename save",
+                "Use 1 to 64 letters, digits or symbols, with single spaces between words."
+                    .to_owned(),
+                "Rename",
+                "Rename this saved galaxy.",
+                [invalid.then_some(LibraryDisabledReason::InvalidName), lane],
+            )
+        }
         LibraryConfirmationKind::Archive => (
             "Archive save",
             format!(
@@ -130,6 +192,9 @@ pub(super) fn build_confirmation(
         request,
         title,
         body,
+        name_field,
+        name_value,
+        problem,
         cancel_control: LibraryControl::enabled(
             LIBRARY_CONFIRM_CANCEL_ACTION,
             "Cancel",
@@ -152,19 +217,37 @@ pub(super) fn confirmation_node(
     confirmation: &LibraryConfirmationModel,
     semantic_control: impl Fn(&LibraryControl, SemanticRole) -> SemanticNode,
 ) -> SemanticNode {
+    let mut children = vec![SemanticNode::text(
+        "library.confirm.body",
+        SemanticRole::Text,
+        &confirmation.body,
+        "",
+    )];
+    if let Some(field) = &confirmation.name_field {
+        let mut node = semantic_control(field, SemanticRole::TextInput);
+        node.value.clone_from(&confirmation.name_value);
+        children.push(node);
+    }
+    if let Some(problem) = confirmation.problem {
+        children.push(SemanticNode::text(
+            "library.confirm.problem",
+            SemanticRole::Alert,
+            problem,
+            "",
+        ));
+    }
+    children.push(semantic_control(
+        &confirmation.cancel_control,
+        SemanticRole::Button,
+    ));
+    children.push(semantic_control(
+        &confirmation.submit_control,
+        SemanticRole::Button,
+    ));
     SemanticNode::container(
         LIBRARY_CONFIRM_DIALOG,
         SemanticRole::Dialog,
         confirmation.title,
-        vec![
-            SemanticNode::text(
-                "library.confirm.body",
-                SemanticRole::Text,
-                &confirmation.body,
-                "",
-            ),
-            semantic_control(&confirmation.cancel_control, SemanticRole::Button),
-            semantic_control(&confirmation.submit_control, SemanticRole::Button),
-        ],
+        children,
     )
 }

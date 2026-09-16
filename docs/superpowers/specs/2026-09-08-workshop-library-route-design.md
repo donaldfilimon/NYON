@@ -201,6 +201,10 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
    names the save and says whether Continue will be cleared. The body must fit
    without paging (the Library has no dialog paging), which at 320x460 and 1.3
    limits it to about seven lines, four of them a 64-byte name.
+   **9b landed 2026-09-16:** Rename opens a dialog with a single-line name field,
+   validated live through `SlotName`; an invalid draft disables Rename and shows a
+   one-line notice, and a refused submit keeps the dialog and the draft. The
+   `slot_changes_available` flag is gone.
 10. In-Workshop entry control in both placements.
     **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
     MAIN-MENU entry control, and the addendum §2 requires main-menu entry.** Task 10 is

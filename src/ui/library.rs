@@ -46,8 +46,8 @@ mod confirmation;
 
 pub use confirmation::{
     LIBRARY_CONFIRM_CANCEL_ACTION, LIBRARY_CONFIRM_DIALOG, LIBRARY_CONFIRM_SUBMIT_ACTION,
-    LibraryConfirmationKind, LibraryConfirmationModel, LibraryConfirmationRequest,
-    library_confirmation_order,
+    LIBRARY_RENAME_FIELD_ACTION, LibraryConfirmationKind, LibraryConfirmationModel,
+    LibraryConfirmationRequest, library_confirmation_order, rename_draft_acceptable,
 };
 
 use crate::{
@@ -151,15 +151,8 @@ pub enum LibraryDisabledReason {
     DecisionPending,
     /// The exact-catalog Library client is not wired to this screen yet.
     LibraryClientUnavailable,
-    /// Rename has no route to the store yet.
-    ///
-    /// A capability deferral like the two beside it, and for a normative
-    /// reason rather than a missing wire: Rename needs a validated name, which
-    /// is route-design task 9b. Archive and Unarchive got their §3
-    /// confirmation in task 9a and no longer carry this. Until then Rename
-    /// stays visible (silently omitting it is baseline Finding 5) but must not
-    /// fire from a bare button, which is what an enabled control would do.
-    SlotChangesUnavailable,
+    /// The rename draft is not a name the store accepts.
+    InvalidName,
     /// No portable transfer adapter is installed.
     TransferUnavailable,
     /// There is no active Workshop session to export.
@@ -198,7 +191,9 @@ impl LibraryDisabledReason {
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
             Self::LibraryClientUnavailable => "Opening saved galaxies is not available yet.",
-            Self::SlotChangesUnavailable => "Renaming saves is not available yet.",
+            Self::InvalidName => {
+                "Names use 1 to 64 printable characters with single spaces between words."
+            }
             Self::TransferUnavailable => "Portable file transfer is not available yet.",
             Self::WorkshopInactive => "Open a Workshop before exporting it.",
         }
@@ -481,13 +476,11 @@ pub struct LibraryUiContext<'a> {
     pub library_client_available: bool,
     /// Whether a portable transfer adapter is installed.
     pub transfer_available: bool,
-    /// Whether Rename has its text-field route. Archive and Unarchive have
-    /// their confirmation since task 9a and no longer read this.
-    /// See [`LibraryDisabledReason::SlotChangesUnavailable`].
-    pub slot_changes_available: bool,
     /// The confirmation the user opened, if any. Resolved against the rows:
     /// one naming a save the list no longer holds builds no dialog.
     pub confirmation: Option<LibraryConfirmationRequest>,
+    /// The rename draft, when the open confirmation is a rename.
+    pub rename_draft: Option<&'a str>,
 }
 
 impl Default for LibraryUiContext<'_> {
@@ -500,8 +493,8 @@ impl Default for LibraryUiContext<'_> {
             workshop_active: false,
             library_client_available: false,
             transfer_available: false,
-            slot_changes_available: false,
             confirmation: None,
+            rename_draft: None,
         }
     }
 }
@@ -539,7 +532,12 @@ impl LibraryUiModel {
         let close_control = build_close();
         let refresh_control = build_refresh(&request);
         let confirmation = context.confirmation.and_then(|request_to_confirm| {
-            confirmation::build_confirmation(request_to_confirm, &rows, lane_reason(&request))
+            confirmation::build_confirmation(
+                request_to_confirm,
+                &rows,
+                lane_reason(&request),
+                context.rename_draft,
+            )
         });
 
         let mut controls = BTreeMap::new();
@@ -882,8 +880,6 @@ fn build_actions(
     let lane = lane_reason(request);
     let client = (!context.library_client_available)
         .then_some(LibraryDisabledReason::LibraryClientUnavailable);
-    let changes =
-        (!context.slot_changes_available).then_some(LibraryDisabledReason::SlotChangesUnavailable);
     let slot = row.map(|row| row.slot);
     let generation = row.map_or(SaveGeneration(0), |row| row.generation);
     let subject = slot.unwrap_or(SlotId(0));
@@ -908,7 +904,7 @@ fn build_actions(
             "Give this saved galaxy a different name.",
             false,
             LibraryUiIntent::RenameSlot { slot: subject },
-            &[no_selection, lane, changes],
+            &[no_selection, lane],
         ),
         // One action identifier for both directions, deliberately. The label,
         // the description and the intent all flip, but the identifier must not:

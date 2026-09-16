@@ -406,17 +406,25 @@ fn slice_one_leaves_exactly_the_compact_panels_and_the_overflowing_rows_unplaced
 #[test]
 fn every_library_dialog_fits_without_paging_and_owns_the_frame() {
     let list = crowded_list();
+    // A full-length draft that is also invalid (trailing space): the field,
+    // the notice and the rules sentence all at once.
+    let draft = format!("{} ", "W".repeat(63));
     let dialogs = [
         // Slot 0 is the Continue save: the longest Archive sentence.
         (LibraryConfirmationKind::Archive, SlotId(0)),
         (LibraryConfirmationKind::Unarchive, SlotId(2)),
+        (LibraryConfirmationKind::Rename, SlotId(0)),
     ];
-    let order: Vec<SemanticActionId> = library_confirmation_order().to_vec();
     for (kind, slot) in dialogs {
+        let order = library_confirmation_order(kind);
         let model = LibraryUiModel::build(LibraryUiContext {
             confirmation: Some(LibraryConfirmationRequest { kind, slot }),
+            rename_draft: Some(&draft),
             ..crowded_context(&list)
         });
+        if kind == LibraryConfirmationKind::Rename {
+            assert!(model.confirmation.as_ref().unwrap().problem.is_some());
+        }
         let body = model
             .confirmation
             .as_ref()
@@ -449,6 +457,29 @@ fn every_library_dialog_fits_without_paging_and_owns_the_frame() {
                 } else {
                     assert!(!control.enabled, "{case}: {id} is live behind the dialog");
                 }
+            }
+            if kind == LibraryConfirmationKind::Rename {
+                assert!(
+                    frame.visible_nodes.iter().any(|record| {
+                        record.semantic_id.as_str() == "library.confirm.problem"
+                            && !record.display_text.is_empty()
+                    }),
+                    "{case}: the notice was not shown"
+                );
+                let field = frame
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id.as_str() == "library.confirm.name")
+                    .unwrap_or_else(|| panic!("{case}: the field was not placed"));
+                let submit = frame
+                    .controls
+                    .iter()
+                    .find(|control| control.action_id.as_str() == "library.confirm.submit")
+                    .unwrap();
+                assert!(
+                    field.bounds.max.y <= submit.bounds.min.y,
+                    "{case}: the field is not above the footer"
+                );
             }
             let shown: String = frame
                 .visible_nodes

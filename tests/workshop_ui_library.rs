@@ -21,7 +21,7 @@ use nyon::{
         library::{
             LibraryConfirmationKind, LibraryConfirmationRequest, LibraryContent, LibraryControl,
             LibraryDisabledReason, LibrarySection, LibraryUiContext, LibraryUiIntent,
-            LibraryUiModel, library_confirmation_order,
+            LibraryUiModel, library_confirmation_order, rename_draft_acceptable,
         },
     },
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotName, SlotSummary},
@@ -581,7 +581,6 @@ fn the_resident_slot_cannot_be_archived_and_says_why_in_the_runtimes_words() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(1)),
         resident_slot: Some(SlotId(1)),
-        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     let archive = control(&resident, "library.action.archive");
@@ -600,7 +599,6 @@ fn the_resident_slot_cannot_be_archived_and_says_why_in_the_runtimes_words() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(2)),
         resident_slot: Some(SlotId(1)),
-        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     assert!(control(&neighbour, "library.action.archive").enabled);
@@ -628,14 +626,12 @@ fn the_archive_control_submits_each_direction_under_one_stable_identifier() {
         slots: Some(&active),
         selected_slot: Some(SlotId(9)),
         library_client_available: true,
-        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     let built_archived = model(LibraryUiContext {
         slots: Some(&archived),
         selected_slot: Some(SlotId(9)),
         library_client_available: true,
-        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
 
@@ -857,7 +853,6 @@ fn open_continue_and_export_carry_the_generation_observed_in_the_row() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(5)),
         library_client_available: true,
-        slot_changes_available: true,
         ..LibraryUiContext::default()
     });
     assert_eq!(
@@ -1125,9 +1120,9 @@ fn the_semantic_tree_validates_in_every_shape() {
             resident_slot: Some(SlotId(1)),
             library_client_available: true,
             transfer_available: true,
-            slot_changes_available: true,
             workshop_active: true,
             confirmation: None,
+            rename_draft: None,
             status: LibrarySlotsStatus::Failed {
                 kind: SlotRequestKind::Unarchive,
                 slot: Some(SlotId(2)),
@@ -1224,11 +1219,11 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         selected_slot: Some(SlotId(4)),
         library_client_available: true,
         transfer_available: true,
-        slot_changes_available: true,
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
         resident_slot: None,
         confirmation: None,
+        rename_draft: None,
     });
     let generation = listed.slots[0].generation;
     let expected: Vec<(&str, LibraryUiIntent)> = vec![
@@ -1476,42 +1471,45 @@ fn a_colliding_action_id_is_loud_rather_than_silently_dropped() {
     });
 }
 
-/// Rename is visible and disabled until its text-field route exists
-/// (route-design task 9b); Archive and Unarchive are live since task 9a,
-/// because their activation only opens the §3 confirmation.
-///
-/// Omitting Rename instead is baseline Finding 5. The deferral ranks last,
-/// after the subject and the row's own facts, so a resident row still says it
-/// is resident rather than "not available yet": the more specific truth wins,
-/// which is the documented precedence.
+/// Rename, Archive and Unarchive are live for any selected row the lane can
+/// serve, because each only opens its dialog (task 9); the resident save still
+/// cannot be archived, and that reason is the one it shows.
 #[test]
-fn rename_is_deferred_until_its_route_exists_and_archive_is_not() {
+fn slot_changes_are_live_because_each_opens_a_dialog_first() {
     let listed = list(vec![
         summary(1, "Andromeda", false),
         summary(2, "Bode", true),
         summary(3, "Cartwheel", false),
     ]);
-    for (selected, archive_label) in [(SlotId(1), "Archive"), (SlotId(2), "Unarchive")] {
+    for (selected, archive_label, archive_intent) in [
+        (
+            SlotId(1),
+            "Archive",
+            LibraryUiIntent::ArchiveSlot { slot: SlotId(1) },
+        ),
+        (
+            SlotId(2),
+            "Unarchive",
+            LibraryUiIntent::UnarchiveSlot { slot: SlotId(2) },
+        ),
+    ] {
         let built = model(LibraryUiContext {
             slots: Some(&listed),
             selected_slot: Some(selected),
             ..LibraryUiContext::default()
         });
         let rename = control(&built, "library.action.rename");
-        assert!(!rename.enabled, "Rename fired from a bare button");
+        assert!(rename.enabled);
         assert_eq!(
-            rename.disabled_reason,
-            Some(LibraryDisabledReason::SlotChangesUnavailable)
-        );
-        assert!(
-            built
-                .activate(&rename.action_id, InputModality::Pointer)
-                .is_none()
+            built.activate(&rename.action_id, InputModality::Pointer),
+            Some(LibraryUiIntent::RenameSlot { slot: selected })
         );
         let archive = control(&built, "library.action.archive");
         assert_eq!(archive.label, archive_label);
-        assert!(archive.enabled, "{archive_label} still waits on the flag");
-        assert_eq!(archive.disabled_reason, None);
+        assert_eq!(
+            built.activate(&archive.action_id, InputModality::Pointer),
+            Some(archive_intent)
+        );
     }
 
     let resident = model(LibraryUiContext {
@@ -1525,14 +1523,7 @@ fn rename_is_deferred_until_its_route_exists_and_archive_is_not() {
         Some(LibraryDisabledReason::ResidentSlot),
         "the resident save must not be archivable"
     );
-
-    let enabled = model(LibraryUiContext {
-        slots: Some(&listed),
-        selected_slot: Some(SlotId(1)),
-        slot_changes_available: true,
-        ..LibraryUiContext::default()
-    });
-    assert!(control(&enabled, "library.action.rename").enabled);
+    assert!(control(&resident, "library.action.rename").enabled);
 }
 
 fn confirm_model<'a>(
@@ -1628,9 +1619,10 @@ fn archive_and_unarchive_confirm_with_text_that_states_the_consequence() {
             .find(|node| node.role == SemanticRole::Dialog)
             .expect("the dialog is not a child of the root");
         assert_eq!(node.name, dialog.title);
+        let order = library_confirmation_order(kind);
         assert_eq!(
-            built.focus_order()[built.focus_order().len() - 2..],
-            library_confirmation_order()
+            built.focus_order()[built.focus_order().len() - order.len()..],
+            order[..]
         );
     }
 
@@ -1672,5 +1664,120 @@ fn archive_and_unarchive_confirm_with_text_that_states_the_consequence() {
         closed
             .controls()
             .all(|control| !control.action_id.as_str().starts_with("library.confirm"))
+    );
+}
+
+fn rename_model(listed: &SlotList, draft: &str) -> LibraryUiModel {
+    model(LibraryUiContext {
+        slots: Some(listed),
+        selected_slot: Some(SlotId(3)),
+        confirmation: Some(LibraryConfirmationRequest {
+            kind: LibraryConfirmationKind::Rename,
+            slot: SlotId(3),
+        }),
+        rename_draft: Some(draft),
+        ..LibraryUiContext::default()
+    })
+}
+
+/// Task 9b: the rename dialog validates live through `SlotName`.
+///
+/// An invalid draft disables Rename with a reason and shows a one-line notice,
+/// and the field still submits on Enter, because the dispatcher validates
+/// again and keeps the draft on refusal. The field starts the focus order so
+/// typing goes to it, and a draft the field could never hold is not drawn.
+#[test]
+fn rename_validates_the_draft_and_keeps_the_field_first() {
+    let listed = list(vec![summary(3, "Cartwheel", false)]);
+    let request = LibraryConfirmationRequest {
+        kind: LibraryConfirmationKind::Rename,
+        slot: SlotId(3),
+    };
+    let valid = rename_model(&listed, "Cartwheel Two");
+    let dialog = valid.confirmation.as_ref().unwrap();
+    let field = control(&valid, "library.confirm.name");
+    assert_eq!(field.label, "Name: Cartwheel Two");
+    assert_eq!(dialog.name_value.as_deref(), Some("Cartwheel Two"));
+    assert!(field.enabled);
+    assert_eq!(
+        valid.activate(&field.action_id, InputModality::Keyboard),
+        Some(LibraryUiIntent::SubmitConfirmation(request))
+    );
+    let submit = control(&valid, "library.confirm.submit");
+    assert_eq!(submit.label, "Rename");
+    assert!(submit.enabled);
+    assert_eq!(dialog.problem, None);
+    let node = valid
+        .semantics
+        .root
+        .children
+        .iter()
+        .find(|node| node.role == SemanticRole::Dialog)
+        .unwrap();
+    let field_node = node
+        .children
+        .iter()
+        .find(|child| child.action_id.as_ref() == Some(&field.action_id))
+        .unwrap();
+    assert_eq!(field_node.role, SemanticRole::TextInput);
+    assert_eq!(field_node.value.as_deref(), Some("Cartwheel Two"));
+    assert!(
+        node.children
+            .iter()
+            .all(|child| child.role != SemanticRole::Alert)
+    );
+    assert_eq!(
+        valid.focus_order()[valid.focus_order().len() - 3..],
+        library_confirmation_order(LibraryConfirmationKind::Rename)[..]
+    );
+    assert_eq!(
+        library_confirmation_order(LibraryConfirmationKind::Rename)[0].as_str(),
+        "library.confirm.name"
+    );
+
+    for draft in ["", " Cartwheel", "Cartwheel ", "Cart  wheel"] {
+        let built = rename_model(&listed, draft);
+        let submit = control(&built, "library.confirm.submit");
+        assert_eq!(
+            submit.disabled_reason,
+            Some(LibraryDisabledReason::InvalidName),
+            "{draft:?} was accepted"
+        );
+        assert!(built.confirmation.as_ref().unwrap().problem.is_some());
+        assert!(
+            built.semantics.nodes_depth_first().into_iter().any(|node| {
+                node.role == SemanticRole::Alert && node.id.as_str() == "library.confirm.problem"
+            }),
+            "{draft:?} shows no notice"
+        );
+        assert!(
+            control(&built, "library.confirm.name").enabled,
+            "the field must stay editable"
+        );
+    }
+
+    let long = "W".repeat(64);
+    assert!(
+        control(&rename_model(&listed, &long), "library.confirm.submit").enabled,
+        "64 bytes is the limit, not past it"
+    );
+    for unholdable in [
+        "W".repeat(65),
+        "Caf\u{e9}".to_owned(),
+        "Tab\there".to_owned(),
+    ] {
+        let built = rename_model(&listed, &unholdable);
+        assert_eq!(
+            control(&built, "library.confirm.name").label,
+            "Name: Cartwheel",
+            "{unholdable:?} was drawn"
+        );
+    }
+    assert!(rename_draft_acceptable(&long));
+    assert!(!rename_draft_acceptable(&"W".repeat(65)));
+    assert!(!rename_draft_acceptable("Caf\u{e9}"));
+    assert!(
+        rename_draft_acceptable(" padded "),
+        "spacing is validated live, not filtered"
     );
 }

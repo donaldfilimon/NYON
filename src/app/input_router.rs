@@ -13,7 +13,7 @@ use crate::{
     presentation::{GestureAction, InteractionHit, PointerButton, PointerSource},
     scenario::store::ScenarioStore,
     ui::{
-        accessibility::InputModality,
+        accessibility::{InputModality, SemanticActionId},
         creator::{CreatorFieldKind, edited_creator_text},
         platform::PlatformRect,
         workshop_view::WorkshopViewAction,
@@ -303,6 +303,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             {
                 return;
             }
+            if self.runtime.screen() == ClientScreen::Library
+                && self.handle_library_rename_key(event)
+            {
+                return;
+            }
             if let Some(navigation) = navigation_for_key(&event.logical_key, self.modifiers) {
                 self.handle_navigation(navigation);
                 return;
@@ -465,6 +470,40 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         {
             editor.editing_field = Some(field_id);
         }
+        true
+    }
+
+    /// Typing into the Library rename field: the creator's text rules, the
+    /// first keystroke replacing the name the dialog opened with. A key that
+    /// would make the draft unacceptable (past 64 bytes) is consumed and
+    /// ignored rather than falling through to navigation.
+    fn handle_library_rename_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        if self.modifiers.control_key() || self.modifiers.super_key() || self.modifiers.alt_key() {
+            return false;
+        }
+        self.library_rename_input(
+            event.text.as_deref(),
+            matches!(event.logical_key, Key::Named(NamedKey::Backspace)),
+        )
+    }
+
+    /// The key-independent half of [`Self::handle_library_rename_key`].
+    fn library_rename_input(&mut self, text: Option<&str>, backspace: bool) -> bool {
+        if self.ui_focus.focused().map(SemanticActionId::as_str)
+            != Some(crate::ui::library::LIBRARY_RENAME_FIELD_ACTION)
+        {
+            return false;
+        }
+        let Some(next) = edited_creator_text(
+            CreatorFieldKind::Text,
+            &self.library_rename_draft,
+            text,
+            backspace,
+            !self.library_rename_edited,
+        ) else {
+            return false;
+        };
+        self.set_library_rename_draft(next);
         true
     }
 
@@ -653,6 +692,115 @@ mod tests {
         // With no sheet open, Escape leaves as before.
         app.handle_navigation(NavigationAction::Escape);
         assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
+    }
+
+    /// Task 9b end to end: Rename opens on the save's name with focus in the
+    /// field, the first key replaces it, a name the store would refuse keeps
+    /// the dialog and the draft, and a valid one reaches the store.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rename_types_into_its_field_and_only_a_valid_name_reaches_the_store() {
+        use crate::app::library_frame_tests::{library_app, select, settle};
+        use crate::ui::library::{LIBRARY_CONFIRM_SUBMIT_ACTION, LIBRARY_RENAME_FIELD_ACTION};
+        let (mut app, slot) = library_app();
+        select(&mut app, slot);
+        let rename = SemanticActionId::new("library.action.rename");
+        let field = SemanticActionId::new(LIBRARY_RENAME_FIELD_ACTION);
+        let submit = SemanticActionId::new(LIBRARY_CONFIRM_SUBMIT_ACTION);
+        let name = |app: &crate::app::library_frame_tests::TestApp| {
+            app.runtime
+                .library_slots()
+                .unwrap()
+                .slots
+                .iter()
+                .find(|summary| summary.id == slot)
+                .unwrap()
+                .name
+                .as_str()
+                .to_owned()
+        };
+        assert!(app.ui_focus.request_focus(&rename));
+        app.activate_platform_action_id(&rename, InputModality::Keyboard);
+        app.build_frame();
+        assert_eq!(app.library_rename_draft, "Two-System Forge");
+        assert_eq!(
+            app.ui_focus.focused(),
+            Some(&field),
+            "typing has nowhere to go"
+        );
+
+        // The first key replaces the name; later keys append; Backspace edits.
+        for (text, backspace, expected) in [
+            (Some("N"), false, "N"),
+            (Some("o"), false, "No"),
+            (Some("vaX"), false, "NovaX"),
+            (None, true, "Nova"),
+            (Some(" "), false, "Nova "),
+            (Some("\u{e9}"), false, "Nova "),
+        ] {
+            assert!(
+                app.library_rename_input(text, backspace) || text == Some("\u{e9}"),
+                "{text:?} was not consumed"
+            );
+            assert_eq!(app.library_rename_draft, expected, "after {text:?}");
+        }
+        app.build_frame();
+        assert!(
+            !app.platform_ui
+                .as_ref()
+                .unwrap()
+                .controls
+                .iter()
+                .find(|control| control.action_id == submit)
+                .unwrap()
+                .enabled,
+            "a trailing space was offered to the store"
+        );
+
+        // Enter in the field submits; the store would refuse, so nothing moves.
+        app.activate_platform_action_id(&field, InputModality::Keyboard);
+        assert!(
+            app.library_confirmation.is_some(),
+            "a refusal closed the dialog"
+        );
+        assert_eq!(
+            app.library_rename_draft, "Nova ",
+            "a refusal dropped the draft"
+        );
+        assert_eq!(
+            app.runtime.library_slots_status(),
+            crate::app::client_runtime::LibrarySlotsStatus::Idle
+        );
+
+        // A key past the 64-byte limit is consumed and changes nothing.
+        let full = "W".repeat(64);
+        assert!(app.set_library_rename_draft(full.clone()));
+        assert!(app.library_rename_input(Some("X"), false));
+        assert_eq!(app.library_rename_draft, full);
+
+        // A browser edit follows the same rule.
+        app.apply_creator_semantic_value(&field, "Caf\u{e9}".to_owned());
+        assert_eq!(app.library_rename_draft, full);
+        app.apply_creator_semantic_value(&field, "Nova".to_owned());
+        assert_eq!(app.library_rename_draft, "Nova");
+
+        app.build_frame();
+        app.activate_platform_action_id(&field, InputModality::Keyboard);
+        assert!(app.library_confirmation.is_none());
+        assert!(app.library_rename_draft.is_empty());
+        settle(&mut app);
+        assert_eq!(name(&app), "Nova");
+        assert_eq!(app.ui_focus.focused(), Some(&rename));
+
+        // Cancel discards a draft and changes nothing.
+        app.activate_platform_action_id(&rename, InputModality::Keyboard);
+        assert!(app.library_rename_input(Some("Z"), false));
+        app.handle_navigation(NavigationAction::Escape);
+        assert!(app.library_rename_draft.is_empty());
+        app.build_frame();
+        assert_eq!(name(&app), "Nova");
+        // Typing with no dialog open goes nowhere.
+        assert!(!app.library_rename_input(Some("Q"), false));
     }
 
     /// Escape unwinds one layer at a time: the confirmation, then the sheet it

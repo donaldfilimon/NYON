@@ -71,8 +71,9 @@ use crate::{
         creator::CreatorDraft,
         guide::{GuideAction, GuideLocation, build_guide_frame},
         library::{
-            LibraryConfirmationKind, LibraryConfirmationRequest, LibraryUiContext, LibraryUiIntent,
-            LibraryUiModel, library_confirmation_order,
+            LIBRARY_RENAME_FIELD_ACTION, LibraryConfirmationKind, LibraryConfirmationRequest,
+            LibraryUiContext, LibraryUiIntent, LibraryUiModel, library_confirmation_order,
+            rename_draft_acceptable,
         },
         platform::{
             LibrarySheet, LibraryView, LibraryViewAction, PlatformUiAction, PlatformUiFrame,
@@ -256,8 +257,12 @@ pub struct App<
     /// state owns it, and the model filters it against the current list.
     selected_library_slot: Option<crate::workshop::store::SlotId>,
     /// The Library confirmation the user opened. While it is set the focus
-    /// manager holds a modal scope over its two controls.
+    /// manager holds a modal scope over its controls.
     library_confirmation: Option<LibraryConfirmationRequest>,
+    /// The rename dialog's draft, and whether a keystroke has replaced the
+    /// name it opened with.
+    library_rename_draft: String,
+    library_rename_edited: bool,
     /// Row window and Compact sheet the Library frame is drawn for.
     library_view: LibraryView,
     /// A control the next frame should focus. `request_focus` only accepts a
@@ -339,6 +344,8 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             library_ui: None,
             selected_library_slot: None,
             library_confirmation: None,
+            library_rename_draft: String::new(),
+            library_rename_edited: false,
             library_view: LibraryView::default(),
             pending_focus: None,
             ui_focus: FocusManager::new(std::iter::empty()),
@@ -870,13 +877,13 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             selected_slot: self.selected_library_slot,
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
-            // Route-design tasks 12, 11 and 9 respectively. Each flag is what
+            // Route-design tasks 12 and 11 respectively. Each flag is what
             // keeps its controls visible-but-disabled rather than live with no
             // route behind them; `apply_library_intent` relies on it.
             library_client_available: false,
             transfer_available: false,
-            slot_changes_available: false,
             confirmation: self.library_confirmation,
+            rename_draft: Some(self.library_rename_draft.as_str()),
         });
         // A confirmation whose save left the list builds no dialog, so the
         // trap it opened must close before this frame's order is installed.
@@ -1061,6 +1068,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         if self.player_guide.is_some() {
             return;
         }
+        if action.as_str() == LIBRARY_RENAME_FIELD_ACTION {
+            self.set_library_rename_draft(value);
+            return;
+        }
         let Some(field_id) = action.as_str().strip_prefix("creator.field.") else {
             return;
         };
@@ -1179,25 +1190,53 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.ui_focus.request_focus(&action.action_id());
     }
 
-    /// Route-design task 8 slice 1: only the intents with a route today.
-    ///
-    /// The rest cannot arrive, because `build_library_frame` builds the model
-    /// with the three capability flags off and `activate` refuses a disabled
-    /// control. Asserted in debug rather than made unreachable, because a
-    /// gating slip here should cost a logged no-op, not a player's session.
     /// Opens the trap before the model is rebuilt, from the owning module's
-    /// order, exactly as the Workshop removal dialog does.
+    /// order, exactly as the Workshop removal dialog does. A rename starts
+    /// from the save's current name, and the first keystroke replaces it.
     fn open_library_confirmation(&mut self, request: LibraryConfirmationRequest) {
         if self.library_confirmation.is_some() {
             return;
         }
+        if request.kind == LibraryConfirmationKind::Rename {
+            let Some(name) = self.runtime.library_slots().and_then(|list| {
+                list.slots
+                    .iter()
+                    .find(|summary| summary.id == request.slot)
+                    .map(|summary| summary.name.as_str().to_owned())
+            }) else {
+                return;
+            };
+            self.library_rename_draft = name;
+            self.library_rename_edited = false;
+        }
         self.library_confirmation = Some(request);
-        let _ = self.ui_focus.open_modal(library_confirmation_order());
+        let _ = self
+            .ui_focus
+            .open_modal(library_confirmation_order(request.kind));
+    }
+
+    /// Replaces the rename draft from a keystroke or a browser edit.
+    ///
+    /// Only while a rename is open, and only with text the field may hold;
+    /// anything else is refused and the draft is left as it was. Returns
+    /// whether the edit was applied.
+    fn set_library_rename_draft(&mut self, value: String) -> bool {
+        let renaming = self
+            .library_confirmation
+            .is_some_and(|request| request.kind == LibraryConfirmationKind::Rename);
+        if !renaming || !rename_draft_acceptable(&value) {
+            return false;
+        }
+        self.library_rename_draft = value;
+        self.library_rename_edited = true;
+        true
     }
 
     /// Closes the dialog and its trap; focus returns to the control that
     /// opened it, whose identifier survives the Archive/Unarchive flip.
     fn close_library_confirmation(&mut self) {
+        self.library_rename_draft.clear();
+        self.library_rename_edited = false;
         if self.library_confirmation.take().is_some() {
             self.ui_focus.close_modal();
         }
@@ -1215,6 +1254,17 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             return Ok(());
         }
         let result = match request.kind {
+            // Validated again here: Enter in the field submits whatever the
+            // draft is, and a refusal must keep the draft for the user to fix.
+            LibraryConfirmationKind::Rename => {
+                match crate::workshop::store::SlotName::new(self.library_rename_draft.as_str()) {
+                    Ok(name) => self.runtime.rename_library_slot(request.slot, name),
+                    Err(error) => {
+                        log::info!("Library rename refused: {error}");
+                        return Ok(());
+                    }
+                }
+            }
             LibraryConfirmationKind::Archive => self.runtime.archive_library_slot(request.slot),
             LibraryConfirmationKind::Unarchive => self.runtime.unarchive_library_slot(request.slot),
         };
@@ -1224,6 +1274,13 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         result
     }
 
+    /// Route-design task 8 slice 1 and task 9: only the intents with a route
+    /// today.
+    ///
+    /// The rest cannot arrive, because `build_library_frame` builds the model
+    /// with the capability flags off and `activate` refuses a disabled
+    /// control. Asserted in debug rather than made unreachable, because a
+    /// gating slip here should cost a logged no-op, not a player's session.
     fn apply_library_intent(&mut self, intent: LibraryUiIntent) {
         let result = match intent {
             LibraryUiIntent::Close => {
@@ -1233,6 +1290,13 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             LibraryUiIntent::RefreshSlots => self.runtime.refresh_library_slots(),
             LibraryUiIntent::RetrySlotRequest => self.runtime.retry_library_slot_request(),
             LibraryUiIntent::CancelSlotRequest => self.runtime.cancel_library_slot_request(),
+            LibraryUiIntent::RenameSlot { slot } => {
+                self.open_library_confirmation(LibraryConfirmationRequest {
+                    kind: LibraryConfirmationKind::Rename,
+                    slot,
+                });
+                Ok(())
+            }
             LibraryUiIntent::ArchiveSlot { slot } => {
                 self.open_library_confirmation(LibraryConfirmationRequest {
                     kind: LibraryConfirmationKind::Archive,
@@ -1267,7 +1331,6 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 Ok(())
             }
             deferred @ (LibraryUiIntent::OpenSlot { .. }
-            | LibraryUiIntent::RenameSlot { .. }
             | LibraryUiIntent::UseForContinue { .. }
             | LibraryUiIntent::ExportSlot { .. }
             | LibraryUiIntent::ImportArchive

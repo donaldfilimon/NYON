@@ -14,7 +14,7 @@ use crate::workshop::store::{
 };
 use crate::workshop::{WorkshopHistory, decode_catalog_pack, encode_archive};
 
-type TestApp = App<MemoryScenarioStore>;
+pub(super) type TestApp = App<MemoryScenarioStore>;
 
 /// A store already holding one save, so the Library has a row to select.
 fn store_with_one_slot() -> (MemoryWorkshopStore, SlotId) {
@@ -117,13 +117,13 @@ fn selecting_a_row_is_client_state_and_enables_nothing_the_store_cannot_serve() 
         "the model did not pick up the selection"
     );
 
-    // With a row selected, every action exists, and the ones that would
-    // mutate or open without a route still refuse: their capability flags are
-    // off. Archive is live since task 9a, but only opens a confirmation.
+    // With a row selected, every action exists, and the ones that would open
+    // or select without a route still refuse: their capability flags are off.
+    // Rename and Archive are live since task 9, but only open a dialog.
     assert!(control_enabled(&app, "library.action.archive"));
+    assert!(control_enabled(&app, "library.action.rename"));
     for id in [
         "library.action.open",
-        "library.action.rename",
         "library.action.use-for-continue",
         "library.action.export",
     ] {
@@ -448,7 +448,7 @@ fn in_a_docked_layout_selecting_a_row_opens_no_sheet() {
 }
 
 /// Runs the runtime until the slot-request lane is idle again, bounded.
-fn settle(app: &mut TestApp) {
+pub(super) fn settle(app: &mut TestApp) {
     for _ in 0..8 {
         if app.runtime.library_slots_status() == LibrarySlotsStatus::Idle
             && app.runtime.library_slots().is_some()
@@ -471,7 +471,7 @@ fn archived(app: &TestApp, slot: SlotId) -> bool {
         .archived
 }
 
-fn select(app: &mut TestApp, slot: SlotId) {
+pub(super) fn select(app: &mut TestApp, slot: SlotId) {
     let row = SemanticActionId::new(format!("library.slot.{}", slot.0));
     app.activate_platform_action_id(&row, InputModality::Pointer);
     app.build_frame();
