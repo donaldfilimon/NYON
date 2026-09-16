@@ -134,7 +134,7 @@ pub fn build_shell_platform_frame(input: ShellPlatformInput<'_>) -> PlatformUiFr
                     ShellUiAction::Menu(capability.route),
                     label,
                     description,
-                    centered_button(viewport, index),
+                    menu_button(viewport, index, input.capabilities.len()),
                     capability.enabled,
                     false,
                     input.focused,
@@ -346,6 +346,36 @@ pub(super) fn centered_button(viewport: Vec2, index: usize) -> PlatformRect {
     )
 }
 
+/// Places main-menu row `index` of `count`.
+///
+/// One centered column, exactly as [`centered_button`], whenever it fits above
+/// the bottom edge. At the 480 floor it does not: six rows already ran 8px
+/// past it. Then the rows fill two columns, left column first, still starting
+/// below the status lines, which reach about y=145 at the largest scale.
+pub(super) fn menu_button(viewport: Vec2, index: usize, count: usize) -> PlatformRect {
+    const TOP: f32 = 150.0;
+    const PITCH: f32 = 58.0;
+    const HEIGHT: f32 = 48.0;
+    const MARGIN: f32 = 8.0;
+    const GUTTER: f32 = 10.0;
+    let single_bottom = TOP + count.saturating_sub(1) as f32 * PITCH + HEIGHT;
+    if single_bottom <= viewport.y - MARGIN {
+        return centered_button(viewport, index);
+    }
+    let rows = count.div_ceil(2);
+    let width = ((viewport.x - MARGIN * 2.0 - GUTTER) * 0.5)
+        .min(360.0)
+        .floor();
+    let left = (viewport.x * 0.5 - width - GUTTER * 0.5).floor();
+    let column = (index / rows) as f32;
+    PlatformRect::from_xywh(
+        left + column * (width + GUTTER),
+        TOP + (index % rows) as f32 * PITCH,
+        width,
+        HEIGHT,
+    )
+}
+
 pub(super) fn menu_copy(route: MainMenuRoute) -> (&'static str, &'static str) {
     match route {
         MainMenuRoute::NewWorkshop => ("New Workshop", "Create a blank deterministic galaxy."),
@@ -353,6 +383,7 @@ pub(super) fn menu_copy(route: MainMenuRoute) -> (&'static str, &'static str) {
             "Continue",
             "Open the last explicitly selected validated Workshop save.",
         ),
+        MainMenuRoute::Library => ("Library", "Browse, open, and manage saved Workshops."),
         MainMenuRoute::ClassicSector => (
             "Classic Sector",
             "Play the frozen deterministic RulesV1 sector.",
@@ -368,6 +399,7 @@ pub(super) fn menu_slug(route: MainMenuRoute) -> &'static str {
     match route {
         MainMenuRoute::NewWorkshop => "new-workshop",
         MainMenuRoute::Continue => "continue",
+        MainMenuRoute::Library => "library",
         MainMenuRoute::ClassicSector => "classic-sector",
         MainMenuRoute::Settings => "settings",
         MainMenuRoute::Credits => "credits",

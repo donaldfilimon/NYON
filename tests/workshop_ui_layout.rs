@@ -475,18 +475,26 @@ fn shell_chrome_qualifies_at_every_required_viewport_and_scale() {
         ui::platform::{ShellPlatformInput, build_shell_platform_frame},
     };
     let model = WorkshopUiModel::build(&snapshot(), WorkshopUiContext::default());
+    // The route list the native runtime actually offers, not a hand-picked
+    // subset: a five-route fixture hid Quit running 8px past the 480 floor.
     let capabilities = [
         MainMenuRoute::NewWorkshop,
         MainMenuRoute::Continue,
+        MainMenuRoute::Library,
         MainMenuRoute::ClassicSector,
         MainMenuRoute::Settings,
         MainMenuRoute::Credits,
+        MainMenuRoute::Quit,
     ]
     .map(|route| MainMenuCapability {
         route,
         enabled: true,
     });
-    for (width, height, scale) in SDF_QUALIFICATION_MATRIX {
+    // The matrix, plus a window below the shell's 640 by 480 floor.
+    let matrix = SDF_QUALIFICATION_MATRIX
+        .into_iter()
+        .chain([(320.0, 200.0, 1.0), (640.0, 480.0, 1.3)]);
+    for (width, height, scale) in matrix {
         for high_contrast in [false, true] {
             for (screen, credits_visible) in [
                 (ClientScreen::MainMenu, false),
@@ -511,6 +519,24 @@ fn shell_chrome_qualifies_at_every_required_viewport_and_scale() {
                     focused: None,
                 });
                 qualify_sdf_frame(&model, &frame);
+                // Text can sit inside the viewport while its button does not,
+                // so the boxes are checked directly.
+                for (index, control) in frame.controls.iter().enumerate() {
+                    assert!(
+                        frame.layout.viewport.contains_rect(control.bounds),
+                        "{width}x{height} at {scale}: {} leaves the viewport: {:?}",
+                        control.action_id.as_str(),
+                        control.bounds
+                    );
+                    for other in &frame.controls[index + 1..] {
+                        assert!(
+                            !control.bounds.overlaps(other.bounds),
+                            "{width}x{height} at {scale}: {} overlaps {}",
+                            control.action_id.as_str(),
+                            other.action_id.as_str()
+                        );
+                    }
+                }
             }
         }
     }

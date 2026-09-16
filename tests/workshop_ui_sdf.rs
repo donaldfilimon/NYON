@@ -212,6 +212,7 @@ fn typed_icons_freeze_allowed_and_forbidden_meanings() {
             Some(UiIcon::Settings),
         ),
         (ShellUiAction::Menu(MainMenuRoute::NewWorkshop), None),
+        (ShellUiAction::Menu(MainMenuRoute::Library), None),
         (ShellUiAction::Menu(MainMenuRoute::ClassicSector), None),
         (ShellUiAction::Menu(MainMenuRoute::Credits), None),
         (ShellUiAction::CloseSettings, Some(UiIcon::Close)),

@@ -938,9 +938,14 @@ fn icon_for_shell_action(action: ShellUiAction) -> Option<UiIcon> {
         | ShellUiAction::ToggleReducedMotion
         | ShellUiAction::ToggleHighContrast => Some(UiIcon::Settings),
         ShellUiAction::Menu(MainMenuRoute::Settings) => Some(UiIcon::Settings),
+        // No atlas glyph reads as a library, and reusing Continue's Load would
+        // make two menu rows look like the same action.
         ShellUiAction::ReturnToMainMenu
         | ShellUiAction::Menu(
-            MainMenuRoute::NewWorkshop | MainMenuRoute::ClassicSector | MainMenuRoute::Credits,
+            MainMenuRoute::NewWorkshop
+            | MainMenuRoute::Library
+            | MainMenuRoute::ClassicSector
+            | MainMenuRoute::Credits,
         ) => None,
         #[cfg(not(target_arch = "wasm32"))]
         ShellUiAction::Menu(MainMenuRoute::Quit) => None,

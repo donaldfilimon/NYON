@@ -72,6 +72,9 @@ pub enum ActiveSession {
 pub enum MainMenuRoute {
     NewWorkshop,
     Continue,
+    /// A lateral route: it replaces nothing, so the unsaved-resident gate on
+    /// New Workshop and Classic Sector does not apply to it.
+    Library,
     ClassicSector,
     Settings,
     Credits,
@@ -474,6 +477,10 @@ where
                 enabled: self.continue_available(),
             },
             MainMenuCapability {
+                route: MainMenuRoute::Library,
+                enabled: true,
+            },
+            MainMenuCapability {
                 route: MainMenuRoute::ClassicSector,
                 enabled: !replacement_blocked,
             },
@@ -586,6 +593,10 @@ where
             }
             MainMenuRoute::Continue => {
                 self.continue_selected_workshop()?;
+                Ok(ClientRuntimeEffect::None)
+            }
+            MainMenuRoute::Library => {
+                self.open_library()?;
                 Ok(ClientRuntimeEffect::None)
             }
             MainMenuRoute::ClassicSector => {

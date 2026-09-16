@@ -758,6 +758,63 @@ fn menu_exit_does_not_commit_a_redundant_generation_for_a_current_save() {
 }
 
 #[test]
+fn library_is_a_lateral_menu_route_that_an_unsaved_resident_does_not_block() {
+    // Addendum section 2 requires main-menu entry. New Workshop and Classic
+    // Sector refuse while the resident Workshop holds unsaved work, because
+    // they replace it; the Library replaces nothing, so it must stay open.
+    let mut runtime = runtime(MemoryWorkshopStore::default());
+    runtime.start_new_workshop(0x0118).unwrap();
+    let initial = runtime.workshop_snapshot().unwrap();
+    runtime
+        .enqueue_workshop_action(WorkshopAction::Submit(CreatorBatchV1 {
+            expected_cursor: initial.active_view.view_cursor,
+            expected_tick: initial.active_view.tick,
+            operations: vec![CreatorOpV1::CreateSystem {
+                local: BatchLocalId(1),
+                name: ObjectName::new("Lateral Forge").unwrap(),
+                position: GalaxyPointV1::new(512, 512).unwrap(),
+            }],
+        }))
+        .unwrap();
+    runtime.update(Duration::ZERO);
+    let digest = runtime.workshop_snapshot().unwrap().state_digest;
+    runtime.return_to_main_menu().unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+
+    let enabled = |runtime: &ClientRuntime<
+        MemoryScenarioStore,
+        MemoryPreferencesStore,
+        MemoryWorkshopStore,
+    >,
+                   route| {
+        runtime
+            .menu_capabilities()
+            .iter()
+            .find(|capability| capability.route == route)
+            .unwrap()
+            .enabled
+    };
+    assert!(!enabled(&runtime, MainMenuRoute::NewWorkshop));
+    assert!(enabled(&runtime, MainMenuRoute::Library));
+
+    assert_eq!(
+        runtime.select_menu_route(MainMenuRoute::Library),
+        Ok(ClientRuntimeEffect::None)
+    );
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(
+        matches!(
+            runtime.library_slots_status(),
+            LibrarySlotsStatus::Working { .. }
+        ),
+        "entering from the menu must list the saves"
+    );
+    runtime.close_library();
+    assert_eq!(runtime.screen(), ClientScreen::MainMenu);
+    assert_eq!(runtime.workshop_snapshot().unwrap().state_digest, digest);
+}
+
+#[test]
 fn menu_exposes_only_working_v1_routes_and_native_quit_is_an_effect() {
     let mut runtime = runtime(MemoryWorkshopStore::default());
     let routes: Vec<_> = runtime
@@ -770,6 +827,7 @@ fn menu_exposes_only_working_v1_routes_and_native_quit_is_an_effect() {
         vec![
             MainMenuRoute::NewWorkshop,
             MainMenuRoute::Continue,
+            MainMenuRoute::Library,
             MainMenuRoute::ClassicSector,
             MainMenuRoute::Settings,
             MainMenuRoute::Credits,

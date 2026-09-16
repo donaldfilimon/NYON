@@ -207,3 +207,40 @@ fn a_window_below_the_layout_floor_still_builds_the_library_frame() {
         assert!(has_control(&app, "library.close"), "{viewport}: no Close");
     }
 }
+
+#[test]
+fn the_main_menu_library_control_opens_the_library_and_close_returns_to_it() {
+    // The route design found the screen reachable only through the runtime
+    // seam. This drives the platform control a user would press.
+    let core = AppCore::new_with_preferences(
+        ScenarioDraft::factory_default().validated().unwrap(),
+        MemoryScenarioStore::default(),
+        MemoryPreferencesStore::default(),
+    );
+    let (store, slot) = store_with_one_slot();
+    let mut app = App::with_event_proxy(core, store, AppEventProxy::Headless);
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(1280.0, 480.0));
+    app.build_frame();
+    assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
+    assert!(control_enabled(&app, "shell.menu.library"));
+
+    app.activate_platform_action_id(
+        &SemanticActionId::new("shell.menu.library"),
+        InputModality::Pointer,
+    );
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    app.runtime.update(std::time::Duration::ZERO);
+    app.build_frame();
+    assert!(app.library_ui.is_some(), "the Library frame was not built");
+    assert!(has_control(&app, &format!("library.slot.{}", slot.0)));
+
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.close"),
+        InputModality::Keyboard,
+    );
+    assert_eq!(app.runtime.screen(), ClientScreen::MainMenu);
+    app.build_frame();
+    assert!(has_control(&app, "shell.menu.library"));
+}
