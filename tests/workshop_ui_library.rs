@@ -541,7 +541,8 @@ fn client_and_transfer_controls_are_present_and_disabled_with_a_reason() {
         workshop_active: true,
         ..LibraryUiContext::default()
     });
-    for id in ["library.action.use-for-continue", "library.action.export"] {
+    {
+        let id = "library.action.export";
         let found = control(&built, id);
         assert!(!found.enabled, "{id}");
         assert_eq!(
@@ -747,10 +748,10 @@ fn a_selection_the_store_no_longer_reports_falls_back_to_no_selection() {
 /// The single slot-request lane disables exactly the controls that use it.
 ///
 /// `start_slot_request` accepts only from `Idle`, so Refresh, Rename and
-/// Archive would be refused outright. Open joined them in task 12a: its
-/// `SelectContinue` needs the Commit lane a Rename holds, and its progress and
-/// failures are shown in the same request strip. Use for Continue and Export
-/// take the exact-catalog client and are not gated by this lane yet.
+/// Archive would be refused outright. Open and Use for Continue joined them
+/// in tasks 12a and 12b: their `SelectContinue` needs the Commit lane a Rename
+/// holds, and their progress and failures are shown in the same request strip.
+/// Export is not gated by this lane yet.
 #[test]
 fn an_occupied_lane_disables_only_the_controls_that_share_it() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
@@ -783,10 +784,12 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
             "library.action.open",
             "library.action.rename",
             "library.action.archive",
+            "library.action.use-for-continue",
         ] {
             assert_eq!(control(&built, id).disabled_reason, Some(reason), "{id}");
         }
-        for id in ["library.action.use-for-continue", "library.action.export"] {
+        {
+            let id = "library.action.export";
             assert!(control(&built, id).enabled, "{id}");
         }
     }
@@ -1249,13 +1252,6 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
             LibraryUiIntent::ArchiveSlot { slot: SlotId(4) },
         ),
         (
-            "library.action.use-for-continue",
-            LibraryUiIntent::UseForContinue {
-                slot: SlotId(4),
-                generation,
-            },
-        ),
-        (
             "library.action.export",
             LibraryUiIntent::ExportSlot {
                 slot: SlotId(4),
@@ -1281,10 +1277,26 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         assert!(found.enabled, "{action} must be enabled in this shape");
         assert_eq!(found.intent(), Some(intent), "{action}");
     }
+    // Use for Continue cannot be enabled beside the two active-Workshop
+    // exports: a resident Workshop is exactly what refuses it. Its payload is
+    // pinned in the same shape without one.
+    let without_workshop = model(LibraryUiContext {
+        workshop_active: false,
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(4)),
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        control(&without_workshop, "library.action.use-for-continue").intent(),
+        Some(&LibraryUiIntent::UseForContinue {
+            slot: SlotId(4),
+            generation,
+        })
+    );
     assert_eq!(
         built.controls().len(),
-        expected.len(),
-        "the table must cover every control in this shape"
+        expected.len() + 1,
+        "the table plus Use for Continue must cover every control in this shape"
     );
 }
 
@@ -1824,7 +1836,7 @@ fn open_is_live_and_refused_only_by_the_facts_that_forbid_it() {
         })
     );
     assert_eq!(
-        control(&live, "library.action.use-for-continue").disabled_reason,
+        control(&live, "library.action.export").disabled_reason,
         Some(LibraryDisabledReason::LibraryClientUnavailable)
     );
 
@@ -1878,7 +1890,11 @@ fn a_held_open_offers_acceptance_and_cancel_and_blocks_the_lane() {
             "Open previous",
             "The latest save is invalid. Open its previous generation or cancel.",
         ),
-        (false, "Open", "A saved galaxy is ready. Open it or cancel."),
+        (
+            false,
+            "Open",
+            "A saved galaxy is now the Continue save. Open it or cancel.",
+        ),
     ] {
         let built = model(LibraryUiContext {
             slots: Some(&listed),
@@ -1924,7 +1940,7 @@ fn a_conflicted_open_offers_refresh_where_a_failure_offers_retry() {
         (
             ClientDiagnosticCode::StaleSave,
             "Refresh",
-            "That save changed. Refresh, then open it again.",
+            "That save changed. Refresh, then try again.",
         ),
         (
             ClientDiagnosticCode::Store,
@@ -1954,4 +1970,140 @@ fn a_conflicted_open_offers_refresh_where_a_failure_offers_retry() {
         ..LibraryUiContext::default()
     });
     assert_eq!(request_line(&working), "Opening a saved galaxy.");
+}
+
+// ---------------------------------------------------------------------------
+// Route-design task 12b: Use for Continue
+// ---------------------------------------------------------------------------
+
+/// Use for Continue is live with no Workshop, and each fact that refuses it
+/// reports itself. A resident Workshop refuses it even when it could be
+/// replaced, which is stricter than §6 on purpose.
+#[test]
+fn use_for_continue_is_live_and_refused_while_a_workshop_is_resident() {
+    let mut continued = summary(3, "Cartwheel", false);
+    continued.selected_for_continue = true;
+    let listed = list(vec![
+        summary(1, "Andromeda", false),
+        summary(2, "Bode", true),
+        continued,
+    ]);
+    let base = LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(1)),
+        ..LibraryUiContext::default()
+    };
+    let live = model(base);
+    let action = control(&live, "library.action.use-for-continue");
+    assert!(action.enabled, "{:?}", action.disabled_reason);
+    assert_eq!(
+        live.activate(&action.action_id, InputModality::Pointer),
+        Some(LibraryUiIntent::UseForContinue {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+        })
+    );
+    for (context, reason) in [
+        (
+            LibraryUiContext {
+                workshop_active: true,
+                ..base
+            },
+            LibraryDisabledReason::WorkshopResident,
+        ),
+        (
+            LibraryUiContext {
+                selected_slot: Some(SlotId(3)),
+                ..base
+            },
+            LibraryDisabledReason::AlreadyContinue,
+        ),
+        (
+            LibraryUiContext {
+                selected_slot: Some(SlotId(2)),
+                ..base
+            },
+            LibraryDisabledReason::ArchivedSlot,
+        ),
+        (
+            LibraryUiContext {
+                status: LibrarySlotsStatus::Working {
+                    kind: SlotRequestKind::Open,
+                    slot: Some(SlotId(3)),
+                },
+                ..base
+            },
+            LibraryDisabledReason::RequestInFlight,
+        ),
+    ] {
+        let built = model(context);
+        let action = control(&built, "library.action.use-for-continue");
+        assert!(!action.enabled, "{reason:?}");
+        assert_eq!(action.disabled_reason, Some(reason));
+    }
+}
+
+/// Its progress, failure and conflict read as Continue, not as Open.
+#[test]
+fn use_for_continue_states_say_continue_and_a_conflict_offers_refresh() {
+    for (status, line, retry) in [
+        (
+            LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::UseForContinue,
+                slot: Some(SlotId(1)),
+            },
+            "Checking a saved galaxy for Continue.",
+            None,
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::UseForContinue,
+                slot: Some(SlotId(1)),
+                code: ClientDiagnosticCode::Store,
+            },
+            "Choosing the Continue save failed. Retry or cancel.",
+            Some("Retry"),
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::UseForContinue,
+                slot: Some(SlotId(1)),
+                code: ClientDiagnosticCode::StaleSave,
+            },
+            "That save changed. Refresh, then try again.",
+            Some("Refresh"),
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            status,
+            ..LibraryUiContext::default()
+        });
+        assert_eq!(request_line(&built), line);
+        let label = built
+            .controls()
+            .find(|c| c.action_id.as_str() == "library.request.retry")
+            .map(|c| c.label.as_str());
+        assert_eq!(label, retry, "{status:?}");
+    }
+}
+
+/// Folded in from 12a: accepting a held open installs, so it takes the
+/// replacement gate the runtime refuses it with.
+#[test]
+fn a_held_open_cannot_be_accepted_while_the_resident_blocks_replacement() {
+    let built = model(LibraryUiContext {
+        status: LibrarySlotsStatus::Held {
+            slot: SlotId(1),
+            recovered: false,
+        },
+        replacement_blocked: true,
+        ..LibraryUiContext::default()
+    });
+    let accept = control(&built, "library.request.retry");
+    assert!(!accept.enabled);
+    assert_eq!(
+        accept.disabled_reason,
+        Some(LibraryDisabledReason::ReplacementBlocked)
+    );
+    assert!(control(&built, "library.request.cancel").enabled);
 }

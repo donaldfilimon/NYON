@@ -170,6 +170,8 @@ pub enum SlotRequestKind {
     Unarchive,
     /// An exact-catalog open of one row.
     Open,
+    /// The same validation, selecting the row for Continue without opening it.
+    UseForContinue,
 }
 
 /// The bounded typed facts the Library presents for its slot-request machine.
@@ -297,6 +299,7 @@ enum LibrarySlots {
     Opening {
         slot: SlotId,
         generation: SaveGeneration,
+        purpose: OpenPurpose,
     },
     /// The open failed or conflicted. A conflict is retried by re-listing,
     /// never by repeating the request with the generation it already found
@@ -304,6 +307,7 @@ enum LibrarySlots {
     OpenFailed {
         slot: SlotId,
         generation: SaveGeneration,
+        purpose: OpenPurpose,
         code: ClientDiagnosticCode,
     },
     /// A fully validated candidate the runtime did not install on arrival:
@@ -314,6 +318,27 @@ enum LibrarySlots {
     Held {
         candidate: Box<LibraryCandidate>,
     },
+}
+
+/// What an exact-catalog open of one row is for. The single encoding of
+/// that choice: row Export (task 12c) is meant to become a third variant here
+/// rather than a separate flag.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OpenPurpose {
+    /// Library Open: validate, claim Continue, then replace the session.
+    Install,
+    /// Use for Continue: validate and claim Continue, then keep the
+    /// candidate for the Continue route. Nothing is installed.
+    SelectOnly,
+}
+
+impl OpenPurpose {
+    const fn kind(self) -> SlotRequestKind {
+        match self {
+            Self::Install => SlotRequestKind::Open,
+            Self::SelectOnly => SlotRequestKind::UseForContinue,
+        }
+    }
 }
 
 /// The typed identity of a slot request, for the public status only.
@@ -1079,12 +1104,17 @@ where
                 slot: slot_request_slot(request),
                 code: *code,
             },
-            LibrarySlots::Opening { slot, .. } => LibrarySlotsStatus::Working {
-                kind: SlotRequestKind::Open,
+            LibrarySlots::Opening { slot, purpose, .. } => LibrarySlotsStatus::Working {
+                kind: purpose.kind(),
                 slot: Some(*slot),
             },
-            LibrarySlots::OpenFailed { slot, code, .. } => LibrarySlotsStatus::Failed {
-                kind: SlotRequestKind::Open,
+            LibrarySlots::OpenFailed {
+                slot,
+                code,
+                purpose,
+                ..
+            } => LibrarySlotsStatus::Failed {
+                kind: purpose.kind(),
                 slot: Some(*slot),
                 code: *code,
             },
@@ -1157,13 +1187,15 @@ where
             LibrarySlots::OpenFailed {
                 slot,
                 generation,
+                purpose,
                 code,
             } => {
-                let outcome = self.dispatch_open(slot, generation);
+                let outcome = self.dispatch_open(slot, generation, purpose);
                 if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
                     self.slot_requests = LibrarySlots::OpenFailed {
                         slot,
                         generation,
+                        purpose,
                         code,
                     };
                 }
@@ -1250,7 +1282,30 @@ where
         if !matches!(self.slot_requests, LibrarySlots::Idle) {
             return Err(ClientRuntimeError::LibraryRequestActive);
         }
-        self.dispatch_open(slot, generation)
+        self.dispatch_open(slot, generation, OpenPurpose::Install)
+    }
+
+    /// Makes one listed row the Continue save without opening it (§4).
+    ///
+    /// Runs the same exact-catalog validation and the same generation-checked
+    /// `SelectContinue` as Open, then keeps the validated candidate where
+    /// startup Continue keeps its own, so the Continue route installs it
+    /// without a second replay.
+    ///
+    /// **Refused while any Workshop is resident**, which is stricter than §4's
+    /// replacement gate. A resident session tracks its own Continue selection
+    /// and re-selects its slot whenever it saves, so a marker moved underneath
+    /// it would disagree with what Continue returns to in this run and be
+    /// silently undone by the next save.
+    pub fn use_library_slot_for_continue(
+        &mut self,
+        slot: SlotId,
+        generation: SaveGeneration,
+    ) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.dispatch_open(slot, generation, OpenPurpose::SelectOnly)
     }
 
     /// Installs the held candidate the user accepted.
@@ -1288,9 +1343,19 @@ where
         &mut self,
         slot: SlotId,
         generation: SaveGeneration,
+        purpose: OpenPurpose,
     ) -> Result<(), ClientRuntimeError> {
         if self.library.is_active() {
             return Err(ClientRuntimeError::BootstrapActive);
+        }
+        if purpose == OpenPurpose::SelectOnly
+            && matches!(self.active_session, ActiveSession::Workshop(_))
+        {
+            self.push_diagnostic(
+                ClientDiagnosticCode::RouteUnavailable,
+                "Continue follows the resident Workshop while it is open",
+            );
+            return Err(ClientRuntimeError::RouteUnavailable);
         }
         if self.resident_slot() == Some(slot) {
             self.push_diagnostic(
@@ -1308,7 +1373,11 @@ where
             },
         ) {
             Ok(()) => {
-                self.slot_requests = LibrarySlots::Opening { slot, generation };
+                self.slot_requests = LibrarySlots::Opening {
+                    slot,
+                    generation,
+                    purpose,
+                };
                 Ok(())
             }
             // `open_client` is active only while the lane holds `Opening`,
@@ -1319,6 +1388,7 @@ where
                 self.slot_requests = LibrarySlots::OpenFailed {
                     slot,
                     generation,
+                    purpose,
                     code: ClientDiagnosticCode::Store,
                 };
                 Err(ClientRuntimeError::Store(error))
@@ -1329,16 +1399,36 @@ where
     /// Translates one open outcome into Library state. Never
     /// [`Self::enter_recovery`]: §6 keeps Library failures on the Library.
     fn poll_library_open(&mut self) {
-        let LibrarySlots::Opening { slot, generation } = self.slot_requests else {
+        let LibrarySlots::Opening {
+            slot,
+            generation,
+            purpose,
+        } = self.slot_requests
+        else {
             return;
         };
         let failed = |code| LibrarySlots::OpenFailed {
             slot,
             generation,
+            purpose,
             code,
         };
         match self.open_client.poll(&mut self.workshop_store) {
             LibraryEvent::Pending => {}
+            // A clean head that was only to be selected is now the Continue
+            // save: keep it where startup Continue keeps its candidate, and
+            // re-list, because the marker moved. A predecessor falls through
+            // to the held offer below, since installing it is the only route
+            // that repairs the slot.
+            LibraryEvent::Ready(candidate)
+                if purpose == OpenPurpose::SelectOnly
+                    && !candidate.loaded.recovered_from_previous =>
+            {
+                self.continue_candidate = Some(*candidate);
+                self.slot_requests = LibrarySlots::Idle;
+                self.slot_list = None;
+                let _ = self.dispatch_slot_request(WorkshopStoreRequest::ListSlots);
+            }
             LibraryEvent::Ready(candidate) => {
                 // Installing swaps the screen, so it happens only while the
                 // user is still looking at the Library and nothing forbids

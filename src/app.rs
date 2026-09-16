@@ -888,8 +888,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
             // Route-design tasks 12 and 11 respectively. Each flag is what
             // keeps its controls visible-but-disabled rather than live with no
-            // route behind them; `apply_library_intent` relies on it. Open no
-            // longer reads the first: task 12a wired it.
+            // route behind them; `apply_library_intent` relies on it. Only
+            // row Export still reads the first: tasks 12a and 12b wired Open
+            // and Use for Continue.
             library_client_available: false,
             transfer_available: false,
             confirmation: self.library_confirmation,
@@ -1344,8 +1345,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 self.runtime.open_library_slot(slot, generation)
             }
             LibraryUiIntent::AcceptOpen => self.runtime.accept_library_open(),
-            deferred @ (LibraryUiIntent::UseForContinue { .. }
-            | LibraryUiIntent::ExportSlot { .. }
+            LibraryUiIntent::UseForContinue { slot, generation } => {
+                self.runtime.use_library_slot_for_continue(slot, generation)
+            }
+            deferred @ (LibraryUiIntent::ExportSlot { .. }
             | LibraryUiIntent::ImportArchive
             | LibraryUiIntent::ImportPack
             | LibraryUiIntent::ExportActiveArchive

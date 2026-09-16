@@ -549,3 +549,152 @@ fn accepting_a_held_open_waits_while_the_resident_is_unsaved() {
     assert_eq!(resident.state_digest, digest);
     assert_ne!(resident.store.slot, Some(first));
 }
+
+// ---------------------------------------------------------------------------
+// Route-design task 12b: Use for Continue
+// ---------------------------------------------------------------------------
+
+#[test]
+fn use_for_continue_claims_the_marker_keeps_the_candidate_and_installs_nothing() {
+    let store = Shared::default();
+    create(&store, "First Forge", 11);
+    let (second, generation) = create(&store, "Second Forge", 12);
+    let mut runtime = runtime(&store);
+    assert!(!runtime.continue_available());
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+
+    runtime
+        .use_library_slot_for_continue(second, generation)
+        .unwrap();
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::UseForContinue,
+            slot: Some(second),
+        }
+    );
+    settle(&mut runtime);
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+    assert_eq!(stored_list(&store).selected_continue, Some(second));
+    // The list was re-listed, and now shows the marker on the chosen row.
+    let listed = runtime
+        .library_slots()
+        .expect("re-listed after the marker moved");
+    let marked: Vec<_> = listed
+        .slots
+        .iter()
+        .filter(|summary| summary.selected_for_continue)
+        .map(|summary| summary.id)
+        .collect();
+    assert_eq!(marked, vec![second]);
+
+    // Continue installs the validated candidate without another bootstrap.
+    runtime.close_library();
+    assert!(runtime.continue_available());
+    runtime
+        .select_menu_route(nyon::app::client_runtime::MainMenuRoute::Continue)
+        .unwrap();
+    assert_eq!(runtime.screen(), ClientScreen::GalaxyWorkshop);
+    let snapshot = runtime.workshop_snapshot().unwrap();
+    assert_eq!(snapshot.store.slot, Some(second));
+    assert_eq!(snapshot.store.generation, Some(generation));
+}
+
+#[test]
+fn use_for_continue_is_refused_while_any_workshop_is_resident() {
+    let store = Shared::default();
+    let (first, generation) = create(&store, "First Forge", 11);
+    let mut runtime = runtime(&store);
+    runtime.start_new_workshop(5).unwrap();
+    assert!(
+        !runtime.resident_workshop_blocks_replacement(),
+        "the gate must hold even for a replaceable resident"
+    );
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.use_library_slot_for_continue(first, generation),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert_eq!(stored_list(&store).selected_continue, None);
+}
+
+#[test]
+fn use_for_continue_of_an_invalid_head_is_held_as_the_open_previous_offer() {
+    let store = Shared::default();
+    let (first, valid) = create(&store, "First Forge", 11);
+    let corrupt = commit(&store, first, valid, Box::from(&b"{}"[..]));
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    runtime
+        .use_library_slot_for_continue(first, corrupt)
+        .unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Held {
+            slot: first,
+            recovered: true,
+        }
+    );
+    assert!(!runtime.continue_available());
+    assert_eq!(stored_list(&store).selected_continue, None);
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+}
+
+#[test]
+fn a_failed_use_for_continue_retries_as_itself_and_conflicts_offer_refresh() {
+    let store = Shared::default();
+    let (first, observed) = create(&store, "First Forge", 11);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+
+    store.fail_next_load.set(true);
+    assert!(
+        runtime
+            .use_library_slot_for_continue(first, observed)
+            .is_err()
+    );
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::UseForContinue,
+            slot: Some(first),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    // Retry keeps the purpose: it selects, it does not open.
+    runtime.retry_library_slot_request().unwrap();
+    assert!(matches!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::UseForContinue,
+            ..
+        }
+    ));
+    settle(&mut runtime);
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert_eq!(stored_list(&store).selected_continue, Some(first));
+    settle(&mut runtime);
+
+    // A head moved behind the row is the same refreshable conflict as Open.
+    let head = library_generation(&runtime, first);
+    commit(&store, first, head, valid_archive(13));
+    runtime.use_library_slot_for_continue(first, head).unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::UseForContinue,
+            slot: Some(first),
+            code: ClientDiagnosticCode::StaleSave,
+        }
+    );
+}

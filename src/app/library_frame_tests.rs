@@ -117,14 +117,16 @@ fn selecting_a_row_is_client_state_and_enables_nothing_the_store_cannot_serve() 
         "the model did not pick up the selection"
     );
 
-    // With a row selected, every action exists, and the ones that would
-    // select or export without a route still refuse: their capability flags
-    // are off. Rename and Archive are live since task 9, but only open a
-    // dialog; Open is live since task 12a and is exercised below.
+    // With a row selected, every action exists, and row Export still refuses:
+    // its capability flag is off. Rename and Archive are live since task 9,
+    // but only open a dialog; Open and Use for Continue are live since tasks
+    // 12a and 12b and are exercised below.
     assert!(control_enabled(&app, "library.action.archive"));
     assert!(control_enabled(&app, "library.action.rename"));
     assert!(control_enabled(&app, "library.action.open"));
-    for id in ["library.action.use-for-continue", "library.action.export"] {
+    assert!(control_enabled(&app, "library.action.use-for-continue"));
+    {
+        let id = "library.action.export";
         assert!(!control_enabled(&app, id), "{id} is live without a route");
         app.activate_platform_action_id(&SemanticActionId::new(id), InputModality::Keyboard);
         assert_eq!(
@@ -787,5 +789,33 @@ fn a_held_open_is_accepted_from_the_request_strip() {
     assert_eq!(
         app.runtime.workshop_snapshot().unwrap().store.slot,
         Some(slot)
+    );
+}
+
+/// Task 12b through the real frame: Use for Continue stays on the Library,
+/// moves the marker, and the next frame shows it on the row.
+#[test]
+fn use_for_continue_from_the_frame_marks_the_row_and_stays_on_the_library() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    let action = SemanticActionId::new("library.action.use-for-continue");
+    assert!(control_enabled(&app, action.as_str()));
+    app.activate_platform_action_id(&action, InputModality::Keyboard);
+    for _ in 0..16 {
+        if app.runtime.library_slots_status() == LibrarySlotsStatus::Idle
+            && app.runtime.library_slots().is_some()
+        {
+            break;
+        }
+        app.runtime.update(std::time::Duration::ZERO);
+    }
+    app.build_frame();
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(app.runtime.continue_available());
+    let model = app.library_ui.as_ref().unwrap();
+    assert!(model.rows[0].selected_for_continue);
+    assert_eq!(
+        model.actions.use_for_continue.disabled_reason,
+        Some(crate::ui::library::LibraryDisabledReason::AlreadyContinue)
     );
 }

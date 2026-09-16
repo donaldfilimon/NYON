@@ -11,8 +11,8 @@ or exercised." It closes
 only when built.
 
 **Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
-first slice (12a, Library Open) has landed. Still open: Use for Continue and row
-Export (12b, 12c), Import archive, and all of task 11 (transfer protocol). The
+first two slices (12a Open, 12b Use for Continue) have landed. Still open: row
+Export (12c), Import archive, and all of task 11 (transfer protocol). The
 main-menu gap noted under task 10 is closed: `3b0e229` added the entry. The
 notes under each task below say what landed and where it moved from this plan.
 
@@ -255,8 +255,24 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     remedy is "retry after refresh", which re-lists and replays anyway.
     Cancel from an open that reached `Selecting` can leave the Continue marker
     claimed, as `WorkshopLibraryClient::abandon` documents, so Cancel drops the
-    cached list. Use for Continue and row Export still read
-    `library_client_available`, which stays false.
+    cached list. **For a held clean candidate the marker has always moved**
+    (selection ran before the hold), so Cancel from Held leaves it on that
+    save, and the held message says so: "A saved galaxy is now the Continue
+    save."
+    **12b landed 2026-09-16: Use for Continue.** The same open path with a
+    purpose tag (`OpenPurpose::SelectOnly`), meant to gain row Export as a
+    third variant in 12c rather than a second flag. A clean head claims the
+    marker and becomes the runtime's Continue candidate, so the Continue route
+    installs it without a second replay, and the list is re-listed. An invalid
+    head is held as the same Open previous offer, since installing is the only
+    route that repairs it. **A second deviation:** it is refused while any
+    Workshop is resident, not only while one cannot be replaced (§4, §6). A
+    resident session tracks its own Continue selection and re-selects its slot
+    whenever it saves, so a marker moved underneath it would disagree with what
+    Continue returns to in this run and be undone by its next save. The main
+    menu, before any Workshop opens, is where this control is live. Also folded
+    in: a held open's Open control now takes the replacement gate. Row Export
+    still reads `library_client_available`, which stays false.
 
 Ship the screen after tasks 1-4, in two slices: the wiring subset first with the
 client-dependent controls **rendered disabled with a visible reason**, then
