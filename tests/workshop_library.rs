@@ -430,3 +430,169 @@ fn a_second_begin_cannot_strand_the_commit_lane_job_that_selecting_holds() {
         "the Commit lane must be free once the selection completed"
     );
 }
+
+/// Reaches `Selecting`, the only phase that holds the Commit lane, and asserts
+/// it. Every abandon test below needs this state and none of them may assume it.
+fn drive_to_selecting(
+    store: &mut MemoryWorkshopStore,
+) -> (WorkshopLibraryClient, SlotId, SaveGeneration) {
+    let (slot, generation) = create(store, "Two-System Forge", 0x0B18);
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(
+            store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        )
+        .unwrap();
+    // Poll 1 completes the load and starts the replay; poll 2 completes the
+    // replay and starts the generation-checked selection.
+    assert!(matches!(client.poll(store), LibraryEvent::Pending));
+    assert!(matches!(client.poll(store), LibraryEvent::Pending));
+    assert!(client.is_active());
+    assert!(
+        matches!(
+            store.start(WorkshopStoreRequest::PutPack {
+                canonical_pack: Box::from(
+                    &include_bytes!("../assets/workshop/core-pack-v1.json")[..]
+                ),
+            }),
+            Err(nyon::workshop::store::WorkshopStoreError::Busy { .. })
+        ),
+        "the client must be in Selecting, holding the Commit lane"
+    );
+    (client, slot, generation)
+}
+
+#[test]
+fn abandoning_a_selecting_open_frees_the_commit_lane_the_phase_held() {
+    // Task 4 review Finding 3. `begin` refuses a second open so a job cannot be
+    // stranded, but refusing is only half an escape: addendum §6's Retry and
+    // Cancel must be able to give up on an in-flight open, and before this the
+    // only way out of `Selecting` was to poll it to completion. A user who
+    // cancelled instead would wedge the Commit lane for the store's lifetime,
+    // starving the resident Workshop's save and its recovery-persistence
+    // obligation. The client now spends the store-level `abandon` that
+    // `df2457c` added for exactly this.
+    let mut store = MemoryWorkshopStore::default();
+    let (mut client, slot, generation) = drive_to_selecting(&mut store);
+
+    assert!(
+        client.abandon(&mut store),
+        "abandoning an active open must report that it gave something up"
+    );
+    assert!(
+        !client.is_active(),
+        "abandon must return the client to Idle"
+    );
+
+    // The lane is free. This is the assertion the whole slice exists for: with
+    // the `store.abandon` call removed it fails with `Busy`.
+    let commit = store.start(WorkshopStoreRequest::CommitSlot {
+        slot,
+        expected_generation: generation,
+        archive: archive(0x0B19),
+    });
+    assert!(
+        commit.is_ok(),
+        "the Commit lane is still wedged after abandon: {commit:?}"
+    );
+    // Deliberately not over-read: this succeeds at the *same* generation only
+    // because `SelectContinue` does not move the head. The store's contract
+    // still holds in general — abandoning a head-moving mutation leaves the
+    // caller not knowing the head, and the next head-dependent request is
+    // refused with `StaleGeneration` rather than overwriting it — so a caller
+    // that abandons must re-list before trusting a generation it held.
+    assert!(store.start(WorkshopStoreRequest::ListSlots).is_ok());
+}
+
+#[test]
+fn abandoning_a_decoding_open_holds_no_store_job_and_still_returns_to_idle() {
+    // `Decoding` is the one active phase with no `StoreJobId` at all: the replay
+    // is pure CPU. Abandon must handle it without inventing a job to free, and
+    // must not report it as inactive merely because there is nothing to abandon
+    // in the store — the client state still has to be discarded.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0C18);
+    let mut client = WorkshopLibraryClient::default();
+    client
+        .begin(
+            &mut store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        )
+        .unwrap();
+    assert!(matches!(client.poll(&mut store), LibraryEvent::Pending));
+    assert!(client.is_active(), "poll 1 must leave the replay in flight");
+    // Both lanes are already free here, which is what makes this case distinct.
+    assert!(
+        store
+            .start(WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: generation,
+                archive: archive(0x0C19),
+            })
+            .is_ok(),
+        "Decoding must hold no Commit-lane job"
+    );
+
+    assert!(client.abandon(&mut store));
+    assert!(!client.is_active());
+}
+
+#[test]
+fn abandoning_an_idle_client_reports_that_it_gave_nothing_up() {
+    // The store's own `abandon` returns `false` for an unknown or already
+    // abandoned ID, and the client mirrors that rather than claiming a
+    // cancellation it did not perform: a screen that shows "cancelled" off this
+    // return value would otherwise lie on a double Cancel.
+    let mut store = MemoryWorkshopStore::default();
+    let mut client = WorkshopLibraryClient::default();
+    assert!(!client.abandon(&mut store), "a fresh client holds nothing");
+
+    let mut store = MemoryWorkshopStore::default();
+    let (mut client, _, _) = drive_to_selecting(&mut store);
+    assert!(client.abandon(&mut store));
+    assert!(
+        !client.abandon(&mut store),
+        "the second abandon has nothing left to give up"
+    );
+}
+
+#[test]
+fn an_abandoned_client_accepts_a_fresh_begin_and_polls_as_idle() {
+    // What Retry actually needs. An abandon that freed the lane but left the
+    // client `Active` would trade a wedged store for a wedged client, and a
+    // stale event surfacing from the discarded phase would be worse than
+    // either: the screen would act on an open the user cancelled.
+    let mut store = MemoryWorkshopStore::default();
+    let (mut client, slot, generation) = drive_to_selecting(&mut store);
+    assert!(client.abandon(&mut store));
+
+    assert!(
+        matches!(client.poll(&mut store), LibraryEvent::Pending),
+        "the discarded phase must not surface an event"
+    );
+
+    client
+        .begin(
+            &mut store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation: generation,
+            },
+        )
+        .expect("a fresh open must be accepted after abandon");
+    let event = drive(&mut client, &mut store, |_, _| {});
+    let candidate = match event {
+        LibraryEvent::Ready(candidate) => candidate,
+        other => panic!("the retried open did not complete: {other:?}"),
+    };
+    assert_eq!(candidate.loaded.slot, slot);
+    assert_eq!(candidate.loaded.generation, generation);
+    assert_eq!(list(&mut store).selected_continue, Some(slot));
+}

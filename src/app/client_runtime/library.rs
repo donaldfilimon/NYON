@@ -195,6 +195,62 @@ impl WorkshopLibraryClient {
         Ok(())
     }
 
+    /// Gives up on the open in flight, freeing the store lane its phase holds,
+    /// and returns whether there was one.
+    ///
+    /// This is the other half of the [`LibraryBeginError::Active`] guard.
+    /// Refusing a second `begin` stops a job being stranded by a *caller
+    /// mistake*; this is the route out for a caller that has deliberately
+    /// stopped wanting the answer, which is what addendum §6's Retry and Cancel
+    /// are. Without it the only exit from [`Phase::Selecting`] was to poll it to
+    /// completion, so a cancelled open wedged the Commit lane for the store's
+    /// lifetime and starved the resident Workshop's save.
+    ///
+    /// **It abandons the outcome, not the work**, inheriting every consequence
+    /// [`WorkshopStore::abandon`] documents. In particular, abandoning from
+    /// `Selecting` gives up a head-dependent mutation, so any generation the
+    /// caller was holding is no longer known to be current: **re-list before
+    /// trusting one.** That is safe rather than corrupting only because every
+    /// head-dependent mutation compares and swaps.
+    ///
+    /// The validated candidate in `Selecting` is **discarded**, unlike
+    /// [`LibraryEvent::ContinueConflict`], which preserves it. The distinction
+    /// is who decided to stop: a conflict is the store refusing work the caller
+    /// still wants, while this is the caller withdrawing. A candidate-preserving
+    /// cancel would be a different method, and there is no screen to consume one
+    /// yet.
+    ///
+    /// Returns `false` for an already-idle client, mirroring the store's own
+    /// no-op return rather than claiming a cancellation that did not happen.
+    pub fn abandon(&mut self, store: &mut impl WorkshopStore) -> bool {
+        // Taking the phase unconditionally is what guarantees no discarded phase
+        // can surface an event from a later `poll`.
+        match std::mem::replace(&mut self.phase, Phase::Idle) {
+            Phase::Idle => false,
+            Phase::Listing(job)
+            | Phase::Loading { job, .. }
+            | Phase::LoadingPrevious { job, .. }
+            | Phase::LoadingCatalog { job, .. }
+            | Phase::Selecting { job, .. } => {
+                // The store's return is deliberately not propagated. It reports
+                // whether *that ID* held a lane, which is already false for a
+                // job whose result landed before this call; the client is
+                // answering the different question of whether it gave an open
+                // up, and it did.
+                store.abandon(job);
+                true
+            }
+            // The replay is pure CPU and holds no job, so there is nothing to
+            // free in the store -- but the open was still active and dropping
+            // the decoder is still giving it up.
+            Phase::Decoding { .. } => true,
+        }
+        // `expected_generation` and `selects_continue` are deliberately left
+        // as they are. `begin` sets both on every open and no terminal event
+        // resets them either, so clearing them here would invent a second
+        // discipline for the same two fields.
+    }
+
     /// Advances one bounded step.
     pub fn poll(&mut self, store: &mut impl WorkshopStore) -> LibraryEvent {
         let phase = std::mem::replace(&mut self.phase, Phase::Idle);
