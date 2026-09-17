@@ -28,8 +28,9 @@ Measured against the tree rather than carried forward:
 | 2 — validated rules catalog | **landed** | `71e5b6f`. `living/catalog.rs`, `assets/living/core-pack-v2.json`, 24 tests |
 | 3a — the V2 authority state schema | **landed and reviewed** | `50c50f9` (1,848 lines + 50 integration tests), review `b6f33ab` APPROVE WITH FINDINGS; F1 closed by `2b7bfbc`, F2 by `06873f6`, F3 recorded in the program plan |
 | 3b — `living/genesis.rs` | **landed** | `f569437` (genesis manifest and validated genesis), `4fc7f4b` (envelope field order pin). `living/genesis.rs`, `tests/living_genesis.rs`. *Corrected 2026-09-17: this row said "open, no file on disk" after both commits.* |
-| 3c — genesis and state vectors | open, **blocked** on `DECISIONS-PENDING.md` entry 1 (genesis manifest wire schema) | derived outside this crate, never from its output. Task 5 does not wait on it and is the next unblocked task |
+| 3c — genesis and state vectors | open, **blocked** on `DECISIONS-PENDING.md` entry 1 (genesis manifest wire schema) | derived outside this crate, never from its output. Task 5 does not wait on it (its first slice landed in `04c678f`) |
 | 4 — commands, receipts, events | **landed** | `2f6561a` publishes the entity-kind and phase registries in `living/ids.rs` and the rules spec, and re-derives the five affected corpus rows outside this crate with `tools/living-v2-vectors.py`; `bbc3da6` adds `living/receipt.rs` (the distinct payload record, the normative derivation order, 26 event kinds); `ab1f081` adds `living/command.rs` (28 creator operations, envelope, revision). The entity-kind renumbering note the spec asked for is in its status block. 633 tests / 46 suites |
+| 5 (creator queue and atomic boundary) | **partly landed** (2026-09-17) | `04c678f`. `living/simulation.rs`, `tests/living_queue.rs` (18 tests) plus 3 unit tests. Queue, cursor, stale checks, projection validation, paused application, the ten-phase boundary and fault atomicity are in. Open: phases 2-9 are empty hooks (civilizations plan), and phase 1 applies 9 of the 28 creator operations; the other 19 are refused at submission. See the Task 5 notes |
 
 **Two things 3b must not re-derive, both of which already exist.**
 `LivingGalaxyStateV2::validate(&ValidatedLivingCatalogPackV2)` landed with 3a —
@@ -166,15 +167,26 @@ pub fn preflight_import(bytes: &[u8])
 
 **Files:** Create `crates/nyon-workshop-core/src/living/simulation.rs`, `crates/nyon-workshop-core/tests/living_queue.rs`; modify Living command/receipt/exports. Civilization phase modules are supplied by the civilization plan.
 
-- [ ] Write failing tests for two commands chained against successive pending tails, stale/future tail rejection, projected conflicts, fault atomicity, and non-reused sequences.
-- [ ] Implement `LivingGalaxyAuthorityV2::{from_genesis,state,catalog,published_cursor,submit,apply_paused,step}`.
-- [ ] Submission compares committed revision, completed tick, and pending tail before allocation; validates against a private projection containing earlier accepted same-boundary commands.
-- [ ] Paused application requires an empty running queue, commits at the current completed tick, and still records a revision/receipt atomically.
-- [ ] Permanently order phases: creator commands; lifecycles; arrivals; combat/occupation/claims; jobs/recipes; observations; diplomacy; intent generation/reservation; dispatch/freight; validation/digests/commit.
-- [ ] Clone candidate state/history, execute every phase, validate, compute receipts/digests, then swap all authority fields once. On fault retain queue and last valid state, pause, and return typed diagnostics.
-- [ ] Test that newly accepted orders cannot depart on the same boundary, insertion order cannot change output, and an empty/no-civilization galaxy continues without terminal victory.
-- [ ] Run queue/command/civilization/wasm/fmt/clippy gates.
-- [ ] Commit exact paths with `feat(living): apply queued commands atomically`.
+- [x] Write failing tests for two commands chained against successive pending tails, stale/future tail rejection, projected conflicts, fault atomicity, and non-reused sequences. *(Fault atomicity is a unit test inside `simulation.rs`: no public path can make an accepted envelope stop reproducing, so the test corrupts the private committed state.)*
+- [x] Implement `LivingGalaxyAuthorityV2::{from_genesis,state,catalog,published_cursor,submit,apply_paused,step}`.
+- [x] Submission compares committed revision, completed tick, and pending tail before allocation; validates against a private projection containing earlier accepted same-boundary commands.
+- [x] Paused application requires an empty running queue, commits at the current completed tick, and still records a revision/receipt atomically.
+- [x] Permanently order phases: creator commands; lifecycles; arrivals; combat/occupation/claims; jobs/recipes; observations; diplomacy; intent generation/reservation; dispatch/freight; validation/digests/commit. *(Phases 2-9 are empty hooks with the civilizations plan's names; diplomacy and intents run only on multiples of 100 and 50.)*
+- [x] Clone candidate state/history, execute every phase, validate, compute receipts/digests, then swap all authority fields once. On fault retain queue and last valid state, pause, and return typed diagnostics.
+- [ ] Test that newly accepted orders cannot depart on the same boundary, insertion order cannot change output, and an empty/no-civilization galaxy continues without terminal victory. *(Only the empty-galaxy part is done. The first two need phase 4 and phase 9 behavior and `SetFleetOrder` application, which belong to the civilizations plan.)*
+- [x] Run queue/command/civilization/wasm/fmt/clippy gates. *(2026-09-17: fmt 0, workspace clippy 0, workspace test 0 with 872 passed, `cargo check -p nyon-workshop-core --target wasm32-unknown-unknown` 0. There is no civilization suite yet.)*
+- [x] Commit exact paths with `feat(living): apply queued commands atomically`. *(`04c678f`.)*
+
+**Task 5 notes (2026-09-17).** Where the task text and the code disagreed, the code won:
+
+- The operation enum is `LivingCreatorOperationV2`, not the civilizations plan's `LivingCreatorOpV2`, and its variant list (`CreateSystem` ... `RemoveEntity`) differs from that plan's list. Event provenance is `LivingEventProvenanceV2`, not `LivingProvenanceV2`.
+- `LivingStepContextV2::events` is `&mut LivingPendingEventsV2`, not `&mut Vec<LivingEventV2>`: `receipt.rs` makes pending events identity-free, so a phase cannot hold an identified event before the receipt digest exists.
+- `from_genesis` returns `LivingAuthorityErrorV2` (`CatalogMismatch` or `Validation`) rather than a bare `LivingValidationErrorV2`, because a genesis validated under a different catalog is not a state validation failure.
+- The program plan says A5 runs after the civilization phase hooks exist, while civilization Task 1 modifies `simulation.rs` and builds fixtures through `from_genesis`. This slice followed the authority status table and `DECISIONS-PENDING.md`, which name Task 5 as the next unblocked task.
+
+Decisions this slice made and recorded in the module header: each applied revision emits one `creator_intervention` event; a state's historical `accepted_sequence` is the sequence of the last revision applied into it; a lane stores its lower-identified endpoint first whatever order the batch names; `step` on a faulted authority repeats the fault, and `discard_faulted_queue` resumes without reissuing spent sequences.
+
+Still open for Task 5: phase 1 applies `CreateSystem`, `CreateStar`, `CreateWorld`, `CreateLane`, `CreateCivilization`, `CreateDeposit`, `SetWorldInventory`, `SetDepositRemaining` and `SetCivilizationPolicy`. The other 19 operations (facilities, construction and hull jobs, fleets, hulls, routes, shipments, hazards, colonies, world ownership, relations, agreements, war and peace, fleet orders, shipment disposition, and removal cascades) carry reservation, refund or cascade rules and are refused at submission with `UnsupportedOperation` until their rules are applied.
 
 ### Task 6: Implement immutable history, bounded replay, and canonical archives
 

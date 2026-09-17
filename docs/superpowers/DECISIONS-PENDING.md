@@ -162,8 +162,9 @@ adapters: design tasks 0-10 and 12 are on `main`, the main-menu entry is `3b0e22
 11's transfer protocol and test adapter are `7abec08`, and all four transfer-strip routes
 are landed (Export this galaxy, Export content pack and Import content pack in `58ca424`;
 Import galaxy, which is task 12's Import archive, in `2cafa03`), exercised only through the
-scripted test adapter. Not waiting on you: Living Galaxy authority Task 5 (the creator
-queue and atomic boundary orchestration). Still waiting on you: task 11's native and
+scripted test adapter. Not waiting on you: the rest of Living Galaxy authority Task 5. Its
+queue, cursor and atomic boundary landed in `04c678f`; phase 1 still refuses 19 of the 28
+creator operations, and phases 2-9 wait on the civilizations plan. Still waiting on you: task 11's native and
 browser adapters (entry 10), without which no import and no Save copy is live in the
 product, and authority Task 3c (entry 1).
 
