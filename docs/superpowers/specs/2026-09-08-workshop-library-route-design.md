@@ -13,10 +13,11 @@ only when built.
 **Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
 three row slices (12a Open, 12b Use for Continue, 12c row Export to Ready) have
 landed. Task 11 has landed **in part**: the transfer protocol, its bounded
-jobs, the test adapter and the stage-2 handoff of the bytes 12c prepares. Still
-open: Import archive (task 12), the transfer strip's four routes, and every
-real adapter, which waits on the §8 compatibility spike; the task 11 note says
-exactly what. The main-menu gap noted under task 10 is closed: `3b0e229` added
+jobs, the test adapter, the stage-2 handoff of the bytes 12c prepares, and
+(2026-09-17) three of the transfer strip's four routes: Export this galaxy,
+Export content pack and Import content pack. Still open: Import galaxy, which
+is task 12's Import archive, and every real adapter, which waits on the §8
+compatibility spike; the task 11 note says exactly what. The main-menu gap noted under task 10 is closed: `3b0e229` added
 the entry. The notes under each task below say what landed and where it moved
 from this plan.
 
@@ -182,8 +183,11 @@ without touching a platform API.
 **The one deferral this cannot route around:** the addendum gates *both* adapters
 on the native spike, so the in-product byte handoff is not live until that spike
 is accepted. Everything else — slot list, Open, Rename, Archive, Unarchive, Set
-Continue, active-pack import and export, save-then-rename — is live without any
-adapter. Making the browser path live earlier is an amendment to the addendum and
+Continue, save-then-rename, and stage 1 of row Export, Export this galaxy and
+Export content pack — is live without any adapter. The two imports start by
+choosing a file, so they are disabled with a visible reason until an adapter is
+installed (measured 2026-09-17; this paragraph formerly listed active-pack
+import as adapter-free). Making the browser path live earlier is an amendment to the addendum and
 needs its own authority; it is not resolved here.
 
 ## Task order
@@ -259,9 +263,50 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     the outcome (with the recovered-predecessor label when it applies) and
     offers **Done**. The adapter cannot be replaced while it owns a job.
     **Split from the old single flag:** `LibraryUiContext::handoff_available`
-    reads adapter presence; `transfer_available` now means the transfer
-    strip's routes are wired and stays `false`, so the strip is still disabled
-    with `TransferUnavailable` even when an adapter is installed.
+    reads adapter presence. (The `transfer_available` flag this note once
+    described was removed on 2026-09-17; see the next paragraph.)
+    **Three strip routes landed 2026-09-17** (`58ca424`, with the export
+    origin reshaped in `fcf89f5`). Each control now takes its own gate, facts
+    the user can act on first and the missing capability last:
+    - **Export this galaxy** queues the session's own `RequestExport` and
+      takes the bytes with `take_exported_archive` right after the session
+      update that drains it, so that function finally has a caller. The bytes
+      are the in-memory state, dirty or not. They are labelled §10's
+      `Portable export; Workshop not saved for Continue` unless the session
+      was `continue_ready()` when they were taken; that predicate needs a
+      paused session, so a saved but running Workshop still carries the
+      qualifier (conservative by design). A slotless Workshop's copy is
+      suggested as `Workshop.nyonworkshop.json`, the name its first save
+      receives; a resident slot lends its listed name. A refusal (a
+      replacement in progress) is a retryable Library failure; the archive of
+      a cancelled queued export is dropped, never offered.
+    - **Export content pack** is `export_active_catalog`'s canonical bytes,
+      straight to Ready, named by `SuggestedName::content_pack`.
+    - Both exports need an open Workshop and the lane, and **no adapter**:
+      they reach Ready with Save copy disabled, exactly as "Deferrals" above
+      describes. Neither takes a replacement gate; nothing is replaced.
+    - **Import content pack** needs the lane and an adapter, and no
+      replacement gate (§6 permits pack storage that replaces nothing). It
+      asks for one pack, hands the bytes to the catalog-import machine, and
+      shows that machine on the request strip: storing (Cancel), a store
+      failure (Retry re-stores the retained pack without a new choice, and
+      Cancel), and a stored notice (Done). A dismissed picker is ordinary; a
+      failed or misbehaving picker is a `Transfer` failure; invalid content
+      is a `Catalog` refusal whose **Choose again** is a new choice. Cancel
+      never deletes a stored pack. Nothing reaches `RecoverableError`.
+    - **Deviation from this note's earlier plan: the strip takes the lane.**
+      Every strip route shows its progress, failure or prepared bytes on the
+      one request strip, so all four take the lane reason.
+    - **Import galaxy** takes §6's replacement gate, the lane, an adapter,
+      and `archive_import_available`, which stays `false` in the product
+      until its route exists; `apply_library_intent` still treats its intent
+      as deferred.
+    Evidence: `tests/workshop_library_transfer_routes.rs`, the model tests in
+    `tests/workshop_ui_library.rs`, the crowded-frame sweep over every new
+    strip state in `tests/workshop_ui_library_frame.rs`, and
+    `the_transfer_strip_routes_run_from_the_frame`; nine mutations of the new
+    rules were each killed by a named test. All of it runs against
+    `ScriptedTransfer`; no live picker or download is exercised.
     **Remaining after the §8 spike, or beside it:**
     - the native adapter (maintained dialog dependency chosen by the spike,
       size check before allocation, read at most max plus one, same-directory
@@ -272,14 +317,9 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
       activation, deferred cleanup), which the route design gates on the same
       spike; installing either in `app.rs` is what makes Save copy live in
       the product;
-    - the transfer strip's four routes: Import content pack
-      (`ChooseImport` into `begin_catalog_import`), Export content pack
-      (`export_active_catalog` to Ready, then `SuggestedName::content_pack`),
-      Export this galaxy (the session's `RequestExport` and
-      `take_exported_archive` to Ready, labelled portable-but-not-saved per
-      §10), and Import galaxy, which is task 12's Import archive with §6's
-      replacement gate and §5's missing-pack retry. None of these has a
-      consumer yet; `ChooseImport` exists in the protocol for them;
+    - the transfer strip's last route, Import galaxy, which is task 12's
+      Import archive with §6's replacement gate and §5's missing-pack retry
+      (the other three landed 2026-09-17, above);
     - live native picker and browser download evidence, which no suite
       covers.
 12. Enable Open, Import archive, Set Continue and row Export on the library
