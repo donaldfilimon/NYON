@@ -852,9 +852,7 @@ fn row_export_from_the_frame_reaches_ready_and_discard_frees_the_lane() {
     assert!(matches!(
         app.runtime.library_slots_status(),
         LibrarySlotsStatus::ExportReady {
-            slot: ready,
-            source: crate::app::client_runtime::ExportSource::Head,
-            ..
+            source: crate::app::client_runtime::ExportSource::Head { slot: ready, .. },
         } if ready == slot
     ));
     assert_eq!(app.runtime.screen(), ClientScreen::Library);
@@ -867,7 +865,7 @@ fn row_export_from_the_frame_reaches_ready_and_discard_frees_the_lane() {
         &SemanticActionId::new("library.request.handoff"),
         InputModality::Pointer,
     );
-    assert!(app.runtime.prepared_slot_export().is_some());
+    assert!(app.runtime.prepared_export().is_some());
 
     app.activate_platform_action_id(
         &SemanticActionId::new("library.request.cancel"),
@@ -875,7 +873,7 @@ fn row_export_from_the_frame_reaches_ready_and_discard_frees_the_lane() {
     );
     app.build_frame();
     assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
-    assert!(app.runtime.prepared_slot_export().is_none());
+    assert!(app.runtime.prepared_export().is_none());
     assert!(app.runtime.library_slots().is_some());
     assert!(control_enabled(&app, export.as_str()));
 }
@@ -914,8 +912,7 @@ fn an_invalid_head_export_is_accepted_from_the_request_strip() {
     assert!(matches!(
         app.runtime.library_slots_status(),
         LibrarySlotsStatus::ExportReady {
-            source: crate::app::client_runtime::ExportSource::RecoveredPredecessor,
-            ..
+            source: crate::app::client_runtime::ExportSource::RecoveredPredecessor { .. },
         }
     ));
     assert_eq!(app.runtime.screen(), ClientScreen::Library);
@@ -957,9 +954,9 @@ fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
     settle_export(&mut app);
     let prepared = app
         .runtime
-        .prepared_slot_export()
+        .prepared_export()
         .expect("bytes are ready")
-        .archive
+        .bytes
         .clone();
     let handoff = SemanticActionId::new("library.request.handoff");
     assert!(control_enabled(&app, handoff.as_str()));
@@ -970,9 +967,8 @@ fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
     assert!(matches!(
         app.runtime.library_slots_status(),
         LibrarySlotsStatus::ExportHandedOff {
-            slot: handed,
+            source: crate::app::client_runtime::ExportSource::Head { slot: handed, .. },
             outcome: HandoffOutcome::DownloadStarted,
-            ..
         } if handed == slot
     ));
     let handed = adapter.handed_off();

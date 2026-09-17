@@ -953,10 +953,17 @@ fn every_open_request_state_installs_and_keeps_its_decision_controls() {
 #[test]
 fn every_export_request_state_installs_and_keeps_its_strip_controls() {
     let list = crowded_list();
-    let ready = |source| LibrarySlotsStatus::ExportReady {
+    let ready = |source| LibrarySlotsStatus::ExportReady { source };
+    let head = ExportSource::Head {
         slot: SlotId(1),
         generation: SaveGeneration(2),
-        source,
+    };
+    let predecessor = ExportSource::RecoveredPredecessor {
+        slot: SlotId(1),
+        generation: SaveGeneration(2),
+    };
+    let unsaved = ExportSource::ActiveWorkshop {
+        continue_ready: false,
     };
     let statuses = [
         LibrarySlotsStatus::Working {
@@ -969,22 +976,39 @@ fn every_export_request_state_installs_and_keeps_its_strip_controls() {
             code: ClientDiagnosticCode::Store,
         },
         LibrarySlotsStatus::ExportRecoveryOffered { slot: SlotId(1) },
-        ready(ExportSource::Head),
-        ready(ExportSource::RecoveredPredecessor),
+        ready(head),
+        ready(predecessor),
+        ready(unsaved),
+        ready(ExportSource::ActiveWorkshop {
+            continue_ready: true,
+        }),
+        ready(ExportSource::ActivePack {
+            hash: nyon::workshop::CatalogHash([0xab; 32]),
+        }),
         LibrarySlotsStatus::Working {
             kind: SlotRequestKind::HandOff,
             slot: Some(SlotId(1)),
         },
         LibrarySlotsStatus::HandOffFailed {
-            slot: SlotId(1),
-            generation: SaveGeneration(2),
-            source: ExportSource::RecoveredPredecessor,
+            source: ExportSource::RecoveredPredecessor {
+                slot: SlotId(1),
+                generation: SaveGeneration(2),
+            },
             code: TransferFailureCode::Platform,
         },
         LibrarySlotsStatus::ExportHandedOff {
-            slot: SlotId(1),
-            generation: SaveGeneration(2),
-            source: ExportSource::RecoveredPredecessor,
+            source: ExportSource::RecoveredPredecessor {
+                slot: SlotId(1),
+                generation: SaveGeneration(2),
+            },
+            outcome: HandoffOutcome::HandedToSystem,
+        },
+        LibrarySlotsStatus::HandOffFailed {
+            source: unsaved,
+            code: TransferFailureCode::Platform,
+        },
+        LibrarySlotsStatus::ExportHandedOff {
+            source: unsaved,
             outcome: HandoffOutcome::HandedToSystem,
         },
     ];

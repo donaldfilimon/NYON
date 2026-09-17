@@ -30,6 +30,15 @@ use nyon::{
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotName, SlotSummary},
 };
 
+const HEAD: ExportSource = ExportSource::Head {
+    slot: SlotId(1),
+    generation: SaveGeneration(11),
+};
+const PREDECESSOR: ExportSource = ExportSource::RecoveredPredecessor {
+    slot: SlotId(1),
+    generation: SaveGeneration(11),
+};
+
 fn summary(id: u64, name: &str, archived: bool) -> SlotSummary {
     SlotSummary {
         id: SlotId(id),
@@ -2172,9 +2181,10 @@ fn row_export_is_refused_only_by_the_lane() {
         ),
         (
             LibrarySlotsStatus::ExportReady {
-                slot: SlotId(1),
-                generation: SaveGeneration(11),
-                source: ExportSource::Head,
+                source: ExportSource::Head {
+                    slot: SlotId(1),
+                    generation: SaveGeneration(11),
+                },
             },
             LibraryDisabledReason::ExportWaiting,
         ),
@@ -2241,28 +2251,39 @@ fn an_invalid_head_export_offers_export_previous_and_cancel() {
 fn a_ready_export_offers_a_separate_handoff_and_discard() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
     for (source, line) in [
+        (HEAD, "A portable copy of the latest save is ready."),
         (
-            ExportSource::Head,
-            "A portable copy of the latest save is ready.",
-        ),
-        (
-            ExportSource::RecoveredPredecessor,
+            PREDECESSOR,
             "Portable copy ready. Recovered predecessor; stored head and Continue unchanged.",
         ),
+        (
+            ExportSource::ActiveWorkshop {
+                continue_ready: false,
+            },
+            "Portable copy of the open Workshop ready. Portable export; Workshop not saved for Continue.",
+        ),
+        (
+            ExportSource::ActiveWorkshop {
+                continue_ready: true,
+            },
+            "A portable copy of the open Workshop, as saved for Continue, is ready.",
+        ),
+        (
+            ExportSource::ActivePack {
+                hash: nyon::workshop::CatalogHash([7; 32]),
+            },
+            "A portable copy of the open Workshop's content pack is ready.",
+        ),
     ] {
-        let status = LibrarySlotsStatus::ExportReady {
-            slot: SlotId(1),
-            generation: SaveGeneration(11),
-            source,
-        };
+        let status = LibrarySlotsStatus::ExportReady { source };
         let built = model(LibraryUiContext {
             slots: Some(&listed),
             selected_slot: Some(SlotId(1)),
             status,
             ..LibraryUiContext::default()
         });
-        if source == ExportSource::RecoveredPredecessor {
-            assert!(line.contains(source.label()), "{line}");
+        if let Some(qualifier) = source.qualifier() {
+            assert!(line.contains(qualifier), "{line}");
         }
         assert_eq!(request_line(&built), line);
         // Not a failure: a status, not an alert.
@@ -2390,15 +2411,17 @@ fn handoff_statuses() -> [LibrarySlotsStatus; 3] {
             slot: Some(SlotId(1)),
         },
         LibrarySlotsStatus::HandOffFailed {
-            slot: SlotId(1),
-            generation: SaveGeneration(11),
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: SlotId(1),
+                generation: SaveGeneration(11),
+            },
             code: TransferFailureCode::Platform,
         },
         LibrarySlotsStatus::ExportHandedOff {
-            slot: SlotId(1),
-            generation: SaveGeneration(11),
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: SlotId(1),
+                generation: SaveGeneration(11),
+            },
             outcome: HandoffOutcome::DownloadStarted,
         },
     ]
@@ -2416,9 +2439,10 @@ fn an_adapter_enables_the_handoff_and_leaves_the_strip_disabled() {
         workshop_active: true,
         handoff_available: true,
         status: LibrarySlotsStatus::ExportReady {
-            slot: SlotId(1),
-            generation: SaveGeneration(11),
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: SlotId(1),
+                generation: SaveGeneration(11),
+            },
         },
         ..LibraryUiContext::default()
     });
@@ -2444,12 +2468,24 @@ fn a_failed_handoff_retries_on_the_handoff_control() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
     for (source, line) in [
         (
-            ExportSource::Head,
+            HEAD,
             "Handing off the portable copy failed. Save copy again or discard it.",
         ),
         (
-            ExportSource::RecoveredPredecessor,
+            PREDECESSOR,
             "Handing off the portable copy failed. Save copy again or discard it. Recovered predecessor; stored head and Continue unchanged.",
+        ),
+        (
+            ExportSource::ActiveWorkshop {
+                continue_ready: false,
+            },
+            "Handing off the portable copy failed. Save copy again or discard it. Portable export; Workshop not saved for Continue.",
+        ),
+        (
+            ExportSource::ActivePack {
+                hash: nyon::workshop::CatalogHash([7; 32]),
+            },
+            "Handing off the portable copy failed. Save copy again or discard it.",
         ),
     ] {
         for available in [false, true] {
@@ -2458,8 +2494,6 @@ fn a_failed_handoff_retries_on_the_handoff_control() {
                 selected_slot: Some(SlotId(1)),
                 handoff_available: available,
                 status: LibrarySlotsStatus::HandOffFailed {
-                    slot: SlotId(1),
-                    generation: SaveGeneration(11),
                     source,
                     code: TransferFailureCode::Platform,
                 },
@@ -2508,43 +2542,49 @@ fn a_failed_handoff_retries_on_the_handoff_control() {
 fn a_handed_off_copy_reports_its_outcome_and_offers_done() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
     for (outcome, source, line) in [
-        (
-            HandoffOutcome::DownloadStarted,
-            ExportSource::Head,
-            "Download started.",
-        ),
+        (HandoffOutcome::DownloadStarted, HEAD, "Download started."),
         (
             HandoffOutcome::HandedToSystem,
-            ExportSource::Head,
+            HEAD,
             "Copy handed to the operating system.",
         ),
-        (HandoffOutcome::Written, ExportSource::Head, "Copy written."),
+        (HandoffOutcome::Written, HEAD, "Copy written."),
+        (HandoffOutcome::DurablySaved, HEAD, "Copy saved."),
         (
-            HandoffOutcome::DurablySaved,
-            ExportSource::Head,
-            "Copy saved.",
+            HandoffOutcome::DownloadStarted,
+            PREDECESSOR,
+            "Download started. Recovered predecessor; stored head and Continue unchanged.",
         ),
         (
             HandoffOutcome::DownloadStarted,
-            ExportSource::RecoveredPredecessor,
-            "Download started. Recovered predecessor; stored head and Continue unchanged.",
+            ExportSource::ActiveWorkshop {
+                continue_ready: false,
+            },
+            "Download started. Portable export; Workshop not saved for Continue.",
+        ),
+        (
+            HandoffOutcome::Written,
+            ExportSource::ActivePack {
+                hash: nyon::workshop::CatalogHash([7; 32]),
+            },
+            "Copy written.",
         ),
     ] {
         let built = model(LibraryUiContext {
             slots: Some(&listed),
             selected_slot: Some(SlotId(1)),
             handoff_available: true,
-            status: LibrarySlotsStatus::ExportHandedOff {
-                slot: SlotId(1),
-                generation: SaveGeneration(11),
-                source,
-                outcome,
-            },
+            status: LibrarySlotsStatus::ExportHandedOff { source, outcome },
             ..LibraryUiContext::default()
         });
         assert_eq!(request_line(&built), line, "{outcome:?}");
+        // Only the outcome's own words may claim a save; §10's qualifier
+        // ("not saved for Continue") is a negation and is checked apart.
+        let claim = line
+            .strip_suffix(&format!(" {}.", source.qualifier().unwrap_or("")))
+            .unwrap_or(line);
         assert_eq!(
-            line.to_ascii_lowercase().contains("saved"),
+            claim.to_ascii_lowercase().contains("saved"),
             outcome == HandoffOutcome::DurablySaved,
             "{outcome:?}"
         );

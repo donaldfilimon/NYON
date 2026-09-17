@@ -896,22 +896,32 @@ fn export_prepares_the_exact_stored_bytes_and_changes_nothing() {
             slot: Some(second),
         }
     );
-    assert!(runtime.prepared_slot_export().is_none());
+    assert!(runtime.prepared_export().is_none());
     settle(&mut runtime);
     assert_eq!(
         runtime.library_slots_status(),
         LibrarySlotsStatus::ExportReady {
-            slot: second,
-            generation,
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: second,
+                generation,
+            },
         }
     );
-    let prepared = runtime.prepared_slot_export().expect("bytes are ready");
-    assert_eq!(prepared.slot, second);
-    assert_eq!(prepared.name.as_str(), "Second Forge");
-    assert_eq!(prepared.generation, generation);
-    assert_eq!(prepared.source, ExportSource::Head);
-    assert_eq!(prepared.archive, valid_archive(12));
+    let prepared = runtime.prepared_export().expect("bytes are ready");
+    assert_eq!(prepared.source.slot(), Some(second));
+    assert_eq!(
+        prepared.suggested_name.as_str(),
+        "Second-Forge.nyonworkshop.json"
+    );
+    assert_eq!(prepared.source.generation(), Some(generation));
+    assert_eq!(
+        prepared.source,
+        ExportSource::Head {
+            slot: second,
+            generation
+        }
+    );
+    assert_eq!(prepared.bytes, valid_archive(12));
     assert!(matches!(runtime.active_session(), ActiveSession::None));
     assert_nothing_changed(&runtime, &store, &before);
 
@@ -928,17 +938,19 @@ fn export_prepares_the_exact_stored_bytes_and_changes_nothing() {
     );
     runtime.update(Duration::ZERO);
     assert_eq!(
-        runtime.prepared_slot_export().map(|export| export.slot),
+        runtime
+            .prepared_export()
+            .and_then(|export| export.source.slot()),
         Some(second)
     );
     runtime.close_library();
     runtime.update(Duration::ZERO);
     runtime.open_library().unwrap();
-    assert!(runtime.prepared_slot_export().is_some());
+    assert!(runtime.prepared_export().is_some());
 
     runtime.cancel_library_slot_request().unwrap();
     assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
-    assert!(runtime.prepared_slot_export().is_none());
+    assert!(runtime.prepared_export().is_none());
     assert_nothing_changed(&runtime, &store, &before);
     runtime
         .rename_library_slot(first, SlotName::new("Renamed Forge").unwrap())
@@ -971,7 +983,9 @@ fn export_is_not_gated_on_the_resident_workshop() {
         .unwrap();
     settle(&mut runtime);
     assert_eq!(
-        runtime.prepared_slot_export().map(|export| export.slot),
+        runtime
+            .prepared_export()
+            .and_then(|export| export.source.slot()),
         Some(second)
     );
     runtime.cancel_library_slot_request().unwrap();
@@ -980,10 +994,10 @@ fn export_is_not_gated_on_the_resident_workshop() {
     let own = library_generation(&runtime, first);
     runtime.export_library_slot(first, own).unwrap();
     settle(&mut runtime);
-    let prepared = runtime.prepared_slot_export().expect("own row exported");
-    assert_eq!(prepared.slot, first);
-    assert_eq!(prepared.generation, own);
-    assert_eq!(prepared.archive, valid_archive(11));
+    let prepared = runtime.prepared_export().expect("own row exported");
+    assert_eq!(prepared.source.slot(), Some(first));
+    assert_eq!(prepared.source.generation(), Some(own));
+    assert_eq!(prepared.bytes, valid_archive(11));
 
     assert_nothing_changed(&runtime, &store, &before);
     let after = runtime.workshop_snapshot().unwrap();
@@ -1004,7 +1018,7 @@ fn an_archived_row_exports() {
     runtime.export_library_slot(first, generation).unwrap();
     settle(&mut runtime);
     assert_eq!(
-        runtime.prepared_slot_export().map(|export| &export.archive),
+        runtime.prepared_export().map(|export| &export.bytes),
         Some(&valid_archive(11))
     );
     assert_nothing_changed(&runtime, &store, &before);
@@ -1032,7 +1046,7 @@ fn an_invalid_head_export_is_offered_and_never_promoted() {
         LibrarySlotsStatus::ExportRecoveryOffered { slot: first }
     );
     assert!(
-        runtime.prepared_slot_export().is_none(),
+        runtime.prepared_export().is_none(),
         "an invalid head never silently exports its predecessor"
     );
     // The installing accept cannot consume an export offer.
@@ -1049,14 +1063,15 @@ fn an_invalid_head_export_is_offered_and_never_promoted() {
     assert_eq!(
         runtime.library_slots_status(),
         LibrarySlotsStatus::ExportReady {
-            slot: first,
-            generation: valid,
-            source: ExportSource::RecoveredPredecessor,
+            source: ExportSource::RecoveredPredecessor {
+                slot: first,
+                generation: valid,
+            },
         }
     );
-    let prepared = runtime.prepared_slot_export().unwrap();
-    assert_eq!(prepared.generation, valid);
-    assert_eq!(prepared.archive, valid_archive(11));
+    let prepared = runtime.prepared_export().unwrap();
+    assert_eq!(prepared.source.generation(), Some(valid));
+    assert_eq!(prepared.bytes, valid_archive(11));
     for _ in 0..8 {
         runtime.update(Duration::ZERO);
     }
@@ -1099,11 +1114,11 @@ fn cancelling_an_export_in_flight_keeps_the_list_and_frees_the_lane() {
         for _ in 0..8 {
             runtime.update(Duration::ZERO);
         }
-        assert!(runtime.prepared_slot_export().is_none(), "{polls}");
+        assert!(runtime.prepared_export().is_none(), "{polls}");
         assert_nothing_changed(&runtime, &store, &before);
         runtime.export_library_slot(first, generation).unwrap();
         settle(&mut runtime);
-        assert!(runtime.prepared_slot_export().is_some(), "{polls}");
+        assert!(runtime.prepared_export().is_some(), "{polls}");
     }
     assert!(
         cancelled >= 2,
@@ -1134,9 +1149,10 @@ fn a_failed_export_retries_as_itself_and_a_stale_one_offers_refresh() {
     assert_eq!(
         runtime.library_slots_status(),
         LibrarySlotsStatus::ExportReady {
-            slot: first,
-            generation: observed,
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: first,
+                generation: observed,
+            },
         }
     );
     assert_eq!(stored_list(&store).selected_continue, None);

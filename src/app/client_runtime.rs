@@ -190,41 +190,114 @@ pub enum SlotRequestKind {
     HandOff,
 }
 
-/// Where prepared row-export bytes came from, so the label cannot claim more
-/// than the bytes are.
+/// Where prepared export bytes came from, so the label cannot claim more than
+/// the bytes are. The origin's own facts travel inside the variant: a row
+/// export names its slot and generation, an active export names neither,
+/// because there may be no slot at all.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExportSource {
-    /// The row's stored head, exactly as listed.
-    Head,
-    /// The row's retained predecessor, because the head did not validate.
+    /// A row's stored head, exactly as listed.
+    Head {
+        slot: SlotId,
+        generation: SaveGeneration,
+    },
+    /// A row's retained predecessor, because the head did not validate.
     /// Nothing was promoted and the Continue marker did not move.
-    RecoveredPredecessor,
+    RecoveredPredecessor {
+        slot: SlotId,
+        generation: SaveGeneration,
+    },
+    /// Export this galaxy: the open Workshop's in-memory state, which may be
+    /// dirty (addendum §10). `continue_ready` records whether, when the bytes
+    /// were captured, that state was the saved generation selected for
+    /// Continue; only then may the label drop §10's qualifier.
+    ActiveWorkshop { continue_ready: bool },
+    /// Export content pack: the open Workshop's exact catalog.
+    ActivePack { hash: CatalogHash },
 }
 
 impl ExportSource {
-    /// Addendum §4's label. The predecessor's text is quoted from the
-    /// addendum verbatim.
+    /// The origin's label. The predecessor's text and the unsaved active
+    /// export's text are quoted from the addendum (§4, §10) verbatim.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Head => "Latest save",
-            Self::RecoveredPredecessor => {
+            Self::Head { .. } => "Latest save",
+            Self::RecoveredPredecessor { .. } => {
                 "Recovered predecessor; stored head and Continue unchanged"
+            }
+            Self::ActiveWorkshop {
+                continue_ready: false,
+            } => "Portable export; Workshop not saved for Continue",
+            Self::ActiveWorkshop {
+                continue_ready: true,
+            } => "Open Workshop, as saved for Continue",
+            Self::ActivePack { .. } => "Content pack of the open Workshop",
+        }
+    }
+
+    /// The label a status line must carry to the end, when the bytes are
+    /// something other than what a plain "portable copy" suggests: a
+    /// recovered predecessor, or open-Workshop state that is not the saved
+    /// Continue generation.
+    pub const fn qualifier(self) -> Option<&'static str> {
+        match self {
+            Self::RecoveredPredecessor { .. }
+            | Self::ActiveWorkshop {
+                continue_ready: false,
+            } => Some(self.label()),
+            Self::Head { .. }
+            | Self::ActiveWorkshop {
+                continue_ready: true,
+            }
+            | Self::ActivePack { .. } => None,
+        }
+    }
+
+    /// The row the bytes were read from, for a row export.
+    pub const fn slot(self) -> Option<SlotId> {
+        match self {
+            Self::Head { slot, .. } | Self::RecoveredPredecessor { slot, .. } => Some(slot),
+            Self::ActiveWorkshop { .. } | Self::ActivePack { .. } => None,
+        }
+    }
+
+    /// The stored generation the bytes were read from, for a row export.
+    pub const fn generation(self) -> Option<SaveGeneration> {
+        match self {
+            Self::Head { generation, .. } | Self::RecoveredPredecessor { generation, .. } => {
+                Some(generation)
+            }
+            Self::ActiveWorkshop { .. } | Self::ActivePack { .. } => None,
+        }
+    }
+
+    /// What the bytes are.
+    pub const fn kind(self) -> TransferKind {
+        match self {
+            Self::ActivePack { .. } => TransferKind::ContentPack,
+            Self::Head { .. } | Self::RecoveredPredecessor { .. } | Self::ActiveWorkshop { .. } => {
+                TransferKind::WorkshopArchive
             }
         }
     }
 }
 
-/// Row-export bytes that have fully validated and are waiting for the
-/// platform handoff (route-design task 11). Bounded by the store's archive
-/// limit, because they are the bytes `LoadSlot` returned.
+/// Validated export bytes waiting for the platform handoff (route-design
+/// task 11). Bounded by the store's own limit for their kind: a row export
+/// holds the bytes `LoadSlot` returned, an active export the bytes the
+/// session or catalog encoder produced.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PreparedSlotExport {
-    pub slot: SlotId,
-    pub name: SlotName,
-    /// The generation the bytes were read from.
-    pub generation: SaveGeneration,
+pub struct PreparedExport {
     pub source: ExportSource,
-    pub archive: Box<[u8]>,
+    /// The sanitized name the handoff suggests (§7).
+    pub suggested_name: SuggestedName,
+    pub bytes: Box<[u8]>,
+}
+
+impl PreparedExport {
+    pub const fn kind(&self) -> TransferKind {
+        self.source.kind()
+    }
 }
 
 /// The bounded typed facts the Library presents for its slot-request machine.
@@ -264,21 +337,15 @@ pub enum LibrarySlotsStatus {
     ExportRecoveryOffered { slot: SlotId },
     /// Row-export bytes are validated and waiting for the platform handoff.
     /// The bytes themselves are read through
-    /// [`ClientRuntime::prepared_slot_export`]. Offers the handoff (disabled
+    /// [`ClientRuntime::prepared_export`]. Offers the handoff (disabled
     /// while no transfer adapter is installed) and Discard.
     ///
     /// While the handoff runs the status is `Working` with
     /// [`SlotRequestKind::HandOff`]; a cancelled handoff returns here.
-    ExportReady {
-        slot: SlotId,
-        generation: SaveGeneration,
-        source: ExportSource,
-    },
+    ExportReady { source: ExportSource },
     /// The handoff failed or was refused, and the prepared bytes are still
     /// held. Offers the handoff again, on its own control, and Discard.
     HandOffFailed {
-        slot: SlotId,
-        generation: SaveGeneration,
         source: ExportSource,
         code: TransferFailureCode,
     },
@@ -286,8 +353,6 @@ pub enum LibrarySlotsStatus {
     /// `outcome` is the only thing the product may claim about where they
     /// went. Offers Done, which frees the lane.
     ExportHandedOff {
-        slot: SlotId,
-        generation: SaveGeneration,
         source: ExportSource,
         outcome: HandoffOutcome,
     },
@@ -418,26 +483,24 @@ enum LibrarySlots {
     /// discards them or hands them off (task 11), so the one request strip is
     /// the one place they are offered.
     ExportReady {
-        export: Box<PreparedSlotExport>,
+        export: Box<PreparedExport>,
     },
     /// Route-design task 11: the prepared bytes are with the transfer
     /// adapter. They are kept, because a cancelled or failed handoff returns
     /// the user to them without a second export.
     HandingOff {
         job: TransferJobId,
-        export: Box<PreparedSlotExport>,
+        export: Box<PreparedExport>,
     },
     /// The handoff was refused or failed. The bytes are kept for the handoff
     /// control to try again; §7 requires that retry to be its own direct
     /// activation, so the generic Retry does not reach it.
     HandOffFailed {
-        export: Box<PreparedSlotExport>,
+        export: Box<PreparedExport>,
         code: TransferFailureCode,
     },
     /// The adapter reported the handoff. Only the facts remain.
     ExportHandedOff {
-        slot: SlotId,
-        generation: SaveGeneration,
         source: ExportSource,
         outcome: HandoffOutcome,
     },
@@ -476,17 +539,17 @@ impl OpenPurpose {
 
 /// Row-export bytes from a validated load. The source follows the load, so a
 /// predecessor can never be labelled as the head.
-fn prepared_export(loaded: LoadedSlot) -> PreparedSlotExport {
-    PreparedSlotExport {
-        slot: loaded.slot,
-        name: loaded.name,
-        generation: loaded.generation,
+fn prepared_export(loaded: LoadedSlot) -> PreparedExport {
+    let slot = loaded.slot;
+    let generation = loaded.generation;
+    PreparedExport {
         source: if loaded.recovered_from_previous {
-            ExportSource::RecoveredPredecessor
+            ExportSource::RecoveredPredecessor { slot, generation }
         } else {
-            ExportSource::Head
+            ExportSource::Head { slot, generation }
         },
-        archive: loaded.archive,
+        suggested_name: SuggestedName::workshop_archive(&loaded.name),
+        bytes: loaded.archive,
     }
 }
 
@@ -1281,38 +1344,29 @@ where
                 LibrarySlotsStatus::ExportRecoveryOffered { slot: loaded.slot }
             }
             LibrarySlots::ExportReady { export } => LibrarySlotsStatus::ExportReady {
-                slot: export.slot,
-                generation: export.generation,
                 source: export.source,
             },
             LibrarySlots::HandingOff { export, .. } => LibrarySlotsStatus::Working {
                 kind: SlotRequestKind::HandOff,
-                slot: Some(export.slot),
+                slot: export.source.slot(),
             },
             LibrarySlots::HandOffFailed { export, code } => LibrarySlotsStatus::HandOffFailed {
-                slot: export.slot,
-                generation: export.generation,
                 source: export.source,
                 code: *code,
             },
-            LibrarySlots::ExportHandedOff {
-                slot,
-                generation,
-                source,
-                outcome,
-            } => LibrarySlotsStatus::ExportHandedOff {
-                slot: *slot,
-                generation: *generation,
-                source: *source,
-                outcome: *outcome,
-            },
+            LibrarySlots::ExportHandedOff { source, outcome } => {
+                LibrarySlotsStatus::ExportHandedOff {
+                    source: *source,
+                    outcome: *outcome,
+                }
+            }
         }
     }
 
-    /// The validated row-export bytes, while the lane holds them: Ready, with
-    /// the adapter, or after a failed handoff. Released once handed off or
+    /// The validated export bytes, while the lane holds them: Ready, with the
+    /// adapter, or after a failed handoff. Released once handed off or
     /// discarded.
-    pub fn prepared_slot_export(&self) -> Option<&PreparedSlotExport> {
+    pub fn prepared_export(&self) -> Option<&PreparedExport> {
         match &self.slot_requests {
             LibrarySlots::ExportReady { export }
             | LibrarySlots::HandingOff { export, .. }
@@ -1371,9 +1425,9 @@ where
             }
         };
         let request = TransferRequest::HandOffExport {
-            kind: TransferKind::WorkshopArchive,
-            suggested_name: SuggestedName::workshop_archive(&export.name),
-            bytes: export.archive.clone(),
+            kind: export.kind(),
+            suggested_name: export.suggested_name.clone(),
+            bytes: export.bytes.clone(),
         };
         let started = match self.transfer.as_mut() {
             Some(adapter) => adapter.start(request),
@@ -1391,7 +1445,7 @@ where
         }
     }
 
-    fn fail_handoff(&mut self, export: Box<PreparedSlotExport>, code: TransferFailureCode) {
+    fn fail_handoff(&mut self, export: Box<PreparedExport>, code: TransferFailureCode) {
         self.push_diagnostic(ClientDiagnosticCode::Transfer, code.message());
         self.slot_requests = LibrarySlots::HandOffFailed { export, code };
     }
@@ -1419,8 +1473,6 @@ where
             TransferJobState::Pending => {}
             TransferJobState::Complete(Ok(TransferOutcome::ExportHandedOff(outcome))) => {
                 self.slot_requests = LibrarySlots::ExportHandedOff {
-                    slot: export.slot,
-                    generation: export.generation,
                     source: export.source,
                     outcome,
                 };

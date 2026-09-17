@@ -148,9 +148,7 @@ fn ready() -> Fixture {
 
 const fn ready_status(slot: SlotId, generation: SaveGeneration) -> LibrarySlotsStatus {
     LibrarySlotsStatus::ExportReady {
-        slot,
-        generation,
-        source: ExportSource::Head,
+        source: ExportSource::Head { slot, generation },
     }
 }
 
@@ -201,8 +199,8 @@ fn without_an_adapter_the_handoff_is_refused_and_the_bytes_stay_ready() {
     assert_eq!(
         fixture
             .runtime
-            .prepared_slot_export()
-            .map(|export| &export.archive),
+            .prepared_export()
+            .map(|export| &export.bytes),
         Some(&valid_archive(12))
     );
     assert_store_untouched(&fixture);
@@ -255,9 +253,10 @@ fn a_handoff_delivers_the_exact_prepared_bytes_and_says_only_what_happened() {
     assert_eq!(
         fixture.runtime.library_slots_status(),
         LibrarySlotsStatus::ExportHandedOff {
-            slot: fixture.slot,
-            generation: fixture.generation,
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: fixture.slot,
+                generation: fixture.generation,
+            },
             outcome: HandoffOutcome::DownloadStarted,
         }
     );
@@ -266,7 +265,7 @@ fn a_handoff_delivers_the_exact_prepared_bytes_and_says_only_what_happened() {
         vec![expected_handoff(valid_archive(12))]
     );
     assert!(
-        fixture.runtime.prepared_slot_export().is_none(),
+        fixture.runtime.prepared_export().is_none(),
         "handed-off bytes are released"
     );
     assert_eq!(transfer_diagnostics(&fixture.runtime), 0);
@@ -317,9 +316,10 @@ fn every_outcome_is_reported_as_itself() {
         assert_eq!(
             fixture.runtime.library_slots_status(),
             LibrarySlotsStatus::ExportHandedOff {
-                slot: fixture.slot,
-                generation: fixture.generation,
-                source: ExportSource::Head,
+                source: ExportSource::Head {
+                    slot: fixture.slot,
+                    generation: fixture.generation,
+                },
                 outcome,
             }
         );
@@ -376,9 +376,10 @@ fn a_recovered_predecessor_keeps_its_label_through_the_handoff() {
     assert_eq!(
         runtime.library_slots_status(),
         LibrarySlotsStatus::ExportHandedOff {
-            slot,
-            generation: valid,
-            source: ExportSource::RecoveredPredecessor,
+            source: ExportSource::RecoveredPredecessor {
+                slot,
+                generation: valid,
+            },
             outcome: HandoffOutcome::DownloadStarted,
         }
     );
@@ -429,17 +430,18 @@ fn a_failed_handoff_keeps_the_bytes_and_is_retried_only_by_handing_off() {
             settle(&mut fixture.runtime);
         }
         let failed = LibrarySlotsStatus::HandOffFailed {
-            slot: fixture.slot,
-            generation: fixture.generation,
-            source: ExportSource::Head,
+            source: ExportSource::Head {
+                slot: fixture.slot,
+                generation: fixture.generation,
+            },
             code: TransferFailureCode::Platform,
         };
         assert_eq!(fixture.runtime.library_slots_status(), failed, "{refuse}");
         assert_eq!(
             fixture
                 .runtime
-                .prepared_slot_export()
-                .map(|export| &export.archive),
+                .prepared_export()
+                .map(|export| &export.bytes),
             Some(&valid_archive(12)),
             "{refuse}"
         );
@@ -483,7 +485,7 @@ fn discarding_a_failed_handoff_releases_the_bytes() {
         fixture.runtime.library_slots_status(),
         LibrarySlotsStatus::Idle
     );
-    assert!(fixture.runtime.prepared_slot_export().is_none());
+    assert!(fixture.runtime.prepared_export().is_none());
     assert_store_untouched(&fixture);
 }
 
@@ -499,7 +501,7 @@ fn a_cancelled_handoff_returns_to_ready_without_a_diagnostic() {
         fixture.runtime.library_slots_status(),
         ready_status(fixture.slot, fixture.generation)
     );
-    assert!(fixture.runtime.prepared_slot_export().is_some());
+    assert!(fixture.runtime.prepared_export().is_some());
     assert_eq!(transfer_diagnostics(&fixture.runtime), 0);
     assert!(adapter.handed_off().is_empty());
     fixture.runtime.hand_off_library_export().unwrap();
@@ -556,14 +558,15 @@ fn a_misbehaving_adapter_is_a_protocol_failure() {
         assert_eq!(
             fixture.runtime.library_slots_status(),
             LibrarySlotsStatus::HandOffFailed {
-                slot: fixture.slot,
-                generation: fixture.generation,
-                source: ExportSource::Head,
+                source: ExportSource::Head {
+                    slot: fixture.slot,
+                    generation: fixture.generation,
+                },
                 code: TransferFailureCode::Protocol,
             },
             "{reply:?}"
         );
-        assert!(fixture.runtime.prepared_slot_export().is_some());
+        assert!(fixture.runtime.prepared_export().is_some());
         assert_eq!(transfer_diagnostics(&fixture.runtime), 1);
         assert_store_untouched(&fixture);
     }

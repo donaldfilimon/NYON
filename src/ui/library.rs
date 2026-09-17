@@ -1290,14 +1290,23 @@ fn request_message(status: LibrarySlotsStatus) -> String {
         LibrarySlotsStatus::ExportRecoveryOffered { .. } => {
             "The latest save is invalid. Export its previous generation or cancel."
         }
-        LibrarySlotsStatus::ExportReady {
-            source: ExportSource::Head,
-            ..
-        } => "A portable copy of the latest save is ready.",
-        LibrarySlotsStatus::ExportReady {
-            source: ExportSource::RecoveredPredecessor,
-            ..
-        } => "Portable copy ready. Recovered predecessor; stored head and Continue unchanged.",
+        LibrarySlotsStatus::ExportReady { source } => match source {
+            ExportSource::Head { .. } => "A portable copy of the latest save is ready.",
+            ExportSource::RecoveredPredecessor { .. } => {
+                "Portable copy ready. Recovered predecessor; stored head and Continue unchanged."
+            }
+            ExportSource::ActiveWorkshop {
+                continue_ready: false,
+            } => {
+                "Portable copy of the open Workshop ready. Portable export; Workshop not saved for Continue."
+            }
+            ExportSource::ActiveWorkshop {
+                continue_ready: true,
+            } => "A portable copy of the open Workshop, as saved for Continue, is ready.",
+            ExportSource::ActivePack { .. } => {
+                "A portable copy of the open Workshop's content pack is ready."
+            }
+        },
         LibrarySlotsStatus::HandOffFailed { source, .. } => {
             return with_source(
                 "Handing off the portable copy failed. Save copy again or discard it.",
@@ -1313,12 +1322,13 @@ fn request_message(status: LibrarySlotsStatus) -> String {
     line.to_owned()
 }
 
-/// The predecessor label travels with the bytes to the end, so a copy of a
-/// recovered generation is never reported as the stored head.
+/// A qualifying label travels with the bytes to the end, so a copy of a
+/// recovered generation is never reported as the stored head, and a copy of
+/// unsaved open-Workshop state never loses §10's "not saved for Continue".
 fn with_source(line: &str, source: ExportSource) -> String {
-    match source {
-        ExportSource::Head => line.to_owned(),
-        ExportSource::RecoveredPredecessor => format!("{line} {}.", source.label()),
+    match source.qualifier() {
+        None => line.to_owned(),
+        Some(qualifier) => format!("{line} {qualifier}."),
     }
 }
 
