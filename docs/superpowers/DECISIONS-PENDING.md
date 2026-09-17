@@ -134,6 +134,20 @@ invisible until someone goes looking for the control.
 re-checking rather than by anything surfacing it — which is the drift this file exists to
 prevent, occurring in this file.*
 
+## 10. Native dialog dependency for transfer adapters — BLOCKS Task 11's real adapters
+
+`docs/superpowers/spikes/2026-09-17-native-dialog-macos.md`
+
+The addendum §8 spike ran its macOS half on 2026-09-17: `rfd` 0.17.2 builds beside
+winit 0.30.12 with one `raw-window-handle`, is MIT, and the durable write sequence
+(temp, `F_FULLFSYNC`, rename, parent sync) works. Windows, Linux/portal, packaging and a
+manual picker run are still unproven, and the report lists three trade-offs to decide
+(two objc2 generations on macOS, a `windows-sys` duplicate, portal-only vs a `gtk3`
+fallback).
+
+**Cost of deciding late:** Task 11's native adapter cannot start; the protocol and test
+adapter are already in place, so nothing already built changes.
+
 ---
 
 ## What is NOT waiting on you
