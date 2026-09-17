@@ -223,6 +223,19 @@ where
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
+
+    /// The record with this key, for an in-place edit.
+    ///
+    /// Crate-private because a caller holding `&mut T` could change the key
+    /// and break the ordering this type exists to guarantee; the authority's
+    /// edits never touch an identity field.
+    pub(crate) fn find_mut(&mut self, key: &T::Key) -> Option<&mut T> {
+        let position = self
+            .0
+            .binary_search_by(|record| record.living_key().cmp(key))
+            .ok()?;
+        self.0.get_mut(position)
+    }
 }
 
 impl<T> Default for LivingSortedVecV2<T> {

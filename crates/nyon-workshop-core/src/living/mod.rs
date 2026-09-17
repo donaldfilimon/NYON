@@ -16,6 +16,7 @@ pub mod genesis;
 pub mod ids;
 pub mod model;
 pub mod receipt;
+pub mod simulation;
 pub mod wire;
 
 pub use catalog::{
@@ -71,6 +72,10 @@ pub use receipt::{
     LIVING_MAX_BOUNDARY_EVENTS_V2, LivingEventKindV2, LivingEventPayloadV2,
     LivingEventProvenanceV2, LivingEventV2, LivingPendingEventV2, LivingPendingEventsV2,
     LivingReceiptErrorV2, LivingReceiptPayloadV2, LivingTickReceiptV2, seal_living_tick_receipt_v2,
+};
+pub use simulation::{
+    LIVING_MAX_PENDING_QUEUE_DEPTH_V2, LivingAuthorityErrorV2, LivingCommandCursorV2,
+    LivingCommandRejectionV2, LivingDeterministicFaultV2, LivingGalaxyAuthorityV2,
 };
 pub use wire::{
     LIVING_MAX_ARCHIVE_BYTES_V2, LIVING_MAX_CANONICAL_DEPTH_V2, LIVING_MAX_PACK_BYTES_V2,
