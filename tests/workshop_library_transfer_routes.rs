@@ -817,3 +817,27 @@ fn cancel_never_deletes_a_pack_that_already_stored() {
     runtime.cancel_library_slot_request().unwrap();
     assert_eq!(stored_packs(&store), vec![core_hash()]);
 }
+
+#[test]
+fn a_pack_import_cancelled_outside_the_library_frees_the_lane() {
+    let store = Shared::default();
+    let (mut runtime, adapter) = pack_runtime(&store);
+    adapter.set_import_bytes(Some(Box::from(CORE_PACK)));
+    runtime.import_library_pack().unwrap();
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::StorePack,
+            slot: None,
+        }
+    );
+    // The machine's own cancel, not the Library's.
+    runtime.cancel_catalog_import().unwrap();
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    runtime.update(Duration::ZERO);
+    // Status and lane agree: a new request is accepted.
+    runtime.refresh_library_slots().unwrap();
+    settle(&mut runtime);
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+}

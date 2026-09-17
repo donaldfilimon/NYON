@@ -33,9 +33,10 @@
 //!
 //! # Disabled, never omitted
 //!
-//! Controls whose backing capability has not shipped yet — the transfer
-//! strip, and the export handoff while no transfer adapter is installed —
-//! render **disabled with a visible reason**, keeping their focus slot. Omitting them is baseline Finding 5
+//! Controls whose backing capability has not shipped yet — every step that
+//! needs a platform file surface while no transfer adapter is installed, and
+//! Import galaxy until its route exists — render **disabled with a visible
+//! reason**, keeping their focus slot. Omitting them is baseline Finding 5
 //! exactly: a control that exists logically and cannot be reached.
 //! [`LibraryControl`] makes that structural, because `enabled` and
 //! `disabled_reason` can only be set together.

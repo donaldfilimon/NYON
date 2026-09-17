@@ -880,6 +880,7 @@ where
         self.poll_library_slots();
         self.poll_library_open();
         self.poll_library_transfer();
+        self.release_resolved_pack_lane();
         let update = match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
@@ -1662,6 +1663,21 @@ where
                 self.fail_choice(kind, TransferFailureCode::Protocol);
             }
             TransferJobState::Complete(Err(error)) => self.fail_choice(kind, error.code),
+        }
+    }
+
+    /// Frees a `StoringPack` lane whose import machine was resolved outside
+    /// the Library, so the lane never reads as busy while its status reads as
+    /// idle. A stored pack is not resolved this way: its notice waits for
+    /// Done.
+    fn release_resolved_pack_lane(&mut self) {
+        if matches!(self.slot_requests, LibrarySlots::StoringPack)
+            && matches!(
+                self.catalog_import,
+                CatalogImport::Idle | CatalogImport::StartBlocked { .. }
+            )
+        {
+            self.slot_requests = LibrarySlots::Idle;
         }
     }
 
