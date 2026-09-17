@@ -887,11 +887,6 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
             replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
-            // Import galaxy (task 12's Import archive) has no route yet, so
-            // this stays off even with an adapter installed; it is what keeps
-            // that one control visible-but-disabled, and
-            // `apply_library_intent` relies on it.
-            archive_import_available: false,
             // Task 11: every handoff and file choice needs an adapter. No
             // product entry point installs one before the §8 spike, so the
             // imports and Save copy stay disabled while both exports prepare
@@ -1289,11 +1284,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         result
     }
 
-    /// Every Library intent with a route. The one without, Import galaxy,
-    /// cannot arrive, because `build_library_frame` builds the model with
-    /// `archive_import_available` off and `activate` refuses a disabled
-    /// control. Asserted in debug rather than made unreachable, because a
-    /// gating slip here should cost a logged no-op, not a player's session.
+    /// Every Library intent, each to its route. `activate` refuses a disabled
+    /// control, so an intent arrives here only when the model's gate allowed
+    /// it; the runtime re-checks each gate and refuses with a logged error.
     fn apply_library_intent(&mut self, intent: LibraryUiIntent) {
         let result = match intent {
             LibraryUiIntent::Close => {
@@ -1358,14 +1351,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             LibraryUiIntent::ExportActiveArchive => self.runtime.export_active_workshop(),
             LibraryUiIntent::ExportActivePack => self.runtime.export_active_pack(),
             LibraryUiIntent::ImportPack => self.runtime.import_library_pack(),
-            deferred @ LibraryUiIntent::ImportArchive => {
-                debug_assert!(
-                    false,
-                    "a deferred Library intent activated; its capability flag should have disabled it: {deferred:?}"
-                );
-                log::warn!("ignored a deferred Library intent: {deferred:?}");
-                Ok(())
-            }
+            LibraryUiIntent::ImportArchive => self.runtime.import_library_archive(),
         };
         if let Err(error) = result {
             log::warn!("Library intent was rejected: {error}");

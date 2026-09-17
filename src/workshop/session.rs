@@ -245,6 +245,19 @@ impl WorkshopSession {
         session
     }
 
+    /// Installs a fully validated portable archive as an imported Workshop
+    /// (addendum §5): paused, with no resident slot, dirty and labelled
+    /// `Imported; not saved`, and therefore not a Continue target until its
+    /// first durable save. The same state the `RequestImport` replay leaves,
+    /// for a history the exact-catalog Library client replayed instead.
+    pub fn from_imported(history: WorkshopHistory) -> Self {
+        let mut session = Self::new(history);
+        session.mark_dirty();
+        session.store_status = "Imported; not saved".to_owned();
+        session.refresh_snapshot();
+        session
+    }
+
     pub fn history(&self) -> &WorkshopHistory {
         &self.history
     }

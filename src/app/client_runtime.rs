@@ -196,6 +196,12 @@ pub enum SlotRequestKind {
     ChoosePack,
     /// Import content pack: the validated pack is being stored (`PutPack`).
     StorePack,
+    /// Import galaxy: the transfer adapter is asking the user for a galaxy
+    /// file, or the chosen file was refused.
+    ChooseArchive,
+    /// Import galaxy: the chosen archive is being validated against its exact
+    /// catalog and replayed, or a store failure interrupted that.
+    ImportArchive,
 }
 
 /// Where prepared export bytes came from, so the label cannot claim more than
@@ -367,6 +373,20 @@ pub enum LibrarySlotsStatus {
     /// Import content pack finished: the pack is in the Workshop store under
     /// `hash`. Offers Done, which frees the lane; the pack stays stored.
     PackStored { hash: CatalogHash },
+    /// Import galaxy, §5: the chosen archive declares a content pack that is
+    /// not usable from the store. The archive is retained, bounded; Import
+    /// pack asks for that pack and resumes without a new archive choice once
+    /// it has durably stored, and Cancel releases the archive. `problem` says
+    /// why the last pack attempt did not resolve it, if one was made.
+    ImportNeedsPack {
+        hash: CatalogHash,
+        problem: Option<ClientDiagnosticCode>,
+    },
+    /// Import galaxy: a fully validated import that was not installed on
+    /// arrival, because the resident Workshop could not be replaced or the
+    /// Library was not on screen. Offers Open, gated like Library Open, and
+    /// Cancel.
+    ImportHeld,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -528,9 +548,12 @@ enum LibrarySlots {
         outcome: HandoffOutcome,
     },
     /// An import is waiting for the transfer adapter's file choice.
+    /// `waiting` is set when the choice is a pack for an archive import that
+    /// is waiting on it (§5).
     Choosing {
         job: TransferJobId,
         kind: TransferKind,
+        waiting: Option<Box<WaitingArchive>>,
     },
     /// The file choice failed, or the chosen file was refused before anything
     /// was stored. Nothing is retained: Retry asks for a file again, which is
@@ -544,7 +567,41 @@ enum LibrarySlots {
     /// ([`ClientRuntime::catalog_import_status`]): storing, a retryable store
     /// failure, or stored, which this lane reports as
     /// [`LibrarySlotsStatus::PackStored`] until the user dismisses it.
-    StoringPack,
+    /// With `waiting`, the pack belongs to an archive import, which resumes
+    /// once the pack has stored instead of showing that notice.
+    StoringPack {
+        waiting: Option<Box<WaitingArchive>>,
+    },
+    /// Import galaxy: the runtime's `open_client` is validating and
+    /// replaying the chosen archive. The lane keeps a copy of the bytes as
+    /// retry material.
+    ImportingArchive {
+        archive: Box<[u8]>,
+    },
+    /// A store failure interrupted Import galaxy. Retry resolves the retained
+    /// bytes again; no file is chosen again.
+    ImportFailed {
+        archive: Box<[u8]>,
+        code: ClientDiagnosticCode,
+    },
+    /// §5's missing-pack state. See [`LibrarySlotsStatus::ImportNeedsPack`].
+    ArchiveNeedsPack {
+        waiting: Box<WaitingArchive>,
+        problem: Option<ClientDiagnosticCode>,
+    },
+    /// A validated import held for acceptance. See
+    /// [`LibrarySlotsStatus::ImportHeld`].
+    ImportHeld {
+        history: Box<WorkshopHistory>,
+    },
+}
+
+/// An imported archive waiting for its declared pack (§5): the bytes, bounded
+/// by the archive limit, and the exact hash they declare.
+#[derive(Debug)]
+struct WaitingArchive {
+    archive: Box<[u8]>,
+    hash: CatalogHash,
 }
 
 /// What an exact-catalog open of one row is for. The single encoding of
@@ -597,7 +654,8 @@ fn prepared_export(loaded: LoadedSlot) -> PreparedExport {
 /// The public kind of an import's file-choice step.
 const fn choose_kind(kind: TransferKind) -> SlotRequestKind {
     match kind {
-        TransferKind::ContentPack | TransferKind::WorkshopArchive => SlotRequestKind::ChoosePack,
+        TransferKind::ContentPack => SlotRequestKind::ChoosePack,
+        TransferKind::WorkshopArchive => SlotRequestKind::ChooseArchive,
     }
 }
 
@@ -881,6 +939,7 @@ where
         self.poll_library_open();
         self.poll_library_transfer();
         self.release_resolved_pack_lane();
+        self.poll_library_import();
         let update = match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
@@ -1431,7 +1490,17 @@ where
                 slot: None,
                 code: *code,
             },
-            LibrarySlots::StoringPack => match &self.catalog_import {
+            // An archive import waiting on this pack resumes on the next
+            // update rather than showing the stored notice.
+            LibrarySlots::StoringPack { waiting: Some(_) }
+                if matches!(self.catalog_import, CatalogImport::Stored { .. }) =>
+            {
+                LibrarySlotsStatus::Working {
+                    kind: SlotRequestKind::ImportArchive,
+                    slot: None,
+                }
+            }
+            LibrarySlots::StoringPack { .. } => match &self.catalog_import {
                 CatalogImport::Storing { .. } => LibrarySlotsStatus::Working {
                     kind: SlotRequestKind::StorePack,
                     slot: None,
@@ -1449,6 +1518,22 @@ where
                     LibrarySlotsStatus::Idle
                 }
             },
+            LibrarySlots::ImportingArchive { .. } => LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::ImportArchive,
+                slot: None,
+            },
+            LibrarySlots::ImportFailed { code, .. } => LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::ImportArchive,
+                slot: None,
+                code: *code,
+            },
+            LibrarySlots::ArchiveNeedsPack { waiting, problem } => {
+                LibrarySlotsStatus::ImportNeedsPack {
+                    hash: waiting.hash,
+                    problem: *problem,
+                }
+            }
+            LibrarySlots::ImportHeld { .. } => LibrarySlotsStatus::ImportHeld,
         }
     }
 
@@ -1605,13 +1690,48 @@ where
         if self.catalog_import_unresolved() {
             return Err(ClientRuntimeError::CatalogImportActive);
         }
-        self.dispatch_choice(TransferKind::ContentPack)
+        self.dispatch_choice(TransferKind::ContentPack, None)
     }
 
-    /// Starts one file choice. A refused start is a visible, retryable
-    /// failure; with no adapter nothing starts and the lane is untouched.
-    fn dispatch_choice(&mut self, kind: TransferKind) -> Result<(), ClientRuntimeError> {
+    /// Import galaxy (route-design task 11; task 12's Import archive): asks
+    /// the transfer adapter for one `.nyonworkshop.json`, then validates it
+    /// against its exact declared catalog and replays it completely through
+    /// the exact-catalog Library client (§5) before anything is installed.
+    ///
+    /// **§6's replacement gate applies twice**: here, before anything is
+    /// chosen, and again when the validated import arrives, which is held
+    /// rather than installed if the resident Workshop has meanwhile become
+    /// unreplaceable or the Library is no longer on screen. Refused as well
+    /// while another request holds the lane, while startup Continue runs, or
+    /// with no adapter.
+    pub fn import_library_archive(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        if self.library.is_active() {
+            return Err(ClientRuntimeError::BootstrapActive);
+        }
+        self.ensure_resident_workshop_replaceable()?;
+        self.dispatch_choice(TransferKind::WorkshopArchive, None)
+    }
+
+    /// Starts one file choice. `waiting` is an archive import waiting for its
+    /// pack, which the choice carries so a dismissed or refused pack returns
+    /// to that wait instead of dropping the archive. A refused start is a
+    /// visible failure; with no adapter nothing starts and the lane is
+    /// untouched.
+    fn dispatch_choice(
+        &mut self,
+        kind: TransferKind,
+        waiting: Option<Box<WaitingArchive>>,
+    ) -> Result<(), ClientRuntimeError> {
         let Some(adapter) = self.transfer.as_mut() else {
+            if let Some(waiting) = waiting {
+                self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                    waiting,
+                    problem: None,
+                };
+            }
             return Err(ClientRuntimeError::TransferUnavailable);
         };
         match adapter.start(TransferRequest::ChooseImport {
@@ -1619,26 +1739,37 @@ where
             max_bytes: kind.max_bytes(),
         }) {
             Ok(job) => {
-                self.slot_requests = LibrarySlots::Choosing { job, kind };
+                self.slot_requests = LibrarySlots::Choosing { job, kind, waiting };
                 Ok(())
             }
             Err(error) => {
-                self.fail_choice(kind, error.code);
+                self.fail_choice(kind, waiting, error.code);
                 Err(ClientRuntimeError::Transfer(error.code))
             }
         }
     }
 
-    fn fail_choice(&mut self, kind: TransferKind, code: TransferFailureCode) {
+    fn fail_choice(
+        &mut self,
+        kind: TransferKind,
+        waiting: Option<Box<WaitingArchive>>,
+        code: TransferFailureCode,
+    ) {
         self.push_diagnostic(ClientDiagnosticCode::Transfer, code.message());
-        self.slot_requests = LibrarySlots::ChooseFailed {
-            kind,
-            code: ClientDiagnosticCode::Transfer,
+        self.slot_requests = match waiting {
+            Some(waiting) => LibrarySlots::ArchiveNeedsPack {
+                waiting,
+                problem: Some(ClientDiagnosticCode::Transfer),
+            },
+            None => LibrarySlots::ChooseFailed {
+                kind,
+                code: ClientDiagnosticCode::Transfer,
+            },
         };
     }
 
     fn poll_library_choice(&mut self) {
-        let LibrarySlots::Choosing { job, kind } = &self.slot_requests else {
+        let LibrarySlots::Choosing { job, kind, .. } = &self.slot_requests else {
             return;
         };
         let (job, kind) = (*job, *kind);
@@ -1646,32 +1777,45 @@ where
             Some(adapter) => adapter.poll(job),
             None => TransferJobState::Unknown,
         };
+        if matches!(state, TransferJobState::Pending) {
+            return;
+        }
+        let LibrarySlots::Choosing { waiting, .. } =
+            std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+        else {
+            return;
+        };
         match state {
             TransferJobState::Pending => {}
-            // Dismissing the picker is ordinary: no diagnostic (§8).
+            // Dismissing the picker is ordinary: no diagnostic (§8). An
+            // archive waiting for its pack goes back to waiting.
             TransferJobState::Complete(Ok(TransferOutcome::Cancelled)) => {
-                self.slot_requests = LibrarySlots::Idle;
+                if let Some(waiting) = waiting {
+                    self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                        waiting,
+                        problem: None,
+                    };
+                }
             }
             TransferJobState::Complete(Ok(TransferOutcome::ImportChosen {
                 kind: chosen,
                 bytes,
             })) if chosen == kind && !bytes.is_empty() && bytes.len() <= kind.max_bytes() => {
-                self.slot_requests = LibrarySlots::Idle;
-                self.accept_chosen(kind, &bytes);
+                self.accept_chosen(kind, bytes, waiting);
             }
             TransferJobState::Complete(Ok(_)) | TransferJobState::Unknown => {
-                self.fail_choice(kind, TransferFailureCode::Protocol);
+                self.fail_choice(kind, waiting, TransferFailureCode::Protocol);
             }
-            TransferJobState::Complete(Err(error)) => self.fail_choice(kind, error.code),
+            TransferJobState::Complete(Err(error)) => self.fail_choice(kind, waiting, error.code),
         }
     }
 
     /// Frees a `StoringPack` lane whose import machine was resolved outside
     /// the Library, so the lane never reads as busy while its status reads as
     /// idle. A stored pack is not resolved this way: its notice waits for
-    /// Done.
+    /// Done, or its waiting archive resumes.
     fn release_resolved_pack_lane(&mut self) {
-        if matches!(self.slot_requests, LibrarySlots::StoringPack)
+        if matches!(self.slot_requests, LibrarySlots::StoringPack { .. })
             && matches!(
                 self.catalog_import,
                 CatalogImport::Idle | CatalogImport::StartBlocked { .. }
@@ -1681,16 +1825,19 @@ where
         }
     }
 
-    /// Hands chosen bytes to the step that owns their kind. The bytes are
-    /// consumed here: invalid content leaves nothing to retry but a new
-    /// choice.
-    fn accept_chosen(&mut self, kind: TransferKind, bytes: &[u8]) {
-        match kind {
-            TransferKind::ContentPack => match self.begin_catalog_import(bytes) {
+    /// Hands chosen bytes to the step that owns their kind.
+    fn accept_chosen(
+        &mut self,
+        kind: TransferKind,
+        bytes: Box<[u8]>,
+        waiting: Option<Box<WaitingArchive>>,
+    ) {
+        match (kind, waiting) {
+            (TransferKind::ContentPack, None) => match self.begin_catalog_import(&bytes) {
                 // A refused `PutPack` start is already the machine's
                 // retryable failure, holding the validated pack.
                 Ok(_) | Err(ClientRuntimeError::Store(_)) => {
-                    self.slot_requests = LibrarySlots::StoringPack;
+                    self.slot_requests = LibrarySlots::StoringPack { waiting: None };
                 }
                 Err(ClientRuntimeError::InvalidCatalog) => {
                     self.slot_requests = LibrarySlots::ChooseFailed {
@@ -1709,17 +1856,205 @@ where
                     };
                 }
             },
-            TransferKind::WorkshopArchive => {
-                self.push_diagnostic(
-                    ClientDiagnosticCode::RouteUnavailable,
-                    "Workshop archive import is not available yet",
-                );
-                self.slot_requests = LibrarySlots::ChooseFailed {
-                    kind,
-                    code: ClientDiagnosticCode::RouteUnavailable,
+            (TransferKind::ContentPack, Some(waiting)) => self.accept_waited_pack(&bytes, waiting),
+            // The chosen file answers the archive choice, so no archive can
+            // be waiting on it.
+            (TransferKind::WorkshopArchive, _) => self.begin_archive_import(bytes),
+        }
+    }
+
+    /// §5: a pack chosen for a waiting archive is stored only if it is the
+    /// exact declared pack. A different, invalid or noncanonical pack is
+    /// refused before `PutPack`, so nothing unrelated is stored on the way,
+    /// and the archive keeps waiting.
+    fn accept_waited_pack(&mut self, bytes: &[u8], waiting: Box<WaitingArchive>) {
+        let matches =
+            decode_catalog_pack(bytes).is_ok_and(|catalog| catalog.catalog_hash() == waiting.hash);
+        if !matches {
+            self.push_diagnostic(
+                ClientDiagnosticCode::Catalog,
+                "The chosen content pack is not the one the imported galaxy declares",
+            );
+            self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                waiting,
+                problem: Some(ClientDiagnosticCode::Catalog),
+            };
+            return;
+        }
+        match self.begin_catalog_import(bytes) {
+            Ok(_) | Err(ClientRuntimeError::Store(_)) => {
+                self.slot_requests = LibrarySlots::StoringPack {
+                    waiting: Some(waiting),
+                };
+            }
+            Err(error) => {
+                let code = match error {
+                    ClientRuntimeError::InvalidCatalog => ClientDiagnosticCode::Catalog,
+                    _ => ClientDiagnosticCode::RouteUnavailable,
+                };
+                self.push_diagnostic(code, "The chosen content pack could not be stored");
+                self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                    waiting,
+                    problem: Some(code),
                 };
             }
         }
+    }
+
+    /// Starts, or restarts from retained bytes, the exact-catalog validation
+    /// of an imported archive. The lane keeps its own copy of the bytes as
+    /// retry material, bounded by the archive limit the adapter enforced.
+    fn begin_archive_import(&mut self, archive: Box<[u8]>) {
+        match self.open_client.begin_import(archive.clone()) {
+            Ok(()) => self.slot_requests = LibrarySlots::ImportingArchive { archive },
+            // `open_client` is active only while the lane holds `Opening` or
+            // `ImportingArchive`, and every caller holds the lane otherwise.
+            Err(_) => {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "A Workshop Library open was still active when an import began",
+                );
+                self.slot_requests = LibrarySlots::ImportFailed {
+                    archive,
+                    code: ClientDiagnosticCode::StoreProtocol,
+                };
+            }
+        }
+    }
+
+    /// Advances Import galaxy: resumes an archive whose pack has durably
+    /// stored, and translates the client's outcome into Library state. Never
+    /// [`Self::enter_recovery`]: §6 keeps Library failures on the Library.
+    fn poll_library_import(&mut self) {
+        // §5: resume only after `PutPack` completed, never on an in-memory
+        // validation. `accept_waited_pack` already refused any other hash, so
+        // a stored mismatch would be the machine breaking its own check.
+        if let (
+            LibrarySlots::StoringPack {
+                waiting: Some(waiting),
+            },
+            CatalogImport::Stored { hash },
+        ) = (&self.slot_requests, &self.catalog_import)
+        {
+            let stored = *hash;
+            let expected = waiting.hash;
+            let LibrarySlots::StoringPack {
+                waiting: Some(waiting),
+            } = std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+            else {
+                return;
+            };
+            if stored == expected {
+                self.begin_archive_import(waiting.archive);
+            } else {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "Workshop storage stored a pack other than the one the import waited for",
+                );
+                self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                    waiting,
+                    problem: Some(ClientDiagnosticCode::StoreProtocol),
+                };
+            }
+            return;
+        }
+        if !matches!(self.slot_requests, LibrarySlots::ImportingArchive { .. }) {
+            return;
+        }
+        let event = self.open_client.poll(&mut self.workshop_store);
+        if matches!(event, LibraryEvent::Pending) {
+            return;
+        }
+        let LibrarySlots::ImportingArchive { archive } =
+            std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+        else {
+            return;
+        };
+        match event {
+            LibraryEvent::Pending => {}
+            LibraryEvent::ImportReady(history) => {
+                // Installing swaps the screen, so it happens only while the
+                // user is still looking at the Library and nothing forbids it.
+                if self.screen != ClientScreen::Library
+                    || self.resident_workshop_blocks_replacement()
+                {
+                    self.slot_requests = LibrarySlots::ImportHeld { history };
+                } else {
+                    self.install_imported(*history);
+                }
+            }
+            LibraryEvent::PackUnavailable {
+                hash,
+                archive: returned,
+                problem,
+            } => {
+                self.push_diagnostic(
+                    problem.unwrap_or(ClientDiagnosticCode::Catalog),
+                    "The imported galaxy's content pack is not stored",
+                );
+                self.slot_requests = LibrarySlots::ArchiveNeedsPack {
+                    waiting: Box::new(WaitingArchive {
+                        archive: returned,
+                        hash,
+                    }),
+                    problem,
+                };
+            }
+            // A store that refused or failed says nothing about the file, so
+            // the bytes are kept and Retry resolves them again.
+            LibraryEvent::Failed(diagnostic) if diagnostic.code == ClientDiagnosticCode::Store => {
+                self.slot_requests = LibrarySlots::ImportFailed {
+                    archive,
+                    code: diagnostic.code,
+                };
+                self.push_diagnostic(diagnostic.code, diagnostic.message);
+            }
+            // The file itself did not validate: the bytes are released and
+            // the only way on is another choice.
+            LibraryEvent::Failed(diagnostic) => {
+                self.slot_requests = LibrarySlots::ChooseFailed {
+                    kind: TransferKind::WorkshopArchive,
+                    code: diagnostic.code,
+                };
+                self.push_diagnostic(diagnostic.code, diagnostic.message);
+            }
+            LibraryEvent::ProtocolFailure(message) => {
+                self.slot_requests = LibrarySlots::ImportFailed {
+                    archive,
+                    code: ClientDiagnosticCode::StoreProtocol,
+                };
+                self.push_diagnostic(ClientDiagnosticCode::StoreProtocol, message);
+            }
+            // An import never loads a slot, lists the marker or selects it.
+            LibraryEvent::Ready(_)
+            | LibraryEvent::NoCandidate
+            | LibraryEvent::StaleRow { .. }
+            | LibraryEvent::ArchivedRow { .. }
+            | LibraryEvent::ContinueConflict { .. } => {
+                self.slot_requests = LibrarySlots::ImportFailed {
+                    archive,
+                    code: ClientDiagnosticCode::StoreProtocol,
+                };
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "A galaxy import reported a slot outcome it never asked for",
+                );
+            }
+        }
+    }
+
+    /// Replaces the active session with a validated import (§5): paused,
+    /// slotless, dirty and not a Continue target.
+    ///
+    /// Any startup Continue candidate is dropped: the imported Workshop now
+    /// decides Continue once it saves, and a candidate held from before would
+    /// name a save the next selection moves away from. The cached list stays,
+    /// because nothing stored changed.
+    fn install_imported(&mut self, history: WorkshopHistory) {
+        self.active_session = ActiveSession::Workshop(WorkshopSession::from_imported(history));
+        self.continue_candidate = None;
+        self.screen = ClientScreen::GalaxyWorkshop;
+        self.recovery = None;
     }
 
     /// Re-lists the bounded slots.
@@ -1772,8 +2107,15 @@ where
                 }
                 outcome
             }
+            // Choosing another galaxy file is Import galaxy again, so it
+            // takes the same replacement gate.
             LibrarySlots::ChooseFailed { kind, code } => {
-                let outcome = self.dispatch_choice(kind);
+                let outcome = if kind == TransferKind::WorkshopArchive {
+                    self.ensure_resident_workshop_replaceable()
+                        .and_then(|()| self.dispatch_choice(kind, None))
+                } else {
+                    self.dispatch_choice(kind, None)
+                };
                 if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
                     self.slot_requests = LibrarySlots::ChooseFailed { kind, code };
                 }
@@ -1781,11 +2123,20 @@ where
             }
             // Only a retryable store failure is retried. The machine keeps
             // the validated pack, so no file is chosen again.
-            LibrarySlots::StoringPack
+            LibrarySlots::StoringPack { waiting }
                 if matches!(self.catalog_import, CatalogImport::StoreFailed { .. }) =>
             {
-                self.slot_requests = LibrarySlots::StoringPack;
+                self.slot_requests = LibrarySlots::StoringPack { waiting };
                 self.retry_catalog_import().map(|_| ())
+            }
+            // "Import pack": a new choice of the declared pack, carrying the
+            // archive so it is never chosen again.
+            LibrarySlots::ArchiveNeedsPack { waiting, .. } => {
+                self.dispatch_choice(TransferKind::ContentPack, Some(waiting))
+            }
+            LibrarySlots::ImportFailed { archive, .. } => {
+                self.begin_archive_import(archive);
+                Ok(())
             }
             LibrarySlots::ExportWorkshopFailed { code } => {
                 let outcome = self.dispatch_active_export();
@@ -1899,16 +2250,27 @@ where
                 Ok(())
             }
             LibrarySlots::ChooseFailed { .. } => Ok(()),
-            // Clears pending pack intent only. A pack that already stored
-            // stays stored (§6): the store has no pack deletion, and an
-            // abandoned `PutPack` still lands. Dismissing the stored notice
-            // changes nothing either.
-            LibrarySlots::StoringPack => {
+            // Clears pending pack intent only, and releases any archive that
+            // was waiting on the pack (§5). A pack that already stored stays
+            // stored (§6): the store has no pack deletion, and an abandoned
+            // `PutPack` still lands. Dismissing the stored notice changes
+            // nothing either.
+            LibrarySlots::StoringPack { .. } => {
                 if self.catalog_import_unresolved() {
                     let _ = self.cancel_catalog_import();
                 }
                 Ok(())
             }
+            // Import galaxy: the replay is pure CPU and a pack fetch is a
+            // read, so abandoning either changes nothing stored. The retained
+            // archive, and any held import, are released.
+            LibrarySlots::ImportingArchive { .. } => {
+                self.open_client.abandon(&mut self.workshop_store);
+                Ok(())
+            }
+            LibrarySlots::ImportFailed { .. }
+            | LibrarySlots::ArchiveNeedsPack { .. }
+            | LibrarySlots::ImportHeld { .. } => Ok(()),
             // Discarding prepared or offered export bytes releases them and
             // changes nothing stored; dismissing a handoff receipt frees the
             // lane.
@@ -2166,6 +2528,16 @@ where
                 self.install_opened(*candidate);
                 Ok(())
             }
+            // A held import, the same way: re-checked, and kept on refusal so
+            // accepting once it is safe needs no replay.
+            LibrarySlots::ImportHeld { history } => {
+                if let Err(error) = self.ensure_resident_workshop_replaceable() {
+                    self.slot_requests = LibrarySlots::ImportHeld { history };
+                    return Err(error);
+                }
+                self.install_imported(*history);
+                Ok(())
+            }
             other => {
                 self.slot_requests = other;
                 self.push_diagnostic(
@@ -2326,6 +2698,14 @@ where
             // compare-and-swap carries is not kept: it is a generation the
             // store no longer calls the head, so nothing could install it, and
             // the retry §4 offers is "after refresh", which re-lists.
+            // A row open never asks for an import's outcomes.
+            LibraryEvent::ImportReady(_) | LibraryEvent::PackUnavailable { .. } => {
+                self.slot_requests = failed(ClientDiagnosticCode::StoreProtocol);
+                self.push_diagnostic(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "A Library open reported an import outcome it never asked for",
+                );
+            }
             LibraryEvent::StaleRow { .. }
             | LibraryEvent::ArchivedRow { .. }
             | LibraryEvent::ContinueConflict { .. } => {
@@ -2666,6 +3046,10 @@ where
             LibraryEvent::StaleRow { .. } | LibraryEvent::ContinueConflict { .. } => self
                 .bootstrap_protocol_failure(
                     "Workshop Continue bootstrap received a generation conflict it never requested",
+                ),
+            LibraryEvent::ImportReady(_) | LibraryEvent::PackUnavailable { .. } => self
+                .bootstrap_protocol_failure(
+                    "Workshop Continue bootstrap received an import outcome it never requested",
                 ),
         }
     }

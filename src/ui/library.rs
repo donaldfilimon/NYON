@@ -34,9 +34,8 @@
 //! # Disabled, never omitted
 //!
 //! Controls whose backing capability has not shipped yet — every step that
-//! needs a platform file surface while no transfer adapter is installed, and
-//! Import galaxy until its route exists — render **disabled with a visible
-//! reason**, keeping their focus slot. Omitting them is baseline Finding 5
+//! needs a platform file surface while no transfer adapter is installed —
+//! render **disabled with a visible reason**, keeping their focus slot. Omitting them is baseline Finding 5
 //! exactly: a control that exists logically and cannot be reached.
 //! [`LibraryControl`] makes that structural, because `enabled` and
 //! `disabled_reason` can only be set together.
@@ -52,8 +51,9 @@ pub use confirmation::{
 };
 
 use crate::{
-    app::client_runtime::{
-        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    app::{
+        client_runtime::{ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind},
+        transfer::SuggestedName,
     },
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotSummary},
 };
@@ -425,6 +425,8 @@ impl LibraryRequestModel {
                 | LibrarySlotsStatus::Held { .. }
                 | LibrarySlotsStatus::ExportRecoveryOffered { .. }
                 | LibrarySlotsStatus::HandOffFailed { .. }
+                | LibrarySlotsStatus::ImportNeedsPack { .. }
+                | LibrarySlotsStatus::ImportHeld
         )
     }
 
@@ -511,11 +513,6 @@ pub struct LibraryUiContext<'a> {
     /// `ClientRuntime::resident_workshop_blocks_replacement`, the same rule the
     /// runtime refuses an open with.
     pub replacement_blocked: bool,
-    /// Whether Import galaxy's route exists. It is task 12's Import archive
-    /// (exact-catalog validation, §6's replacement gate, §5's missing-pack
-    /// retry), which is separate from the transfer protocol, so an installed
-    /// adapter alone does not give that control anything to run.
-    pub archive_import_available: bool,
     /// Whether a portable transfer adapter is installed. Read from
     /// `ClientRuntime::transfer_available`. Every step that crosses into a
     /// platform file surface needs it: the row and active export handoffs,
@@ -537,7 +534,6 @@ impl Default for LibraryUiContext<'_> {
             resident_slot: None,
             workshop_active: false,
             replacement_blocked: false,
-            archive_import_available: false,
             handoff_available: false,
             confirmation: None,
             rename_draft: None,
@@ -752,9 +748,9 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
         LibrarySlotsStatus::Working { .. } => Some(LibraryDisabledReason::RequestInFlight),
         LibrarySlotsStatus::Failed { .. }
         | LibrarySlotsStatus::Held { .. }
-        | LibrarySlotsStatus::ExportRecoveryOffered { .. } => {
-            Some(LibraryDisabledReason::DecisionPending)
-        }
+        | LibrarySlotsStatus::ExportRecoveryOffered { .. }
+        | LibrarySlotsStatus::ImportNeedsPack { .. }
+        | LibrarySlotsStatus::ImportHeld => Some(LibraryDisabledReason::DecisionPending),
         LibrarySlotsStatus::ExportReady { .. } | LibrarySlotsStatus::HandOffFailed { .. } => {
             Some(LibraryDisabledReason::ExportWaiting)
         }
@@ -923,20 +919,67 @@ fn build_request(
                 LibraryUiIntent::CancelSlotRequest,
             )),
         ),
+        // §5's missing pack. Import pack is a file choice, so it needs the
+        // adapter; the archive is already held, so it needs nothing else.
+        LibrarySlotsStatus::ImportNeedsPack { problem, .. } => (
+            problem,
+            Some(LibraryControl::gated(
+                "library.request.retry",
+                "Import pack",
+                "Choose the content pack this galaxy declares. The galaxy file is kept.",
+                false,
+                LibraryUiIntent::RetrySlotRequest,
+                &[adapter],
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Stop importing and release the galaxy file. Nothing stored is removed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // A validated import waiting for acceptance, on the same identifiers
+        // and the same replacement gate as a held Open.
+        LibrarySlotsStatus::ImportHeld => (
+            None,
+            Some(LibraryControl::gated(
+                "library.request.retry",
+                "Open",
+                "Open the imported galaxy in the Workshop, unsaved.",
+                false,
+                LibraryUiIntent::AcceptOpen,
+                &[replacement],
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Do not open the imported galaxy. Nothing stored is changed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
         // A refused file is retried by choosing another one, never by
-        // resubmitting the same bytes.
+        // resubmitting the same bytes. Choosing another galaxy is Import
+        // galaxy again, so it takes that control's replacement gate.
         LibrarySlotsStatus::Failed {
-            kind: SlotRequestKind::ChoosePack,
+            kind: kind @ (SlotRequestKind::ChoosePack | SlotRequestKind::ChooseArchive),
             code,
             ..
         } => (
             Some(code),
-            Some(LibraryControl::enabled(
+            Some(LibraryControl::gated(
                 "library.request.retry",
                 "Choose again",
                 "Choose a portable file again.",
                 false,
                 LibraryUiIntent::RetrySlotRequest,
+                &[
+                    matches!(kind, SlotRequestKind::ChooseArchive)
+                        .then_some(replacement)
+                        .flatten(),
+                    adapter,
+                ],
             )),
             Some(LibraryControl::enabled(
                 "library.request.cancel",
@@ -1197,7 +1240,8 @@ fn build_actions(
     }
 }
 
-/// The four transfer controls, each with its own availability.
+/// The four transfer controls, each with its own availability. All four have
+/// routes (route-design task 11).
 ///
 /// **The two exports are live with no adapter installed.** Preparing bytes is
 /// stage 1 and touches no platform surface; only the Save copy control that
@@ -1226,8 +1270,6 @@ fn build_transfer(
 ) -> LibraryTransferModel {
     let adapter =
         (!context.handoff_available).then_some(LibraryDisabledReason::TransferUnavailable);
-    let archive_route =
-        (!context.archive_import_available).then_some(LibraryDisabledReason::TransferUnavailable);
     let inactive = (!context.workshop_active).then_some(LibraryDisabledReason::WorkshopInactive);
     let replacement = context
         .replacement_blocked
@@ -1239,7 +1281,7 @@ fn build_transfer(
             "Choose a portable galaxy file to validate and open.",
             false,
             LibraryUiIntent::ImportArchive,
-            &[replacement, lane, adapter, archive_route],
+            &[replacement, lane, adapter],
         ),
         import_pack: LibraryControl::gated(
             "library.transfer.import-pack",
@@ -1330,6 +1372,10 @@ fn request_message(status: LibrarySlotsStatus) -> String {
             SlotRequestKind::HandOff => "Handing the portable copy to the system.",
             SlotRequestKind::ChoosePack => "Waiting for a portable file to be chosen.",
             SlotRequestKind::StorePack => "Storing the imported content pack.",
+            SlotRequestKind::ChooseArchive => "Waiting for a galaxy file to be chosen.",
+            SlotRequestKind::ImportArchive => {
+                "Checking the imported galaxy against its content pack."
+            }
         },
         LibrarySlotsStatus::Failed { kind, code, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies failed. Retry or cancel.",
@@ -1359,6 +1405,15 @@ fn request_message(status: LibrarySlotsStatus) -> String {
             },
             SlotRequestKind::StorePack => {
                 "Storing the content pack failed. Retry or cancel; nothing stored is removed."
+            }
+            SlotRequestKind::ChooseArchive => match code {
+                ClientDiagnosticCode::Transfer => {
+                    "Choosing a galaxy file failed. Choose again or cancel."
+                }
+                _ => "That file is not a galaxy this build can open. Choose another or cancel.",
+            },
+            SlotRequestKind::ImportArchive => {
+                "Checking the imported galaxy failed. Retry or cancel."
             }
         },
         LibrarySlotsStatus::Held {
@@ -1399,6 +1454,22 @@ fn request_message(status: LibrarySlotsStatus) -> String {
             source, outcome, ..
         } => return with_source(outcome.label(), source),
         LibrarySlotsStatus::PackStored { .. } => "Content pack stored in the Workshop store.",
+        LibrarySlotsStatus::ImportHeld => "The imported galaxy is ready. Open it or cancel.",
+        // The file name is the §7 suggested name, so the user can find the
+        // pack the galaxy declares; it is a sanitized hash prefix, never
+        // content.
+        LibrarySlotsStatus::ImportNeedsPack { hash, problem } => {
+            let pack = SuggestedName::content_pack(hash);
+            let lead = match problem {
+                None => "This galaxy needs a content pack that is not stored",
+                Some(ClientDiagnosticCode::Catalog) => {
+                    "That content pack is not the one this galaxy needs"
+                }
+                Some(ClientDiagnosticCode::Transfer) => "Choosing the content pack failed",
+                Some(_) => "The content pack could not be stored",
+            };
+            return format!("{lead}: {pack}. Import the pack or cancel.");
+        }
     };
     line.to_owned()
 }

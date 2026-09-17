@@ -1042,6 +1042,33 @@ fn every_export_request_state_installs_and_keeps_its_strip_controls() {
         LibrarySlotsStatus::PackStored {
             hash: nyon::workshop::CatalogHash([0xab; 32]),
         },
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::ChooseArchive,
+            slot: None,
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ChooseArchive,
+            slot: None,
+            code: ClientDiagnosticCode::Archive,
+        },
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::ImportArchive,
+            slot: None,
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ImportArchive,
+            slot: None,
+            code: ClientDiagnosticCode::Store,
+        },
+        LibrarySlotsStatus::ImportNeedsPack {
+            hash: nyon::workshop::CatalogHash([0xab; 32]),
+            problem: None,
+        },
+        LibrarySlotsStatus::ImportNeedsPack {
+            hash: nyon::workshop::CatalogHash([0xab; 32]),
+            problem: Some(ClientDiagnosticCode::Catalog),
+        },
+        LibrarySlotsStatus::ImportHeld,
     ];
     let reference = crowded_model(&list);
     let mut handoffs_placed = 0;

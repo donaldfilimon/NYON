@@ -925,9 +925,8 @@ fn an_invalid_head_export_is_accepted_from_the_request_strip() {
 
 /// Task 11 through the real frame: with an adapter installed, Save copy is
 /// live, hands the exact prepared bytes over, and the receipt's Done frees
-/// the lane. On the transfer strip the adapter makes Import content pack live;
-/// Import galaxy still has no route, and the two exports need an open
-/// Workshop.
+/// the lane. On the transfer strip the adapter makes both imports live; the
+/// two exports need an open Workshop.
 #[test]
 fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
     use crate::app::transfer::{HandoffOutcome, ScriptedTransfer, TransferKind};
@@ -939,7 +938,7 @@ fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
         .unwrap();
     app.build_frame();
     for (id, live) in [
-        ("library.transfer.import-archive", false),
+        ("library.transfer.import-archive", true),
         ("library.transfer.import-pack", true),
         ("library.transfer.export-active-archive", false),
         ("library.transfer.export-active-pack", false),
@@ -1067,7 +1066,7 @@ fn the_transfer_strip_routes_run_from_the_frame() {
         .install_transfer_adapter(Box::new(adapter.clone()))
         .unwrap();
     app.build_frame();
-    // Import galaxy has no route yet, adapter or not.
+    // The open Workshop is unsaved, so Import galaxy stays behind §6's gate.
     assert!(!control_enabled(&app, "library.transfer.import-archive"));
     let import = SemanticActionId::new("library.transfer.import-pack");
     assert!(control_enabled(&app, import.as_str()));
@@ -1086,4 +1085,58 @@ fn the_transfer_strip_routes_run_from_the_frame() {
     assert!(control_enabled(&app, import.as_str()));
     let after = app.runtime.workshop_snapshot().unwrap();
     assert_eq!(after.state_digest, before.state_digest);
+}
+
+/// Import galaxy through the real frame (§5): a galaxy whose pack is missing
+/// waits on the request strip with Import pack, pointer and keyboard reach
+/// both steps, and once the pack stores the imported Workshop opens paused,
+/// slotless and unsaved, and the next frame is the Workshop's own.
+#[test]
+fn import_galaxy_runs_from_the_frame_through_a_missing_pack() {
+    use crate::app::transfer::ScriptedTransfer;
+    use crate::workshop::encode_catalog_pack;
+
+    let (mut app, _) = library_app();
+    let mut value: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../../assets/workshop/core-pack-v1.json")).unwrap();
+    value["title"] = serde_json::json!("Frame Forge Catalog");
+    let catalog = decode_catalog_pack(&serde_json::to_vec(&value).unwrap()).unwrap();
+    let pack = encode_catalog_pack(&catalog).unwrap().into_boxed_slice();
+    let archive = encode_archive(&WorkshopHistory::from_seed_u64(catalog, 0x1A7))
+        .unwrap()
+        .bytes
+        .into_boxed_slice();
+
+    let adapter = ScriptedTransfer::default();
+    adapter.set_import_bytes(Some(archive.clone()));
+    app.runtime
+        .install_transfer_adapter(Box::new(adapter.clone()))
+        .unwrap();
+    app.build_frame();
+    let import = SemanticActionId::new("library.transfer.import-archive");
+    assert!(control_enabled(&app, import.as_str()));
+    app.activate_platform_action_id(&import, InputModality::Keyboard);
+    settle_export(&mut app);
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::ImportNeedsPack { problem: None, .. }
+    ));
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    let import_pack = SemanticActionId::new("library.request.retry");
+    assert!(control_enabled(&app, import_pack.as_str()));
+    assert!(control_enabled(&app, "library.request.cancel"));
+    assert!(!control_enabled(&app, import.as_str()), "the lane is held");
+
+    adapter.set_import_bytes(Some(pack));
+    app.activate_platform_action_id(&import_pack, InputModality::Pointer);
+    settle_export(&mut app);
+    assert_eq!(app.runtime.screen(), ClientScreen::GalaxyWorkshop);
+    assert_eq!(adapter.started().len(), 2);
+    let snapshot = app.runtime.workshop_snapshot().unwrap();
+    assert_eq!(snapshot.store.slot, None);
+    assert!(snapshot.store.dirty);
+    assert_eq!(snapshot.store.status, "Imported; not saved");
+    assert!(!app.runtime.continue_available());
+    assert!(app.library_ui.is_none(), "the next frame is the Workshop's");
+    assert!(app.workshop_ui.is_some());
 }

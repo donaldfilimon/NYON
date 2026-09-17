@@ -245,9 +245,11 @@ fn an_idle_lane_offers_neither_retry_nor_cancel() {
 /// exists only for a held candidate.
 const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
     match intent {
-        LibraryUiIntent::Close | LibraryUiIntent::OpenSlot { .. } | LibraryUiIntent::AcceptOpen => {
-            true
-        }
+        // Import galaxy installs the imported Workshop when it validates.
+        LibraryUiIntent::Close
+        | LibraryUiIntent::OpenSlot { .. }
+        | LibraryUiIntent::AcceptOpen
+        | LibraryUiIntent::ImportArchive => true,
         LibraryUiIntent::RefreshSlots
         | LibraryUiIntent::RetrySlotRequest
         | LibraryUiIntent::CancelSlotRequest
@@ -257,7 +259,6 @@ const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
         | LibraryUiIntent::UnarchiveSlot { .. }
         | LibraryUiIntent::UseForContinue { .. }
         | LibraryUiIntent::ExportSlot { .. }
-        | LibraryUiIntent::ImportArchive
         | LibraryUiIntent::ImportPack
         | LibraryUiIntent::ExportActiveArchive
         | LibraryUiIntent::ExportActivePack
@@ -285,7 +286,6 @@ fn a_store_failure_offers_no_intent_that_leaves_the_screen() {
             slot: None,
             code: ClientDiagnosticCode::StoreProtocol,
         },
-        archive_import_available: true,
         handoff_available: true,
         workshop_active: true,
         selected_slot: Some(SlotId(1)),
@@ -526,7 +526,6 @@ fn a_disabled_control_always_carries_exactly_one_reason() {
         let built = model(LibraryUiContext {
             slots: Some(&listed),
             selected_slot: selected,
-            archive_import_available: transfer,
             handoff_available: transfer,
             workshop_active: workshop,
             ..LibraryUiContext::default()
@@ -556,7 +555,6 @@ fn without_an_adapter_the_imports_are_disabled_and_the_exports_are_live() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(1)),
         workshop_active: true,
-        archive_import_available: true,
         ..LibraryUiContext::default()
     });
     for (id, intent) in [
@@ -590,28 +588,20 @@ fn without_an_adapter_the_imports_are_disabled_and_the_exports_are_live() {
         );
     }
 
-    // An adapter makes Import content pack live. Import galaxy also needs its
-    // own route, which is a separate fact from the adapter.
-    for (routed, archive_reason) in [
-        (false, Some(LibraryDisabledReason::TransferUnavailable)),
-        (true, None),
-    ] {
-        let built = model(LibraryUiContext {
-            slots: Some(&listed),
-            handoff_available: true,
-            archive_import_available: routed,
-            ..LibraryUiContext::default()
-        });
-        assert_eq!(
-            control(&built, "library.transfer.import-pack").intent(),
-            Some(&LibraryUiIntent::ImportPack)
-        );
-        assert_eq!(
-            control(&built, "library.transfer.import-archive").disabled_reason,
-            archive_reason,
-            "routed: {routed}"
-        );
-    }
+    // An adapter makes both imports live.
+    let built = model(LibraryUiContext {
+        slots: Some(&listed),
+        handoff_available: true,
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        control(&built, "library.transfer.import-pack").intent(),
+        Some(&LibraryUiIntent::ImportPack)
+    );
+    assert_eq!(
+        control(&built, "library.transfer.import-archive").intent(),
+        Some(&LibraryUiIntent::ImportArchive)
+    );
 }
 
 /// Every transfer control takes the one request lane: each shows its
@@ -656,7 +646,6 @@ fn every_transfer_control_waits_for_the_request_lane() {
             status,
             workshop_active: true,
             handoff_available: true,
-            archive_import_available: true,
             ..LibraryUiContext::default()
         });
         for id in [
@@ -682,7 +671,6 @@ fn only_import_galaxy_takes_the_replacement_gate() {
         workshop_active: true,
         replacement_blocked: true,
         handoff_available: true,
-        archive_import_available: true,
         ..LibraryUiContext::default()
     });
     assert_eq!(
@@ -910,7 +898,6 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
             status,
             selected_slot: Some(SlotId(1)),
             handoff_available: true,
-            archive_import_available: true,
             ..LibraryUiContext::default()
         });
         for id in [
@@ -931,7 +918,6 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
                 status,
                 selected_slot: Some(SlotId(1)),
                 handoff_available: true,
-                archive_import_available: true,
                 ..LibraryUiContext::default()
             }
         });
@@ -953,7 +939,6 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
 #[test]
 fn exporting_the_active_workshop_requires_an_active_workshop() {
     let built = model(LibraryUiContext {
-        archive_import_available: true,
         handoff_available: true,
         workshop_active: false,
         ..LibraryUiContext::default()
@@ -980,7 +965,6 @@ fn exporting_the_active_workshop_requires_an_active_workshop() {
     // precedence — subject facts before capability deferrals — is observable on
     // the transfer strip.
     let neither = model(LibraryUiContext {
-        archive_import_available: false,
         handoff_available: false,
         workshop_active: false,
         ..LibraryUiContext::default()
@@ -1276,7 +1260,6 @@ fn the_semantic_tree_validates_in_every_shape() {
             selected_slot: Some(SlotId(2)),
             resident_slot: Some(SlotId(1)),
             replacement_blocked: true,
-            archive_import_available: true,
             handoff_available: true,
             workshop_active: true,
             confirmation: None,
@@ -1374,7 +1357,6 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(4)),
-        archive_import_available: true,
         handoff_available: true,
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
@@ -2474,8 +2456,7 @@ fn a_ready_export_offers_a_separate_handoff_and_discard() {
             ]
         );
 
-        // The handoff reads adapter presence, and only that: Import galaxy's
-        // route is a different flag.
+        // The handoff reads adapter presence, and only that.
         let live = model(LibraryUiContext {
             handoff_available: true,
             ..LibraryUiContext {
@@ -2490,7 +2471,6 @@ fn a_ready_export_offers_a_separate_handoff_and_discard() {
             Some(&LibraryUiIntent::HandOffExport)
         );
         let strip_only = model(LibraryUiContext {
-            archive_import_available: true,
             ..LibraryUiContext {
                 slots: Some(&listed),
                 selected_slot: Some(SlotId(1)),
@@ -2575,8 +2555,7 @@ fn handoff_statuses() -> [LibrarySlotsStatus; 3] {
 }
 
 /// An adapter enables the handoff. Over prepared bytes the transfer strip is
-/// held by the lane, whatever the adapter; Import galaxy additionally waits
-/// on its own route, which an adapter does not supply.
+/// held by the lane, whatever the adapter; over an idle lane all four run.
 #[test]
 fn an_adapter_enables_the_handoff_and_the_lane_holds_the_strip() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
@@ -2610,11 +2589,8 @@ fn an_adapter_enables_the_handoff_and_the_lane_holds_the_strip() {
             ..LibraryUiContext::default()
         }
     });
-    assert_eq!(
-        control(&idle, "library.transfer.import-archive").disabled_reason,
-        Some(LibraryDisabledReason::TransferUnavailable)
-    );
     for id in [
+        "library.transfer.import-archive",
         "library.transfer.import-pack",
         "library.transfer.export-active-archive",
         "library.transfer.export-active-pack",
@@ -2962,4 +2938,183 @@ fn transfer_route_states_offer_their_own_strip_controls() {
         // Nothing here claims a save of anything but the pack store.
         assert!(!line.contains("Copy saved"), "{status:?}");
     }
+}
+
+/// Import galaxy's own request-strip states (§5, §6): the missing pack offers
+/// Import pack (a file choice, so it needs the adapter) and names the file
+/// the galaxy declares; a held import offers Open behind the replacement
+/// gate; choosing another galaxy file takes that gate too.
+#[test]
+fn import_galaxy_states_offer_their_own_strip_controls() {
+    let hash = nyon::workshop::CatalogHash([0x0f; 32]);
+    let pack = "0f0f0f0f0f0f0f0f.nyonpack.json";
+    for (problem, lead) in [
+        (None, "This galaxy needs a content pack that is not stored"),
+        (
+            Some(ClientDiagnosticCode::Catalog),
+            "That content pack is not the one this galaxy needs",
+        ),
+        (
+            Some(ClientDiagnosticCode::Transfer),
+            "Choosing the content pack failed",
+        ),
+        (
+            Some(ClientDiagnosticCode::Store),
+            "The content pack could not be stored",
+        ),
+    ] {
+        let status = LibrarySlotsStatus::ImportNeedsPack { hash, problem };
+        for adapter in [false, true] {
+            let built = model(LibraryUiContext {
+                status,
+                handoff_available: adapter,
+                replacement_blocked: true,
+                ..LibraryUiContext::default()
+            });
+            assert_eq!(
+                request_line(&built),
+                format!("{lead}: {pack}. Import the pack or cancel."),
+                "{problem:?}"
+            );
+            assert!(built.request.decision_pending());
+            assert_eq!(built.request.failure_code, problem);
+            let retry = built.request.retry_control.as_ref().unwrap();
+            assert_eq!(retry.label, "Import pack");
+            if adapter {
+                // Not gated on the resident: the pack step replaces nothing.
+                assert_eq!(retry.intent(), Some(&LibraryUiIntent::RetrySlotRequest));
+            } else {
+                assert_eq!(
+                    retry.disabled_reason,
+                    Some(LibraryDisabledReason::TransferUnavailable)
+                );
+            }
+            let cancel = built.request.cancel_control.as_ref().unwrap();
+            assert_eq!(cancel.label, "Cancel");
+            assert_eq!(cancel.intent(), Some(&LibraryUiIntent::CancelSlotRequest));
+            for id in ["library.transfer.import-pack", "library.refresh"] {
+                assert_eq!(
+                    control(&built, id).disabled_reason,
+                    Some(LibraryDisabledReason::DecisionPending),
+                    "{id}"
+                );
+            }
+            // The unsaved resident outranks the lane on Import galaxy.
+            assert_eq!(
+                control(&built, "library.transfer.import-archive").disabled_reason,
+                Some(LibraryDisabledReason::ReplacementBlocked)
+            );
+        }
+    }
+
+    for blocked in [false, true] {
+        let built = model(LibraryUiContext {
+            status: LibrarySlotsStatus::ImportHeld,
+            replacement_blocked: blocked,
+            handoff_available: true,
+            ..LibraryUiContext::default()
+        });
+        assert_eq!(
+            request_line(&built),
+            "The imported galaxy is ready. Open it or cancel."
+        );
+        assert!(built.request.decision_pending());
+        let open = built.request.retry_control.as_ref().unwrap();
+        assert_eq!(open.label, "Open");
+        if blocked {
+            assert_eq!(
+                open.disabled_reason,
+                Some(LibraryDisabledReason::ReplacementBlocked)
+            );
+        } else {
+            assert_eq!(open.intent(), Some(&LibraryUiIntent::AcceptOpen));
+        }
+    }
+
+    for (status, line) in [
+        (
+            LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::ChooseArchive,
+                slot: None,
+            },
+            "Waiting for a galaxy file to be chosen.",
+        ),
+        (
+            LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::ImportArchive,
+                slot: None,
+            },
+            "Checking the imported galaxy against its content pack.",
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::ImportArchive,
+                slot: None,
+                code: ClientDiagnosticCode::Store,
+            },
+            "Checking the imported galaxy failed. Retry or cancel.",
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::ChooseArchive,
+                slot: None,
+                code: ClientDiagnosticCode::Transfer,
+            },
+            "Choosing a galaxy file failed. Choose again or cancel.",
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::ChooseArchive,
+                slot: None,
+                code: ClientDiagnosticCode::Archive,
+            },
+            "That file is not a galaxy this build can open. Choose another or cancel.",
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            status,
+            handoff_available: true,
+            ..LibraryUiContext::default()
+        });
+        assert_eq!(request_line(&built), line, "{status:?}");
+    }
+
+    // Choosing another galaxy is Import galaxy again: same gate.
+    let refused = LibrarySlotsStatus::Failed {
+        kind: SlotRequestKind::ChooseArchive,
+        slot: None,
+        code: ClientDiagnosticCode::Archive,
+    };
+    let blocked = model(LibraryUiContext {
+        status: refused,
+        replacement_blocked: true,
+        handoff_available: true,
+        ..LibraryUiContext::default()
+    });
+    let retry = blocked.request.retry_control.as_ref().unwrap();
+    assert_eq!(retry.label, "Choose again");
+    assert_eq!(
+        retry.disabled_reason,
+        Some(LibraryDisabledReason::ReplacementBlocked)
+    );
+    // A content pack choice has no such gate.
+    let pack_refused = model(LibraryUiContext {
+        status: LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ChoosePack,
+            slot: None,
+            code: ClientDiagnosticCode::Catalog,
+        },
+        replacement_blocked: true,
+        handoff_available: true,
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        pack_refused
+            .request
+            .retry_control
+            .as_ref()
+            .unwrap()
+            .intent(),
+        Some(&LibraryUiIntent::RetrySlotRequest)
+    );
 }

@@ -20,6 +20,13 @@
 //! Export (12c) drive it through [`LibraryOpen::Slot`], whose [`SlotIntent`]
 //! says whether a validated head claims the Continue marker. §4 assigns all
 //! three to this client and specifies their conflict handling here.
+//!
+//! Import galaxy (route-design task 11, which is task 12's Import archive)
+//! drives the same catalog resolution and replay through
+//! [`WorkshopLibraryClient::begin_import`], with portable bytes as the subject
+//! instead of a loaded slot. §5 assigns it the same exact-catalog rule; what
+//! differs is that an imported archive has no slot, no generation to compare,
+//! no predecessor to recover, and no Continue marker to claim.
 
 use crate::workshop::{
     ArchiveDecodeJob, ArchiveDecodeStatus, CatalogHash, ValidatedCatalogPackV1, WorkshopHistory,
@@ -136,6 +143,25 @@ pub enum LibraryEvent {
     /// marker is left exactly where it was: a conflict "never silently selects
     /// a newer head".
     ContinueConflict { candidate: Box<LibraryCandidate> },
+    /// Import galaxy: the portable archive replayed completely against its
+    /// exact declared catalog. Nothing was stored or selected.
+    ImportReady(Box<WorkshopHistory>),
+    /// Import galaxy, §5: the archive's declared catalog is neither built in
+    /// nor usable from the store. The archive bytes come back so the caller
+    /// can retain them while the user imports the pack.
+    ///
+    /// **"Unavailable" cannot be told apart from "stored but corrupt" at the
+    /// store**: the memory and native adapters answer `GetPack` for an absent
+    /// hash with [`WorkshopStoreError::CorruptPack`], the same error a
+    /// damaged stored pack yields. Both are this event, and §5's remedy
+    /// (import the matching pack) is the right offer for both. `problem` is
+    /// `None` for that store answer and `Catalog` when a stored pack came
+    /// back but did not validate canonically against the declared hash.
+    PackUnavailable {
+        hash: CatalogHash,
+        archive: Box<[u8]>,
+        problem: Option<ClientDiagnosticCode>,
+    },
 }
 
 enum Phase {
@@ -150,20 +176,42 @@ enum Phase {
         selected_slot: SlotId,
         original_failure: ClientDiagnostic,
     },
+    /// Import galaxy's first step, taken on the first poll so `begin_import`
+    /// never has an outcome to report synchronously.
+    Importing(Box<[u8]>),
     LoadingCatalog {
         job: StoreJobId,
-        selected_slot: SlotId,
-        loaded: LoadedSlot,
+        subject: Subject,
         expected_hash: CatalogHash,
     },
     Decoding {
-        loaded: LoadedSlot,
+        subject: Subject,
         decoder: Box<ArchiveDecodeJob>,
     },
     Selecting {
         job: StoreJobId,
         candidate: Box<LibraryCandidate>,
     },
+}
+
+/// What a catalog resolution and replay is for.
+enum Subject {
+    /// A loaded slot. `selected_slot` is the slot the load was asked for.
+    Slot {
+        selected_slot: SlotId,
+        loaded: LoadedSlot,
+    },
+    /// Import galaxy's portable bytes. No slot, no predecessor.
+    Import(Box<[u8]>),
+}
+
+impl Subject {
+    fn archive(&self) -> &[u8] {
+        match self {
+            Self::Slot { loaded, .. } => &loaded.archive,
+            Self::Import(archive) => archive,
+        }
+    }
 }
 
 /// The exact-catalog open algorithm as a bounded, poll-driven state machine.
@@ -235,6 +283,22 @@ impl WorkshopLibraryClient {
         Ok(())
     }
 
+    /// Starts Import galaxy's exact-catalog validation of portable bytes
+    /// (§5). Starts no store job itself: the first [`Self::poll`] reads the
+    /// declared catalog hash and either replays against the built-in pack or
+    /// fetches the exact stored one. Nothing it does stores or selects
+    /// anything.
+    pub fn begin_import(&mut self, archive: Box<[u8]>) -> Result<(), LibraryBeginError> {
+        if self.is_active() {
+            return Err(LibraryBeginError::Active);
+        }
+        self.expected_generation = None;
+        self.selects_continue = false;
+        self.refuses_archived = false;
+        self.phase = Phase::Importing(archive);
+        Ok(())
+    }
+
     /// Gives up on the open in flight, freeing the store lane its phase holds,
     /// and returns whether there was one.
     ///
@@ -295,16 +359,17 @@ impl WorkshopLibraryClient {
             }
             // The replay is pure CPU and holds no job, so there is nothing to
             // free in the store -- but the open was still active and dropping
-            // the decoder is still giving it up.
-            Phase::Decoding { .. } => true,
+            // the decoder is still giving it up. An import that has not taken
+            // its first step holds no job either.
+            Phase::Decoding { .. } | Phase::Importing(_) => true,
         }
         // `expected_generation`, `selects_continue` and `refuses_archived` are
         // deliberately left as they are, and the reason is checkable rather
         // than a symmetry argument: all three are read only from inside a phase
         // (the `Loading` generation check, the archived refusal and the
-        // selection decision), every phase originates in a `begin`, and `begin`
-        // assigns all three on both of its arms. An `Idle` client never reads
-        // either, so a stale value cannot be observed.
+        // selection decision), every phase originates in `begin` or
+        // `begin_import`, and both assign all three on every arm. An `Idle`
+        // client never reads them, so a stale value cannot be observed.
     }
 
     /// Advances one bounded step.
@@ -312,6 +377,7 @@ impl WorkshopLibraryClient {
         let phase = std::mem::replace(&mut self.phase, Phase::Idle);
         match phase {
             Phase::Idle => LibraryEvent::Pending,
+            Phase::Importing(archive) => self.resolve_catalog(store, Subject::Import(archive)),
             Phase::Listing(job) => match store.poll(job) {
                 StoreJobState::Pending => {
                     self.phase = Phase::Listing(job);
@@ -414,15 +480,13 @@ impl WorkshopLibraryClient {
             },
             Phase::LoadingCatalog {
                 job,
-                selected_slot,
-                loaded,
+                subject,
                 expected_hash,
             } => match store.poll(job) {
                 StoreJobState::Pending => {
                     self.phase = Phase::LoadingCatalog {
                         job,
-                        selected_slot,
-                        loaded,
+                        subject,
                         expected_hash,
                     };
                     LibraryEvent::Pending
@@ -432,79 +496,93 @@ impl WorkshopLibraryClient {
                 ),
                 StoreJobState::Complete(Err(error)) => {
                     let failure = store_failure(&error);
-                    self.recover_previous_or_fail(store, loaded, failure)
+                    // See `LibraryEvent::PackUnavailable` for why a corrupt
+                    // answer is also the missing-pack answer.
+                    let problem = matches!(error, WorkshopStoreError::CorruptPack).then_some(None);
+                    self.pack_failed(store, subject, expected_hash, failure, problem)
                 }
                 StoreJobState::Complete(Ok(WorkshopStoreResult::PackLoaded {
                     hash,
                     canonical_pack,
                 })) => {
-                    if loaded.slot != selected_slot || hash != expected_hash {
+                    let slot_mismatch = matches!(
+                        &subject,
+                        Subject::Slot { selected_slot, loaded } if loaded.slot != *selected_slot
+                    );
+                    if slot_mismatch || hash != expected_hash {
                         return LibraryEvent::ProtocolFailure(
                             "Workshop storage returned a catalog other than the archive's exact catalog",
                         );
                     }
+                    let unusable = Some(Some(ClientDiagnosticCode::Catalog));
                     let catalog = match decode_catalog_pack(&canonical_pack) {
                         Ok(catalog) => catalog,
                         Err(_) => {
-                            return self.recover_previous_or_fail(
+                            return self.pack_failed(
                                 store,
-                                loaded,
+                                subject,
+                                expected_hash,
                                 diagnostic(
                                     ClientDiagnosticCode::Catalog,
                                     "The saved Workshop catalog failed validation",
                                 ),
+                                unusable,
                             );
                         }
                     };
                     let canonical = match encode_catalog_pack(&catalog) {
                         Ok(canonical) => canonical,
                         Err(_) => {
-                            return self.recover_previous_or_fail(
+                            return self.pack_failed(
                                 store,
-                                loaded,
+                                subject,
+                                expected_hash,
                                 diagnostic(
                                     ClientDiagnosticCode::Catalog,
                                     "The saved Workshop catalog could not be canonicalized",
                                 ),
+                                unusable,
                             );
                         }
                     };
                     if catalog.catalog_hash() != expected_hash
                         || canonical.as_slice() != canonical_pack.as_ref()
                     {
-                        return self.recover_previous_or_fail(
+                        return self.pack_failed(
                             store,
-                            loaded,
+                            subject,
+                            expected_hash,
                             diagnostic(
                                 ClientDiagnosticCode::Catalog,
                                 "The saved Workshop catalog was noncanonical or had the wrong hash",
                             ),
+                            unusable,
                         );
                     }
-                    self.begin_replay(store, loaded, catalog)
+                    self.begin_replay(store, subject, catalog)
                 }
                 StoreJobState::Complete(Ok(_)) => LibraryEvent::ProtocolFailure(
                     "Workshop catalog load returned an unexpected result",
                 ),
             },
             Phase::Decoding {
-                loaded,
+                subject,
                 mut decoder,
             } => match decoder.poll(ARCHIVE_REPLAY_UNITS_PER_UPDATE) {
                 Ok(ArchiveDecodeStatus::Pending) => {
-                    self.phase = Phase::Decoding { loaded, decoder };
+                    self.phase = Phase::Decoding { subject, decoder };
                     LibraryEvent::Pending
                 }
                 Ok(ArchiveDecodeStatus::Complete) => match (*decoder).finish() {
-                    Ok(history) => self.finish_replay(store, loaded, history),
+                    Ok(history) => self.finish_replay(store, subject, history),
                     Err(error) => {
                         let failure = diagnostic(ClientDiagnosticCode::Archive, error.to_string());
-                        self.recover_previous_or_fail(store, loaded, failure)
+                        self.subject_failed(store, subject, failure)
                     }
                 },
                 Err(error) => {
                     let failure = diagnostic(ClientDiagnosticCode::Archive, error.to_string());
-                    self.recover_previous_or_fail(store, loaded, failure)
+                    self.subject_failed(store, subject, failure)
                 }
             },
             Phase::Selecting { job, candidate } => match store.poll(job) {
@@ -561,6 +639,23 @@ impl WorkshopLibraryClient {
         if self.refuses_archived && loaded.archived {
             return LibraryEvent::ArchivedRow { slot: loaded.slot };
         }
+        self.resolve_catalog(
+            store,
+            Subject::Slot {
+                selected_slot,
+                loaded,
+            },
+        )
+    }
+
+    /// §4 items 3 to 6 for either subject: read the declared catalog hash, use
+    /// the built-in pack only on an exact match, otherwise fetch that exact
+    /// stored pack.
+    fn resolve_catalog(
+        &mut self,
+        store: &mut impl WorkshopStore,
+        subject: Subject,
+    ) -> LibraryEvent {
         let catalog = match decode_catalog_pack(CORE_PACK_V1) {
             Ok(catalog) => catalog,
             Err(_) => {
@@ -570,15 +665,15 @@ impl WorkshopLibraryClient {
                 ));
             }
         };
-        let expected_hash = match archive_catalog_hash(&loaded.archive) {
+        let expected_hash = match archive_catalog_hash(subject.archive()) {
             Ok(hash) => hash,
             Err(error) => {
                 let failure = diagnostic(ClientDiagnosticCode::Archive, error.to_string());
-                return self.recover_previous_or_fail(store, loaded, failure);
+                return self.subject_failed(store, subject, failure);
             }
         };
         if catalog.catalog_hash() == expected_hash {
-            return self.begin_replay(store, loaded, catalog);
+            return self.begin_replay(store, subject, catalog);
         }
         match store.start(WorkshopStoreRequest::GetPack {
             hash: expected_hash,
@@ -586,16 +681,51 @@ impl WorkshopLibraryClient {
             Ok(job) => {
                 self.phase = Phase::LoadingCatalog {
                     job,
-                    selected_slot,
-                    loaded,
+                    subject,
                     expected_hash,
                 };
                 LibraryEvent::Pending
             }
             Err(error) => {
                 let failure = store_failure(&error);
-                self.recover_previous_or_fail(store, loaded, failure)
+                self.subject_failed(store, subject, failure)
             }
+        }
+    }
+
+    /// A failure about the archive or the store: a slot falls back to its
+    /// predecessor (§4 item 8); an import has none and simply fails.
+    fn subject_failed(
+        &mut self,
+        store: &mut impl WorkshopStore,
+        subject: Subject,
+        failure: ClientDiagnostic,
+    ) -> LibraryEvent {
+        match subject {
+            Subject::Slot { loaded, .. } => self.recover_previous_or_fail(store, loaded, failure),
+            Subject::Import(_) => LibraryEvent::Failed(failure),
+        }
+    }
+
+    /// A failure to use the declared pack. A slot treats it like any other
+    /// failure. An import reports §5's missing-pack state when `problem` is
+    /// `Some` (the pack is absent or unusable), and otherwise fails, because a
+    /// store that refused the fetch says nothing about the pack.
+    fn pack_failed(
+        &mut self,
+        store: &mut impl WorkshopStore,
+        subject: Subject,
+        hash: CatalogHash,
+        failure: ClientDiagnostic,
+        problem: Option<Option<ClientDiagnosticCode>>,
+    ) -> LibraryEvent {
+        match (subject, problem) {
+            (Subject::Import(archive), Some(problem)) => LibraryEvent::PackUnavailable {
+                hash,
+                archive,
+                problem,
+            },
+            (subject, _) => self.subject_failed(store, subject, failure),
         }
     }
 
@@ -630,20 +760,20 @@ impl WorkshopLibraryClient {
     fn begin_replay(
         &mut self,
         store: &mut impl WorkshopStore,
-        loaded: LoadedSlot,
+        subject: Subject,
         catalog: ValidatedCatalogPackV1,
     ) -> LibraryEvent {
-        match ArchiveDecodeJob::new(&catalog, &loaded.archive) {
+        match ArchiveDecodeJob::new(&catalog, subject.archive()) {
             Ok(decoder) => {
                 self.phase = Phase::Decoding {
-                    loaded,
+                    subject,
                     decoder: Box::new(decoder),
                 };
                 LibraryEvent::Pending
             }
             Err(error) => {
                 let failure = diagnostic(ClientDiagnosticCode::Archive, error.to_string());
-                self.recover_previous_or_fail(store, loaded, failure)
+                self.subject_failed(store, subject, failure)
             }
         }
     }
@@ -651,9 +781,14 @@ impl WorkshopLibraryClient {
     fn finish_replay(
         &mut self,
         store: &mut impl WorkshopStore,
-        loaded: LoadedSlot,
+        subject: Subject,
         history: WorkshopHistory,
     ) -> LibraryEvent {
+        let loaded = match subject {
+            Subject::Slot { loaded, .. } => loaded,
+            // An import claims nothing: no slot, no marker (§5).
+            Subject::Import(_) => return LibraryEvent::ImportReady(Box::new(history)),
+        };
         // A recovered predecessor never claims the marker here. §4's recovery
         // order is promote, *then* select at the new head N+2, and the
         // promotion is a separate user acceptance the client does not own.
