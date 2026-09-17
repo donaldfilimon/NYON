@@ -11,8 +11,9 @@ or exercised." It closes
 only when built.
 
 **Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
-first two slices (12a Open, 12b Use for Continue) have landed. Still open: row
-Export (12c), Import archive, and all of task 11 (transfer protocol). The
+three row slices (12a Open, 12b Use for Continue, 12c row Export to Ready) have
+landed. Still open: Import archive, and all of task 11 (transfer protocol),
+which includes the stage-2 handoff of the bytes 12c prepares. The
 main-menu gap noted under task 10 is closed: `3b0e229` added the entry. The
 notes under each task below say what landed and where it moved from this plan.
 
@@ -273,6 +274,33 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     menu, before any Workshop opens, is where this control is live. Also folded
     in: a held open's Open control now takes the replacement gate. Row Export
     still reads `library_client_available`, which stays false.
+    **12c landed 2026-09-16: row Export to Ready.** `LibraryOpen::Slot` now
+    carries a `SlotIntent` (task 4 review Finding 2): `Export` never starts
+    `SelectContinue` and, unlike `Open`, does not refuse an archived row, since
+    task 7 review F5 keeps Export enabled there and §3 forbids opening an
+    archived save, not reading it. `OpenPurpose::Export` is the third purpose
+    the 12b note planned. Decisions recorded here: **no residency or
+    replacement gate at all**, in the model or the runtime, because §4 says the
+    export mutates nothing and §6 does not name it; exporting the resident's
+    own row reads its stored generation, not the in-memory session, and the
+    active-session export stays a separate transfer control. **It takes the
+    lane**, through Ready: the prepared bytes stay in `LibrarySlots` until the
+    user discards them or task 11 hands them off, so the one request strip is
+    the one place they are offered. An invalid head becomes
+    `ExportRecoveryOffered` (**Export previous**, on the strip's retry
+    identifier, with no replacement gate because nothing is replaced);
+    accepting it yields bytes labelled `ExportSource::RecoveredPredecessor`,
+    whose label is §4's text verbatim, and calls neither
+    `PromoteRecoveredSlot` nor `SelectContinue`. Ready shows stage 2 as its own
+    control, `library.request.handoff` ("Save copy"), disabled with
+    `TransferUnavailable`, never on the identifier Export previous used, so a
+    repeated activation cannot reach the handoff; its intent is deferred in
+    `apply_library_intent` like the transfer strip's. Cancel from any export
+    state keeps the cached list, because nothing moved. The Ready bytes are
+    `LoadSlot`'s own, already canonical-checked and replayed; they are exposed
+    read-only through `ClientRuntime::prepared_slot_export` for task 11.
+    `library_client_available` and `LibraryClientUnavailable` are removed,
+    as 9b removed `slot_changes_available`.
 
 Ship the screen after tasks 1-4, in two slices: the wiring subset first with the
 client-dependent controls **rendered disabled with a visible reason**, then

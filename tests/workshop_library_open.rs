@@ -18,7 +18,7 @@ use nyon::{
         AppCore,
         client_runtime::{
             ActiveSession, ClientDiagnosticCode, ClientRuntime, ClientRuntimeError, ClientScreen,
-            LibrarySlotsStatus, SlotRequestKind,
+            ExportSource, LibrarySlotsStatus, SlotRequestKind,
         },
     },
     preferences::store::MemoryPreferencesStore,
@@ -697,4 +697,314 @@ fn a_failed_use_for_continue_retries_as_itself_and_conflicts_offer_refresh() {
             code: ClientDiagnosticCode::StaleSave,
         }
     );
+}
+
+// ---------------------------------------------------------------------------
+// Route-design task 12c: row Export to Ready
+// ---------------------------------------------------------------------------
+
+/// Everything §4 says a row export must leave alone.
+fn assert_nothing_changed(runtime: &Runtime, store: &Shared, before: &SlotList) {
+    assert_eq!(&stored_list(store), before, "the export changed the store");
+    assert_eq!(runtime.screen(), ClientScreen::Library);
+    assert_eq!(
+        runtime.library_slots(),
+        Some(before),
+        "an export moved nothing, so the cached list stays true and is kept"
+    );
+}
+
+#[test]
+fn export_prepares_the_exact_stored_bytes_and_changes_nothing() {
+    let store = Shared::default();
+    let (first, first_generation) = create(&store, "First Forge", 11);
+    let (second, generation) = create(&store, "Second Forge", 12);
+    complete(
+        &store,
+        WorkshopStoreRequest::SelectContinue {
+            slot: first,
+            expected_generation: first_generation,
+        },
+    );
+    let before = stored_list(&store);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+
+    runtime.export_library_slot(second, generation).unwrap();
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Export,
+            slot: Some(second),
+        }
+    );
+    assert!(runtime.prepared_slot_export().is_none());
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportReady {
+            slot: second,
+            generation,
+            source: ExportSource::Head,
+        }
+    );
+    let prepared = runtime.prepared_slot_export().expect("bytes are ready");
+    assert_eq!(prepared.slot, second);
+    assert_eq!(prepared.name.as_str(), "Second Forge");
+    assert_eq!(prepared.generation, generation);
+    assert_eq!(prepared.source, ExportSource::Head);
+    assert_eq!(prepared.archive, valid_archive(12));
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+    assert_nothing_changed(&runtime, &store, &before);
+
+    // The bytes occupy the lane until they are discarded, and survive a
+    // round trip through another screen.
+    assert_eq!(
+        runtime.rename_library_slot(first, SlotName::new("Busy").unwrap()),
+        Err(ClientRuntimeError::LibraryRequestActive)
+    );
+    // A second export cannot silently replace the prepared bytes either.
+    assert_eq!(
+        runtime.export_library_slot(first, first_generation),
+        Err(ClientRuntimeError::LibraryRequestActive)
+    );
+    runtime.update(Duration::ZERO);
+    assert_eq!(
+        runtime.prepared_slot_export().map(|export| export.slot),
+        Some(second)
+    );
+    runtime.close_library();
+    runtime.update(Duration::ZERO);
+    runtime.open_library().unwrap();
+    assert!(runtime.prepared_slot_export().is_some());
+
+    runtime.cancel_library_slot_request().unwrap();
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(runtime.prepared_slot_export().is_none());
+    assert_nothing_changed(&runtime, &store, &before);
+    runtime
+        .rename_library_slot(first, SlotName::new("Renamed Forge").unwrap())
+        .unwrap();
+    settle(&mut runtime);
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+}
+
+#[test]
+fn export_is_not_gated_on_the_resident_workshop() {
+    let store = Shared::default();
+    let (first, generation) = create(&store, "First Forge", 11);
+    let (second, second_generation) = create(&store, "Second Forge", 12);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    runtime.open_library_slot(first, generation).unwrap();
+    settle(&mut runtime);
+    assert_eq!(runtime.workshop_snapshot().unwrap().store.slot, Some(first));
+    dirty_resident(&mut runtime);
+    let digest = runtime.workshop_snapshot().unwrap().state_digest;
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    assert!(runtime.resident_workshop_blocks_replacement());
+    let before = stored_list(&store);
+
+    // Another row, while the resident cannot be replaced.
+    runtime
+        .export_library_slot(second, second_generation)
+        .unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.prepared_slot_export().map(|export| export.slot),
+        Some(second)
+    );
+    runtime.cancel_library_slot_request().unwrap();
+
+    // The resident's own row: its stored generation, not the dirty session.
+    let own = library_generation(&runtime, first);
+    runtime.export_library_slot(first, own).unwrap();
+    settle(&mut runtime);
+    let prepared = runtime.prepared_slot_export().expect("own row exported");
+    assert_eq!(prepared.slot, first);
+    assert_eq!(prepared.generation, own);
+    assert_eq!(prepared.archive, valid_archive(11));
+
+    assert_nothing_changed(&runtime, &store, &before);
+    let after = runtime.workshop_snapshot().unwrap();
+    assert_eq!(after.state_digest, digest);
+    assert!(after.store.dirty);
+    assert_eq!(after.store.slot, Some(first));
+}
+
+#[test]
+fn an_archived_row_exports() {
+    let store = Shared::default();
+    let (first, generation) = create(&store, "First Forge", 11);
+    complete(&store, WorkshopStoreRequest::ArchiveSlot { slot: first });
+    let before = stored_list(&store);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    runtime.export_library_slot(first, generation).unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.prepared_slot_export().map(|export| &export.archive),
+        Some(&valid_archive(11))
+    );
+    assert_nothing_changed(&runtime, &store, &before);
+}
+
+#[test]
+fn an_invalid_head_export_is_offered_and_never_promoted() {
+    let store = Shared::default();
+    let (first, valid) = create(&store, "First Forge", 11);
+    let corrupt = commit(&store, first, valid, Box::from(&b"{}"[..]));
+    let before = stored_list(&store);
+    let mut runtime = runtime(&store);
+    assert_eq!(
+        runtime.accept_library_export_recovery(),
+        Err(ClientRuntimeError::RouteUnavailable),
+        "nothing is on offer yet"
+    );
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+
+    runtime.export_library_slot(first, corrupt).unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportRecoveryOffered { slot: first }
+    );
+    assert!(
+        runtime.prepared_slot_export().is_none(),
+        "an invalid head never silently exports its predecessor"
+    );
+    // The installing accept cannot consume an export offer.
+    assert_eq!(
+        runtime.accept_library_open(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportRecoveryOffered { slot: first }
+    );
+
+    runtime.accept_library_export_recovery().unwrap();
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportReady {
+            slot: first,
+            generation: valid,
+            source: ExportSource::RecoveredPredecessor,
+        }
+    );
+    let prepared = runtime.prepared_slot_export().unwrap();
+    assert_eq!(prepared.generation, valid);
+    assert_eq!(prepared.archive, valid_archive(11));
+    for _ in 0..8 {
+        runtime.update(Duration::ZERO);
+    }
+    assert!(matches!(runtime.active_session(), ActiveSession::None));
+    assert_nothing_changed(&runtime, &store, &before);
+    assert_eq!(stored_list(&store).selected_continue, None);
+
+    // Cancel from the offer also changes nothing and keeps the list.
+    runtime.cancel_library_slot_request().unwrap();
+    runtime.export_library_slot(first, corrupt).unwrap();
+    settle(&mut runtime);
+    runtime.cancel_library_slot_request().unwrap();
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert_nothing_changed(&runtime, &store, &before);
+}
+
+#[test]
+fn cancelling_an_export_in_flight_keeps_the_list_and_frees_the_lane() {
+    let mut cancelled = 0;
+    for polls in 0..=3 {
+        let store = Shared::default();
+        let (first, generation) = create(&store, "First Forge", 11);
+        let before = stored_list(&store);
+        let mut runtime = runtime(&store);
+        runtime.open_library().unwrap();
+        settle(&mut runtime);
+        runtime.export_library_slot(first, generation).unwrap();
+        for _ in 0..polls {
+            runtime.update(Duration::ZERO);
+        }
+        if !matches!(
+            runtime.library_slots_status(),
+            LibrarySlotsStatus::Working { .. }
+        ) {
+            continue;
+        }
+        cancelled += 1;
+        runtime.cancel_library_slot_request().unwrap();
+        assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+        for _ in 0..8 {
+            runtime.update(Duration::ZERO);
+        }
+        assert!(runtime.prepared_slot_export().is_none(), "{polls}");
+        assert_nothing_changed(&runtime, &store, &before);
+        runtime.export_library_slot(first, generation).unwrap();
+        settle(&mut runtime);
+        assert!(runtime.prepared_slot_export().is_some(), "{polls}");
+    }
+    assert!(
+        cancelled >= 2,
+        "only {cancelled} poll counts reached Cancel"
+    );
+}
+
+#[test]
+fn a_failed_export_retries_as_itself_and_a_stale_one_offers_refresh() {
+    let store = Shared::default();
+    let (first, observed) = create(&store, "First Forge", 11);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+
+    store.fail_next_load.set(true);
+    assert!(runtime.export_library_slot(first, observed).is_err());
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Export,
+            slot: Some(first),
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    runtime.retry_library_slot_request().unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportReady {
+            slot: first,
+            generation: observed,
+            source: ExportSource::Head,
+        }
+    );
+    assert_eq!(stored_list(&store).selected_continue, None);
+    runtime.cancel_library_slot_request().unwrap();
+
+    let head = commit(&store, first, observed, valid_archive(13));
+    runtime.export_library_slot(first, observed).unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Export,
+            slot: Some(first),
+            code: ClientDiagnosticCode::StaleSave,
+        }
+    );
+    // Refresh re-lists; it does not repeat the stale export.
+    runtime.retry_library_slot_request().unwrap();
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::List,
+            slot: None,
+        }
+    );
+    settle(&mut runtime);
+    assert_eq!(library_generation(&runtime, first), head);
 }

@@ -886,12 +886,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
             replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
-            // Route-design tasks 12 and 11 respectively. Each flag is what
-            // keeps its controls visible-but-disabled rather than live with no
-            // route behind them; `apply_library_intent` relies on it. Only
-            // row Export still reads the first: tasks 12a and 12b wired Open
-            // and Use for Continue.
-            library_client_available: false,
+            // Route-design task 11. The flag is what keeps the transfer
+            // controls and the export handoff visible-but-disabled rather than
+            // live with no route behind them; `apply_library_intent` relies on
+            // it.
             transfer_available: false,
             confirmation: self.library_confirmation,
             rename_draft: Some(self.library_rename_draft.as_str()),
@@ -1348,7 +1346,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             LibraryUiIntent::UseForContinue { slot, generation } => {
                 self.runtime.use_library_slot_for_continue(slot, generation)
             }
-            deferred @ (LibraryUiIntent::ExportSlot { .. }
+            LibraryUiIntent::ExportSlot { slot, generation } => {
+                self.runtime.export_library_slot(slot, generation)
+            }
+            LibraryUiIntent::AcceptExportRecovery => self.runtime.accept_library_export_recovery(),
+            deferred @ (LibraryUiIntent::HandOffExport
             | LibraryUiIntent::ImportArchive
             | LibraryUiIntent::ImportPack
             | LibraryUiIntent::ExportActiveArchive

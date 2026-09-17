@@ -15,7 +15,9 @@
 //! would have to break for it to fail.
 
 use nyon::{
-    app::client_runtime::{ClientDiagnosticCode, LibrarySlotsStatus, SlotRequestKind},
+    app::client_runtime::{
+        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    },
     ui::{
         accessibility::{InputModality, SemanticActionId, SemanticRole},
         library::{
@@ -250,7 +252,9 @@ const fn leaves_screen(intent: &LibraryUiIntent) -> bool {
         | LibraryUiIntent::ExportActiveArchive
         | LibraryUiIntent::ExportActivePack
         | LibraryUiIntent::CancelConfirmation
-        | LibraryUiIntent::SubmitConfirmation(_) => false,
+        | LibraryUiIntent::SubmitConfirmation(_)
+        | LibraryUiIntent::AcceptExportRecovery
+        | LibraryUiIntent::HandOffExport => false,
     }
 }
 
@@ -271,7 +275,6 @@ fn a_store_failure_offers_no_intent_that_leaves_the_screen() {
             slot: None,
             code: ClientDiagnosticCode::StoreProtocol,
         },
-        library_client_available: true,
         transfer_available: true,
         workshop_active: true,
         selected_slot: Some(SlotId(1)),
@@ -500,10 +503,10 @@ fn header_action_and_transfer_nodes_are_buttons() {
 /// `enabled` and `disabled_reason` never disagree, for every control.
 #[test]
 fn a_disabled_control_always_carries_exactly_one_reason() {
-    for (client, transfer, workshop, selected) in [
-        (false, false, false, None),
-        (true, true, true, Some(SlotId(1))),
-        (false, true, false, Some(SlotId(2))),
+    for (transfer, workshop, selected) in [
+        (false, false, None),
+        (true, true, Some(SlotId(1))),
+        (true, false, Some(SlotId(2))),
     ] {
         let listed = list(vec![
             summary(1, "Andromeda", false),
@@ -512,7 +515,6 @@ fn a_disabled_control_always_carries_exactly_one_reason() {
         let built = model(LibraryUiContext {
             slots: Some(&listed),
             selected_slot: selected,
-            library_client_available: client,
             transfer_available: transfer,
             workshop_active: workshop,
             ..LibraryUiContext::default()
@@ -528,12 +530,13 @@ fn a_disabled_control_always_carries_exactly_one_reason() {
     }
 }
 
-/// Client-dependent controls are present and disabled, never missing.
+/// Transfer controls are present and disabled, never missing, and row Export
+/// no longer waits on any capability (route-design task 12c).
 ///
 /// This is baseline Finding 5: a control that exists logically but cannot be
 /// reached. Presence plus a reason is the contract; absence is the defect.
 #[test]
-fn client_and_transfer_controls_are_present_and_disabled_with_a_reason() {
+fn transfer_controls_are_present_and_disabled_and_row_export_is_live() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
     let built = model(LibraryUiContext {
         slots: Some(&listed),
@@ -544,12 +547,8 @@ fn client_and_transfer_controls_are_present_and_disabled_with_a_reason() {
     {
         let id = "library.action.export";
         let found = control(&built, id);
-        assert!(!found.enabled, "{id}");
-        assert_eq!(
-            found.disabled_reason,
-            Some(LibraryDisabledReason::LibraryClientUnavailable),
-            "{id}"
-        );
+        assert!(found.enabled, "{id}");
+        assert_eq!(found.disabled_reason, None, "{id}");
     }
     for id in [
         "library.transfer.import-archive",
@@ -628,13 +627,11 @@ fn the_archive_control_submits_each_direction_under_one_stable_identifier() {
     let built_active = model(LibraryUiContext {
         slots: Some(&active),
         selected_slot: Some(SlotId(9)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     let built_archived = model(LibraryUiContext {
         slots: Some(&archived),
         selected_slot: Some(SlotId(9)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
 
@@ -680,24 +677,20 @@ fn the_archive_control_submits_each_direction_under_one_stable_identifier() {
 /// Row state outranks a capability deferral in the disabled reason.
 ///
 /// Documented precedence: no subject, then row facts, then lane occupancy, then
-/// capability. An archived row with no Library client reports `ArchivedSlot`,
-/// the thing the user can act on now.
+/// session-wide facts. An archived row with a Workshop resident reports
+/// `ArchivedSlot`, the thing about this row the user can act on now.
 #[test]
 fn row_state_outranks_capability_in_the_reported_reason() {
     let listed = list(vec![summary(9, "Bode", true)]);
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(9)),
-        library_client_available: false,
+        workshop_active: true,
         ..LibraryUiContext::default()
     });
     assert_eq!(
         built.actions.use_for_continue.disabled_reason,
         Some(LibraryDisabledReason::ArchivedSlot)
-    );
-    assert_ne!(
-        built.actions.use_for_continue.disabled_reason,
-        Some(LibraryDisabledReason::LibraryClientUnavailable)
     );
 }
 
@@ -707,7 +700,6 @@ fn with_no_selection_every_action_is_present_and_disabled() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
     let built = model(LibraryUiContext {
         slots: Some(&listed),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     assert!(built.actions.selected.is_none());
@@ -735,7 +727,6 @@ fn a_selection_the_store_no_longer_reports_falls_back_to_no_selection() {
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(42)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     assert!(built.actions.selected.is_none());
@@ -748,10 +739,9 @@ fn a_selection_the_store_no_longer_reports_falls_back_to_no_selection() {
 /// The single slot-request lane disables exactly the controls that use it.
 ///
 /// `start_slot_request` accepts only from `Idle`, so Refresh, Rename and
-/// Archive would be refused outright. Open and Use for Continue joined them
-/// in tasks 12a and 12b: their `SelectContinue` needs the Commit lane a Rename
-/// holds, and their progress and failures are shown in the same request strip.
-/// Export is not gated by this lane yet.
+/// Archive would be refused outright. Open, Use for Continue and row Export
+/// joined them in tasks 12a to 12c: their progress, failures and results are
+/// shown in the same request strip. The transfer strip does not share it.
 #[test]
 fn an_occupied_lane_disables_only_the_controls_that_share_it() {
     let listed = list(vec![summary(1, "Andromeda", false)]);
@@ -776,7 +766,6 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
             slots: Some(&listed),
             status,
             selected_slot: Some(SlotId(1)),
-            library_client_available: true,
             ..LibraryUiContext::default()
         });
         for id in [
@@ -785,12 +774,22 @@ fn an_occupied_lane_disables_only_the_controls_that_share_it() {
             "library.action.rename",
             "library.action.archive",
             "library.action.use-for-continue",
+            "library.action.export",
         ] {
             assert_eq!(control(&built, id).disabled_reason, Some(reason), "{id}");
         }
-        {
-            let id = "library.action.export";
-            assert!(control(&built, id).enabled, "{id}");
+        for control in [
+            &built.transfer.import_archive,
+            &built.transfer.import_pack,
+            &built.transfer.export_active_archive,
+            &built.transfer.export_active_pack,
+        ] {
+            assert_ne!(
+                control.disabled_reason,
+                Some(reason),
+                "{}",
+                control.action_id
+            );
         }
     }
 }
@@ -856,7 +855,6 @@ fn open_continue_and_export_carry_the_generation_observed_in_the_row() {
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(5)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     assert_eq!(
@@ -1066,7 +1064,6 @@ fn the_row_already_selected_for_continue_cannot_be_selected_again() {
     let marked = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(1)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     assert!(marked.rows[0].selected_for_continue);
@@ -1077,7 +1074,6 @@ fn the_row_already_selected_for_continue_cannot_be_selected_again() {
     let other = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(2)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     assert!(other.actions.use_for_continue.enabled);
@@ -1123,7 +1119,6 @@ fn the_semantic_tree_validates_in_every_shape() {
             selected_slot: Some(SlotId(2)),
             resident_slot: Some(SlotId(1)),
             replacement_blocked: true,
-            library_client_available: true,
             transfer_available: true,
             workshop_active: true,
             confirmation: None,
@@ -1174,7 +1169,6 @@ fn a_disabled_control_hands_out_no_intent_because_its_subject_is_a_real_slot_id(
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: None,
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     let open = &built.actions.open;
@@ -1222,7 +1216,6 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
     let built = model(LibraryUiContext {
         slots: Some(&listed),
         selected_slot: Some(SlotId(4)),
-        library_client_available: true,
         transfer_available: true,
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
@@ -1430,7 +1423,6 @@ fn a_disabled_controls_debug_output_names_no_slot() {
     let built = model(LibraryUiContext {
         slots: Some(&list(vec![summary(0, "Andromeda", false)])),
         selected_slot: None,
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     let rendered = format!("{:?}", built.actions.open);
@@ -1447,7 +1439,6 @@ fn a_disabled_controls_debug_output_names_no_slot() {
     let enabled = model(LibraryUiContext {
         slots: Some(&list(vec![summary(0, "Andromeda", false)])),
         selected_slot: Some(SlotId(0)),
-        library_client_available: true,
         ..LibraryUiContext::default()
     });
     let rendered = format!("{:?}", enabled.actions.open);
@@ -1812,8 +1803,8 @@ fn request_line(built: &LibraryUiModel) -> String {
 
 /// Open is live, and each §6 or row fact that forbids it reports itself.
 ///
-/// It no longer reads the Library-client flag: Use for Continue and row
-/// Export still do, so this also pins that the flag stayed where it belongs.
+/// Row Export, beside it, is live in the same shape: task 12c removed the
+/// Library-client flag both once read.
 #[test]
 fn open_is_live_and_refused_only_by_the_facts_that_forbid_it() {
     let listed = list(vec![
@@ -1837,7 +1828,7 @@ fn open_is_live_and_refused_only_by_the_facts_that_forbid_it() {
     );
     assert_eq!(
         control(&live, "library.action.export").disabled_reason,
-        Some(LibraryDisabledReason::LibraryClientUnavailable)
+        None
     );
 
     for (context, reason) in [
@@ -2106,4 +2097,253 @@ fn a_held_open_cannot_be_accepted_while_the_resident_blocks_replacement() {
         Some(LibraryDisabledReason::ReplacementBlocked)
     );
     assert!(control(&built, "library.request.cancel").enabled);
+}
+
+// ---------------------------------------------------------------------------
+// Route-design task 12c: row Export to Ready
+// ---------------------------------------------------------------------------
+
+/// Row Export mutates nothing (§4), so no replacement, residency or archived
+/// fact refuses it; the one lane is its only gate.
+#[test]
+fn row_export_is_refused_only_by_the_lane() {
+    let listed = list(vec![
+        summary(1, "Andromeda", false),
+        summary(2, "Bode", true),
+    ]);
+    for (selected, resident) in [(1, None), (1, Some(SlotId(1))), (2, None)] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(selected)),
+            resident_slot: resident,
+            workshop_active: resident.is_some(),
+            replacement_blocked: true,
+            ..LibraryUiContext::default()
+        });
+        let export = control(&built, "library.action.export");
+        assert!(
+            export.enabled,
+            "{selected} {resident:?}: {:?}",
+            export.disabled_reason
+        );
+        assert_eq!(
+            built.activate(&export.action_id, InputModality::Pointer),
+            Some(LibraryUiIntent::ExportSlot {
+                slot: SlotId(selected),
+                generation: SaveGeneration(selected + 10),
+            })
+        );
+    }
+    for (status, reason) in [
+        (
+            LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::Export,
+                slot: Some(SlotId(1)),
+            },
+            LibraryDisabledReason::RequestInFlight,
+        ),
+        (
+            LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::Export,
+                slot: Some(SlotId(1)),
+                code: ClientDiagnosticCode::Store,
+            },
+            LibraryDisabledReason::DecisionPending,
+        ),
+        (
+            LibrarySlotsStatus::ExportRecoveryOffered { slot: SlotId(1) },
+            LibraryDisabledReason::DecisionPending,
+        ),
+        (
+            LibrarySlotsStatus::ExportReady {
+                slot: SlotId(1),
+                generation: SaveGeneration(11),
+                source: ExportSource::Head,
+            },
+            LibraryDisabledReason::ExportWaiting,
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(1)),
+            status,
+            ..LibraryUiContext::default()
+        });
+        for id in [
+            "library.action.export",
+            "library.action.open",
+            "library.action.rename",
+            "library.refresh",
+        ] {
+            assert_eq!(
+                control(&built, id).disabled_reason,
+                Some(reason),
+                "{status:?} {id}"
+            );
+        }
+    }
+}
+
+/// §4's export-recovery choice: Export previous, which replaces nothing and so
+/// is live even when the resident cannot be replaced.
+#[test]
+fn an_invalid_head_export_offers_export_previous_and_cancel() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    let built = model(LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(1)),
+        replacement_blocked: true,
+        status: LibrarySlotsStatus::ExportRecoveryOffered { slot: SlotId(1) },
+        ..LibraryUiContext::default()
+    });
+    let accept = control(&built, "library.request.retry");
+    assert_eq!(accept.label, "Export previous");
+    assert!(accept.enabled, "{:?}", accept.disabled_reason);
+    assert_eq!(
+        accept.intent(),
+        Some(&LibraryUiIntent::AcceptExportRecovery)
+    );
+    assert_eq!(
+        control(&built, "library.request.cancel").intent(),
+        Some(&LibraryUiIntent::CancelSlotRequest)
+    );
+    assert_eq!(
+        request_line(&built),
+        "The latest save is invalid. Export its previous generation or cancel."
+    );
+    assert!(built.request.decision_pending());
+    assert!(
+        !built
+            .controls()
+            .any(|control| control.action_id.as_str() == "library.request.handoff")
+    );
+}
+
+/// Ready: stage 2 is its own control, disabled with a visible reason until a
+/// transfer adapter exists, and the label says where the bytes came from.
+#[test]
+fn a_ready_export_offers_a_separate_handoff_and_discard() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (source, line) in [
+        (
+            ExportSource::Head,
+            "A portable copy of the latest save is ready.",
+        ),
+        (
+            ExportSource::RecoveredPredecessor,
+            "Portable copy ready. Recovered predecessor; stored head and Continue unchanged.",
+        ),
+    ] {
+        let status = LibrarySlotsStatus::ExportReady {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+            source,
+        };
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(1)),
+            status,
+            ..LibraryUiContext::default()
+        });
+        if source == ExportSource::RecoveredPredecessor {
+            assert!(line.contains(source.label()), "{line}");
+        }
+        assert_eq!(request_line(&built), line);
+        // Not a failure: a status, not an alert.
+        assert!(!built.request.decision_pending());
+        assert_eq!(
+            built
+                .semantics
+                .node("library.request.status")
+                .expect("request status node")
+                .role,
+            SemanticRole::Status
+        );
+        assert!(
+            !built
+                .controls()
+                .any(|control| control.action_id.as_str() == "library.request.retry"),
+            "the handoff must not reuse the identifier Export previous held"
+        );
+        let handoff = control(&built, "library.request.handoff");
+        assert_eq!(handoff.label, "Save copy");
+        assert_eq!(
+            handoff.disabled_reason,
+            Some(LibraryDisabledReason::TransferUnavailable)
+        );
+        let discard = control(&built, "library.request.cancel");
+        assert_eq!(discard.label, "Discard");
+        assert_eq!(discard.intent(), Some(&LibraryUiIntent::CancelSlotRequest));
+        // Present in the focus order, between the header and the rows.
+        let order: Vec<&str> = built
+            .focus_order()
+            .iter()
+            .map(SemanticActionId::as_str)
+            .collect();
+        assert_eq!(
+            &order[..4],
+            [
+                "library.close",
+                "library.refresh",
+                "library.request.handoff",
+                "library.request.cancel"
+            ]
+        );
+
+        let live = model(LibraryUiContext {
+            transfer_available: true,
+            ..LibraryUiContext {
+                slots: Some(&listed),
+                selected_slot: Some(SlotId(1)),
+                status,
+                ..LibraryUiContext::default()
+            }
+        });
+        assert_eq!(
+            control(&live, "library.request.handoff").intent(),
+            Some(&LibraryUiIntent::HandOffExport)
+        );
+    }
+}
+
+/// A conflicted export is the same refreshable conflict as Open.
+#[test]
+fn a_conflicted_export_offers_refresh() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (code, label, line) in [
+        (
+            ClientDiagnosticCode::StaleSave,
+            "Refresh",
+            "That save changed. Refresh, then try again.",
+        ),
+        (
+            ClientDiagnosticCode::Store,
+            "Retry",
+            "Preparing a portable copy failed. Retry or cancel.",
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            status: LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::Export,
+                slot: Some(SlotId(1)),
+                code,
+            },
+            ..LibraryUiContext::default()
+        });
+        assert_eq!(control(&built, "library.request.retry").label, label);
+        assert_eq!(request_line(&built), line);
+    }
+    let working = model(LibraryUiContext {
+        slots: Some(&listed),
+        status: LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Export,
+            slot: Some(SlotId(1)),
+        },
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        request_line(&working),
+        "Preparing a portable copy of a saved galaxy."
+    );
 }

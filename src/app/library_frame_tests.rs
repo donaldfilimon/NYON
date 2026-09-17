@@ -40,12 +40,16 @@ fn store_with_one_slot() -> (MemoryWorkshopStore, SlotId) {
 }
 
 pub(super) fn library_app() -> (TestApp, SlotId) {
+    let (store, slot) = store_with_one_slot();
+    (library_app_over(store), slot)
+}
+
+fn library_app_over(store: MemoryWorkshopStore) -> TestApp {
     let core = AppCore::new_with_preferences(
         ScenarioDraft::factory_default().validated().unwrap(),
         MemoryScenarioStore::default(),
         MemoryPreferencesStore::default(),
     );
-    let (store, slot) = store_with_one_slot();
     let mut app = App::with_event_proxy(core, store, AppEventProxy::Headless);
     app.runtime
         .classic_mut()
@@ -55,7 +59,7 @@ pub(super) fn library_app() -> (TestApp, SlotId) {
     app.runtime.update(std::time::Duration::ZERO);
     assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
     app.build_frame();
-    (app, slot)
+    app
 }
 
 fn has_control(app: &TestApp, id: &str) -> bool {
@@ -117,16 +121,17 @@ fn selecting_a_row_is_client_state_and_enables_nothing_the_store_cannot_serve() 
         "the model did not pick up the selection"
     );
 
-    // With a row selected, every action exists, and row Export still refuses:
-    // its capability flag is off. Rename and Archive are live since task 9,
-    // but only open a dialog; Open and Use for Continue are live since tasks
-    // 12a and 12b and are exercised below.
+    // With a row selected, every action exists and is live: Rename and
+    // Archive since task 9 (they only open a dialog), Open, Use for Continue
+    // and row Export since tasks 12a to 12c, each exercised below. A transfer
+    // control still refuses, because its capability flag is off.
     assert!(control_enabled(&app, "library.action.archive"));
     assert!(control_enabled(&app, "library.action.rename"));
     assert!(control_enabled(&app, "library.action.open"));
     assert!(control_enabled(&app, "library.action.use-for-continue"));
+    assert!(control_enabled(&app, "library.action.export"));
     {
-        let id = "library.action.export";
+        let id = "library.transfer.import-pack";
         assert!(!control_enabled(&app, id), "{id} is live without a route");
         app.activate_platform_action_id(&SemanticActionId::new(id), InputModality::Keyboard);
         assert_eq!(
@@ -818,4 +823,105 @@ fn use_for_continue_from_the_frame_marks_the_row_and_stays_on_the_library() {
         model.actions.use_for_continue.disabled_reason,
         Some(crate::ui::library::LibraryDisabledReason::AlreadyContinue)
     );
+}
+
+fn settle_export(app: &mut TestApp) {
+    for _ in 0..16 {
+        if !matches!(
+            app.runtime.library_slots_status(),
+            LibrarySlotsStatus::Working { .. }
+        ) {
+            break;
+        }
+        app.runtime.update(std::time::Duration::ZERO);
+    }
+    app.build_frame();
+}
+
+/// Task 12c through the real frame: row Export reaches Ready, the handoff is a
+/// separate placed control that stays disabled with no adapter, and Discard
+/// frees the lane without dropping the list.
+#[test]
+fn row_export_from_the_frame_reaches_ready_and_discard_frees_the_lane() {
+    let (mut app, slot) = library_app();
+    select(&mut app, slot);
+    let export = SemanticActionId::new("library.action.export");
+    assert!(control_enabled(&app, export.as_str()));
+    app.activate_platform_action_id(&export, InputModality::Keyboard);
+    settle_export(&mut app);
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportReady {
+            slot: ready,
+            source: crate::app::client_runtime::ExportSource::Head,
+            ..
+        } if ready == slot
+    ));
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(!control_enabled(&app, "library.request.handoff"));
+    assert!(!control_enabled(&app, export.as_str()));
+    assert!(!has_control(&app, "library.request.retry"));
+
+    // A disabled handoff activated anyway reaches nothing.
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.request.handoff"),
+        InputModality::Pointer,
+    );
+    assert!(app.runtime.prepared_slot_export().is_some());
+
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.request.cancel"),
+        InputModality::Pointer,
+    );
+    app.build_frame();
+    assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(app.runtime.prepared_slot_export().is_none());
+    assert!(app.runtime.library_slots().is_some());
+    assert!(control_enabled(&app, export.as_str()));
+}
+
+/// §4's export-recovery choice through the real frame: the strip's own control
+/// prepares the predecessor, and nothing installs.
+#[test]
+fn an_invalid_head_export_is_accepted_from_the_request_strip() {
+    let (mut store, slot) = store_with_one_slot();
+    let job = store
+        .start(WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: crate::workshop::store::SaveGeneration(1),
+            archive: Box::from(&b"{}"[..]),
+        })
+        .unwrap();
+    assert!(matches!(
+        store.poll(job),
+        StoreJobState::Complete(Ok(WorkshopStoreResult::SlotCommitted { .. }))
+    ));
+    let mut app = library_app_over(store);
+    select(&mut app, slot);
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.action.export"),
+        InputModality::Pointer,
+    );
+    settle_export(&mut app);
+    assert_eq!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportRecoveryOffered { slot }
+    );
+    let accept = SemanticActionId::new("library.request.retry");
+    assert!(control_enabled(&app, accept.as_str()));
+    app.activate_platform_action_id(&accept, InputModality::Keyboard);
+    app.build_frame();
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportReady {
+            source: crate::app::client_runtime::ExportSource::RecoveredPredecessor,
+            ..
+        }
+    ));
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(matches!(
+        app.runtime.active_session(),
+        crate::app::client_runtime::ActiveSession::None
+    ));
+    assert!(has_control(&app, "library.request.handoff"));
 }

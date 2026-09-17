@@ -8,7 +8,7 @@
 
 use nyon::{
     app::client_runtime::library::{
-        LibraryBeginError, LibraryEvent, LibraryOpen, WorkshopLibraryClient,
+        LibraryBeginError, LibraryEvent, LibraryOpen, SlotIntent, WorkshopLibraryClient,
     },
     workshop::{
         WorkshopHistory, decode_catalog_pack, encode_archive,
@@ -104,6 +104,7 @@ fn an_open_of_a_superseded_row_reports_a_stale_row_before_replaying_anything() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -158,6 +159,7 @@ fn a_commit_racing_a_validated_open_refuses_the_marker_and_keeps_the_candidate()
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -235,6 +237,7 @@ fn an_open_at_the_current_head_selects_that_exact_generation_for_continue() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -382,6 +385,7 @@ fn a_second_begin_cannot_strand_the_commit_lane_job_that_selecting_holds() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -444,6 +448,7 @@ fn drive_to_selecting(
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -523,6 +528,7 @@ fn abandoning_a_decoding_open_holds_no_store_job_and_still_returns_to_idle() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -584,6 +590,7 @@ fn an_abandoned_client_accepts_a_fresh_begin_and_polls_as_idle() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .expect("a fresh open must be accepted after abandon");
@@ -626,6 +633,7 @@ fn abandoning_a_selecting_open_leaves_the_continue_marker_claimed() {
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: SlotIntent::Open,
             },
         )
         .unwrap();
@@ -742,4 +750,160 @@ fn an_unarchived_slot_still_opens_so_the_refusal_is_not_unconditional() {
         LibraryEvent::Ready(candidate) => assert_eq!(candidate.loaded.slot, slot),
         other => panic!("an unarchived slot must still open: {other:?}"),
     }
+}
+
+fn begin_slot(
+    client: &mut WorkshopLibraryClient,
+    store: &mut MemoryWorkshopStore,
+    slot: SlotId,
+    expected_generation: SaveGeneration,
+    intent: SlotIntent,
+) {
+    client
+        .begin(
+            store,
+            LibraryOpen::Slot {
+                slot,
+                expected_generation,
+                intent,
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_export_replays_the_exact_generation_and_never_claims_the_marker() {
+    // Route-design task 12c, addendum §4: row Export "does not mutate storage,
+    // select Continue, or install/replace a session". The marker starts on a
+    // different slot, so an export that selected would visibly move it.
+    let mut store = MemoryWorkshopStore::default();
+    let (other, other_generation) = create(&mut store, "Continue Target", 0x0C17);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::SelectContinue {
+            slot: other,
+            expected_generation: other_generation,
+        },
+    );
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0C18);
+    let before = list(&mut store);
+
+    let mut client = WorkshopLibraryClient::default();
+    begin_slot(
+        &mut client,
+        &mut store,
+        slot,
+        generation,
+        SlotIntent::Export,
+    );
+    let candidate = match drive(&mut client, &mut store, |_, _| {}) {
+        LibraryEvent::Ready(candidate) => candidate,
+        other => panic!("an export at the current head must be ready: {other:?}"),
+    };
+    assert_eq!(candidate.loaded.slot, slot);
+    assert_eq!(candidate.loaded.generation, generation);
+    assert!(!candidate.loaded.recovered_from_previous);
+    assert_eq!(candidate.loaded.archive, archive(0x0C18));
+    assert!(!client.is_active(), "an export holds no Selecting phase");
+    assert_eq!(list(&mut store), before, "an export changed the store");
+}
+
+#[test]
+fn an_export_reads_an_archived_row_that_an_open_refuses() {
+    // Task 7 review F5 keeps Export enabled on an archived row, so the client
+    // must not refuse what the screen offers. The same client then refuses an
+    // Open of the same row, which pins that `begin` resets the refusal rather
+    // than leaving the export's setting behind.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0C19);
+    complete(&mut store, WorkshopStoreRequest::ArchiveSlot { slot });
+    let before = list(&mut store);
+
+    let mut client = WorkshopLibraryClient::default();
+    begin_slot(
+        &mut client,
+        &mut store,
+        slot,
+        generation,
+        SlotIntent::Export,
+    );
+    match drive(&mut client, &mut store, |_, _| {}) {
+        LibraryEvent::Ready(candidate) => {
+            assert!(candidate.loaded.archived);
+            assert_eq!(candidate.loaded.archive, archive(0x0C19));
+        }
+        other => panic!("an archived row must still export: {other:?}"),
+    }
+    assert_eq!(list(&mut store), before);
+
+    begin_slot(&mut client, &mut store, slot, generation, SlotIntent::Open);
+    match drive(&mut client, &mut store, |_, _| {}) {
+        LibraryEvent::ArchivedRow { slot: refused } => assert_eq!(refused, slot),
+        other => panic!("an archived row was opened: {other:?}"),
+    }
+}
+
+#[test]
+fn an_export_of_a_superseded_row_is_the_same_refreshable_conflict() {
+    // §4: row Export "also carries the observed generation".
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0C1A);
+    complete(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(0x0C1B),
+        },
+    );
+    let mut client = WorkshopLibraryClient::default();
+    begin_slot(
+        &mut client,
+        &mut store,
+        slot,
+        generation,
+        SlotIntent::Export,
+    );
+    match drive(&mut client, &mut store, |_, _| {}) {
+        LibraryEvent::StaleRow { observed, .. } => assert_eq!(observed, generation),
+        other => panic!("a superseded export was not refused: {other:?}"),
+    }
+}
+
+#[test]
+fn an_export_of_an_invalid_head_offers_the_predecessor_without_promoting_it() {
+    // §4: "An invalid head never silently exports its predecessor", and the
+    // export-recovery path "does not call `PromoteRecoveredSlot` or
+    // `SelectContinue`". The client reports a recovered candidate; deciding to
+    // offer it is the runtime's.
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Two-System Forge", 0x0C1C);
+    let committed = complete(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: Box::from(&b"{}"[..]),
+        },
+    );
+    let WorkshopStoreResult::SlotCommitted {
+        generation: head, ..
+    } = committed
+    else {
+        panic!("unexpected commit result: {committed:?}");
+    };
+    let before = list(&mut store);
+
+    let mut client = WorkshopLibraryClient::default();
+    begin_slot(&mut client, &mut store, slot, head, SlotIntent::Export);
+    match drive(&mut client, &mut store, |_, _| {}) {
+        LibraryEvent::Ready(candidate) => {
+            assert!(candidate.loaded.recovered_from_previous);
+            assert_eq!(candidate.loaded.generation, generation);
+            assert_eq!(candidate.loaded.head_generation, head);
+            assert_eq!(candidate.loaded.archive, archive(0x0C1C));
+        }
+        other => panic!("the predecessor was not offered: {other:?}"),
+    }
+    assert_eq!(list(&mut store), before, "the export repaired the slot");
 }

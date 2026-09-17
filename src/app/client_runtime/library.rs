@@ -15,11 +15,11 @@
 //! what lets the Library present Retry over a live runtime rather than
 //! collapsing into the global recovery screen, which §6 forbids.
 //!
-//! Only startup Continue drives it in product code today.
-//! [`LibraryOpen::Slot`] and the Continue-selection phase exist because §4
-//! assigns Library Open, Use for Continue and row Export to this client and
-//! specifies their conflict handling here; the design's task 12 enables those
-//! routes.
+//! Startup Continue drives it through [`LibraryOpen::SelectedContinue`];
+//! Library Open, Use for Continue (route-design tasks 12a and 12b) and row
+//! Export (12c) drive it through [`LibraryOpen::Slot`], whose [`SlotIntent`]
+//! says whether a validated head claims the Continue marker. §4 assigns all
+//! three to this client and specifies their conflict handling here.
 
 use crate::workshop::{
     ArchiveDecodeJob, ArchiveDecodeStatus, CatalogHash, ValidatedCatalogPackV1, WorkshopHistory,
@@ -41,14 +41,35 @@ pub enum LibraryOpen {
     /// marker, so there is no separately observed generation to conflict with
     /// and no marker to re-select: the marker being current is the premise.
     SelectedContinue,
-    /// An explicit Library Open of one row, carrying the head generation that
-    /// row displayed. §4 requires both the compare against that observed
-    /// generation and, on success, a generation-checked `SelectContinue`
-    /// before session installation.
+    /// An explicit Library activation of one row, carrying the head
+    /// generation that row displayed. §4 requires the compare against that
+    /// observed generation for every intent; `intent` decides what happens
+    /// after the replay.
     Slot {
         slot: SlotId,
         expected_generation: SaveGeneration,
+        intent: SlotIntent,
     },
+}
+
+/// What a [`LibraryOpen::Slot`] is for, as far as the store is concerned.
+///
+/// Made explicit in the variant rather than implicit in a private flag
+/// (task 4 review Finding 2): a mode that always selects Continue, reused for
+/// row Export, would compile, pass a naive test, and move the Continue marker
+/// on an export.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlotIntent {
+    /// Library Open and Use for Continue: a clean head claims the Continue
+    /// marker by compare-and-swap before it is reported ready, and an
+    /// archived row is refused (§3).
+    Open,
+    /// Row Export: a pure read. §4 says it "does not mutate storage, select
+    /// Continue, or install/replace a session", so no `SelectContinue` is
+    /// ever started, and an archived row is **not** refused — §3 forbids
+    /// opening or selecting an archived save, not reading it (task 7 review
+    /// F5).
+    Export,
 }
 
 /// A fully replayed, fully validated candidate. Nothing reaches this type that
@@ -155,6 +176,8 @@ pub struct WorkshopLibraryClient {
     /// Whether a validated non-recovered candidate must claim the Continue
     /// marker before it may be installed.
     selects_continue: bool,
+    /// Whether an archived row is refused. False only for row Export.
+    refuses_archived: bool,
 }
 
 impl Default for WorkshopLibraryClient {
@@ -163,6 +186,7 @@ impl Default for WorkshopLibraryClient {
             phase: Phase::Idle,
             expected_generation: None,
             selects_continue: false,
+            refuses_archived: true,
         }
     }
 }
@@ -190,15 +214,18 @@ impl WorkshopLibraryClient {
                 let job = store.start(WorkshopStoreRequest::ListSlots)?;
                 self.expected_generation = None;
                 self.selects_continue = false;
+                self.refuses_archived = true;
                 self.phase = Phase::Listing(job);
             }
             LibraryOpen::Slot {
                 slot,
                 expected_generation,
+                intent,
             } => {
                 let job = store.start(WorkshopStoreRequest::LoadSlot { slot })?;
                 self.expected_generation = Some(expected_generation);
-                self.selects_continue = true;
+                self.selects_continue = intent == SlotIntent::Open;
+                self.refuses_archived = intent == SlotIntent::Open;
                 self.phase = Phase::Loading {
                     job,
                     selected_slot: slot,
@@ -271,11 +298,12 @@ impl WorkshopLibraryClient {
             // the decoder is still giving it up.
             Phase::Decoding { .. } => true,
         }
-        // `expected_generation` and `selects_continue` are deliberately left as
-        // they are, and the reason is checkable rather than a symmetry argument:
-        // both are read only from inside a phase (the `Loading` generation check
-        // and the selection decision), every phase originates in a `begin`, and
-        // `begin` assigns both on both of its arms. An `Idle` client never reads
+        // `expected_generation`, `selects_continue` and `refuses_archived` are
+        // deliberately left as they are, and the reason is checkable rather
+        // than a symmetry argument: all three are read only from inside a phase
+        // (the `Loading` generation check, the archived refusal and the
+        // selection decision), every phase originates in a `begin`, and `begin`
+        // assigns all three on both of its arms. An `Idle` client never reads
         // either, so a stale value cannot be observed.
     }
 
@@ -528,8 +556,9 @@ impl WorkshopLibraryClient {
         // because both funnel through this function, so the head load and the
         // retained-predecessor recovery load are covered by one refusal instead
         // of two that could drift. Checked before the catalog is decoded and
-        // before a byte is replayed, so an archived row costs one load.
-        if loaded.archived {
+        // before a byte is replayed, so an archived row costs one load. Row
+        // Export reads archived rows, so it skips the refusal.
+        if self.refuses_archived && loaded.archived {
             return LibraryEvent::ArchivedRow { slot: loaded.slot };
         }
         let catalog = match decode_catalog_pack(CORE_PACK_V1) {

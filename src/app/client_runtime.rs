@@ -20,14 +20,15 @@ use crate::{
             WorkshopUpdate,
         },
         store::{
-            SaveGeneration, SlotId, SlotList, SlotName, StoreJobId, StoreJobState, WorkshopStore,
-            WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
+            LoadedSlot, SaveGeneration, SlotId, SlotList, SlotName, StoreJobId, StoreJobState,
+            WorkshopStore, WorkshopStoreError, WorkshopStoreRequest, WorkshopStoreResult,
         },
     },
 };
 
 use library::{
-    LibraryBeginError, LibraryCandidate, LibraryEvent, LibraryOpen, WorkshopLibraryClient,
+    LibraryBeginError, LibraryCandidate, LibraryEvent, LibraryOpen, SlotIntent,
+    WorkshopLibraryClient,
 };
 
 const MAX_CLIENT_DIAGNOSTICS: usize = 100;
@@ -156,12 +157,12 @@ pub enum CatalogImportStatus {
     },
 }
 
-/// Which of the four Library slot requests a machine state names.
+/// Which Library slot request a machine state names.
 ///
-/// The Library submits exactly these four and nothing else. Open, row Export
-/// and Use for Continue go through [`WorkshopLibraryClient`] instead, because
-/// §4 assigns them the exact-catalog resolution this machine deliberately does
-/// not perform.
+/// The first four are plain store requests. Open, Use for Continue and row
+/// Export go through [`WorkshopLibraryClient`] instead, because §4 assigns
+/// them the exact-catalog resolution the plain machine deliberately does not
+/// perform.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SlotRequestKind {
     List,
@@ -172,6 +173,46 @@ pub enum SlotRequestKind {
     Open,
     /// The same validation, selecting the row for Continue without opening it.
     UseForContinue,
+    /// The same validation as a pure read, preparing portable bytes. Selects
+    /// nothing and installs nothing.
+    Export,
+}
+
+/// Where prepared row-export bytes came from, so the label cannot claim more
+/// than the bytes are.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExportSource {
+    /// The row's stored head, exactly as listed.
+    Head,
+    /// The row's retained predecessor, because the head did not validate.
+    /// Nothing was promoted and the Continue marker did not move.
+    RecoveredPredecessor,
+}
+
+impl ExportSource {
+    /// Addendum §4's label. The predecessor's text is quoted from the
+    /// addendum verbatim.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Head => "Latest save",
+            Self::RecoveredPredecessor => {
+                "Recovered predecessor; stored head and Continue unchanged"
+            }
+        }
+    }
+}
+
+/// Row-export bytes that have fully validated and are waiting for the
+/// platform handoff (route-design task 11). Bounded by the store's archive
+/// limit, because they are the bytes `LoadSlot` returned.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreparedSlotExport {
+    pub slot: SlotId,
+    pub name: SlotName,
+    /// The generation the bytes were read from.
+    pub generation: SaveGeneration,
+    pub source: ExportSource,
+    pub archive: Box<[u8]>,
 }
 
 /// The bounded typed facts the Library presents for its slot-request machine.
@@ -205,6 +246,19 @@ pub enum LibrarySlotsStatus {
     /// slot's retained predecessor rather than its head. Offers Open and
     /// Cancel.
     Held { slot: SlotId, recovered: bool },
+    /// A row export found an invalid head and a valid predecessor. §4's
+    /// explicit export-recovery choice: offers Export previous and Cancel.
+    /// Nothing has been promoted or selected.
+    ExportRecoveryOffered { slot: SlotId },
+    /// Row-export bytes are validated and waiting for the platform handoff.
+    /// The bytes themselves are read through
+    /// [`ClientRuntime::prepared_slot_export`]. Offers the handoff (disabled
+    /// until a transfer adapter exists) and Discard.
+    ExportReady {
+        slot: SlotId,
+        generation: SaveGeneration,
+        source: ExportSource,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -318,11 +372,22 @@ enum LibrarySlots {
     Held {
         candidate: Box<LibraryCandidate>,
     },
+    /// Route-design task 12c: a row export whose head did not validate, and
+    /// whose predecessor did. Only the loaded predecessor is kept; the
+    /// replayed history is not needed to export it.
+    ExportRecoveryOffered {
+        loaded: Box<LoadedSlot>,
+    },
+    /// Validated row-export bytes. The lane stays occupied until the user
+    /// discards them or (task 11) hands them off, so the one request strip is
+    /// the one place they are offered.
+    ExportReady {
+        export: Box<PreparedSlotExport>,
+    },
 }
 
 /// What an exact-catalog open of one row is for. The single encoding of
-/// that choice: row Export (task 12c) is meant to become a third variant here
-/// rather than a separate flag.
+/// that choice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OpenPurpose {
     /// Library Open: validate, claim Continue, then replace the session.
@@ -330,6 +395,9 @@ enum OpenPurpose {
     /// Use for Continue: validate and claim Continue, then keep the
     /// candidate for the Continue route. Nothing is installed.
     SelectOnly,
+    /// Row Export (task 12c): validate as a pure read and keep the bytes.
+    /// Nothing is selected, promoted or installed.
+    Export,
 }
 
 impl OpenPurpose {
@@ -337,7 +405,31 @@ impl OpenPurpose {
         match self {
             Self::Install => SlotRequestKind::Open,
             Self::SelectOnly => SlotRequestKind::UseForContinue,
+            Self::Export => SlotRequestKind::Export,
         }
+    }
+
+    const fn intent(self) -> SlotIntent {
+        match self {
+            Self::Install | Self::SelectOnly => SlotIntent::Open,
+            Self::Export => SlotIntent::Export,
+        }
+    }
+}
+
+/// Row-export bytes from a validated load. The source follows the load, so a
+/// predecessor can never be labelled as the head.
+fn prepared_export(loaded: LoadedSlot) -> PreparedSlotExport {
+    PreparedSlotExport {
+        slot: loaded.slot,
+        name: loaded.name,
+        generation: loaded.generation,
+        source: if loaded.recovered_from_previous {
+            ExportSource::RecoveredPredecessor
+        } else {
+            ExportSource::Head
+        },
+        archive: loaded.archive,
     }
 }
 
@@ -1122,6 +1214,23 @@ where
                 slot: candidate.loaded.slot,
                 recovered: candidate.loaded.recovered_from_previous,
             },
+            LibrarySlots::ExportRecoveryOffered { loaded } => {
+                LibrarySlotsStatus::ExportRecoveryOffered { slot: loaded.slot }
+            }
+            LibrarySlots::ExportReady { export } => LibrarySlotsStatus::ExportReady {
+                slot: export.slot,
+                generation: export.generation,
+                source: export.source,
+            },
+        }
+    }
+
+    /// The validated row-export bytes, while
+    /// [`LibrarySlotsStatus::ExportReady`] holds them.
+    pub fn prepared_slot_export(&self) -> Option<&PreparedSlotExport> {
+        match &self.slot_requests {
+            LibrarySlots::ExportReady { export } => Some(export),
+            _ => None,
         }
     }
 
@@ -1242,11 +1351,23 @@ where
             // An open that reached `Selecting`, or finished it and is held, may
             // have moved the Continue marker (see
             // `WorkshopLibraryClient::abandon`), so the list is dropped with it.
+            // An export never starts a mutation, so the list it was
+            // activated from is still true and is kept.
+            LibrarySlots::Opening {
+                purpose: OpenPurpose::Export,
+                ..
+            } => {
+                self.open_client.abandon(&mut self.workshop_store);
+                Ok(())
+            }
             LibrarySlots::Opening { .. } => {
                 self.open_client.abandon(&mut self.workshop_store);
                 self.slot_list = None;
                 Ok(())
             }
+            // Discarding prepared or offered export bytes releases them and
+            // changes nothing stored.
+            LibrarySlots::ExportRecoveryOffered { .. } | LibrarySlots::ExportReady { .. } => Ok(()),
             LibrarySlots::Held { .. } => {
                 self.slot_list = None;
                 Ok(())
@@ -1308,6 +1429,54 @@ where
         self.dispatch_open(slot, generation, OpenPurpose::SelectOnly)
     }
 
+    /// Prepares a portable copy of one listed row (§4, route-design task 12c).
+    ///
+    /// The same exact-catalog validation and full replay as Open, as a pure
+    /// read: no `SelectContinue`, no promotion, no installation. Validated
+    /// bytes are held as [`LibrarySlotsStatus::ExportReady`] until the user
+    /// discards them; the handoff is task 11's.
+    ///
+    /// **Not gated on the resident Workshop.** §6 does not name row Export and
+    /// §4 says it mutates nothing, so neither an unsaved resident nor the
+    /// resident's own slot is a reason to refuse it: exporting the resident's
+    /// slot reads its stored generation, not the in-memory session, and the
+    /// status says which generation it is. Refused only while another Library
+    /// request holds the lane or startup Continue is running.
+    pub fn export_library_slot(
+        &mut self,
+        slot: SlotId,
+        generation: SaveGeneration,
+    ) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.dispatch_open(slot, generation, OpenPurpose::Export)
+    }
+
+    /// Accepts §4's export-recovery choice: the already-validated predecessor
+    /// becomes the prepared bytes, labelled
+    /// [`ExportSource::RecoveredPredecessor`]. Calls neither
+    /// `PromoteRecoveredSlot` nor `SelectContinue`; repairing the slot is
+    /// still Open's job.
+    pub fn accept_library_export_recovery(&mut self) -> Result<(), ClientRuntimeError> {
+        match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
+            LibrarySlots::ExportRecoveryOffered { loaded } => {
+                self.slot_requests = LibrarySlots::ExportReady {
+                    export: Box::new(prepared_export(*loaded)),
+                };
+                Ok(())
+            }
+            other => {
+                self.slot_requests = other;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No Workshop Library export recovery is waiting",
+                );
+                Err(ClientRuntimeError::RouteUnavailable)
+            }
+        }
+    }
+
     /// Installs the held candidate the user accepted.
     ///
     /// Still refused while the resident Workshop cannot be replaced; the
@@ -1357,19 +1526,24 @@ where
             );
             return Err(ClientRuntimeError::RouteUnavailable);
         }
-        if self.resident_slot() == Some(slot) {
-            self.push_diagnostic(
-                ClientDiagnosticCode::RouteUnavailable,
-                "The resident Workshop's own slot is already open",
-            );
-            return Err(ClientRuntimeError::RouteUnavailable);
+        // Both residency refusals protect an installation or a Continue
+        // selection. An export performs neither (§4), so neither applies.
+        if purpose != OpenPurpose::Export {
+            if self.resident_slot() == Some(slot) {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "The resident Workshop's own slot is already open",
+                );
+                return Err(ClientRuntimeError::RouteUnavailable);
+            }
+            self.ensure_resident_workshop_replaceable()?;
         }
-        self.ensure_resident_workshop_replaceable()?;
         match self.open_client.begin(
             &mut self.workshop_store,
             LibraryOpen::Slot {
                 slot,
                 expected_generation: generation,
+                intent: purpose.intent(),
             },
         ) {
             Ok(()) => {
@@ -1415,6 +1589,21 @@ where
         };
         match self.open_client.poll(&mut self.workshop_store) {
             LibraryEvent::Pending => {}
+            // An export never installs, so neither the screen nor the resident
+            // decides anything here. A predecessor is only ever offered: §4
+            // says an invalid head "never silently exports its predecessor".
+            LibraryEvent::Ready(candidate) if purpose == OpenPurpose::Export => {
+                let LibraryCandidate { loaded, .. } = *candidate;
+                self.slot_requests = if loaded.recovered_from_previous {
+                    LibrarySlots::ExportRecoveryOffered {
+                        loaded: Box::new(loaded),
+                    }
+                } else {
+                    LibrarySlots::ExportReady {
+                        export: Box::new(prepared_export(loaded)),
+                    }
+                };
+            }
             // A clean head that was only to be selected is now the Continue
             // save: keep it where startup Continue keeps its candidate, and
             // re-list, because the marker moved. A predecessor falls through

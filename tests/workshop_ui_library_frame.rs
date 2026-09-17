@@ -13,7 +13,9 @@ use std::collections::BTreeSet;
 
 use glam::Vec2;
 use nyon::{
-    app::client_runtime::{ClientDiagnosticCode, LibrarySlotsStatus, SlotRequestKind},
+    app::client_runtime::{
+        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    },
     engine::primitives::PrimitiveBatch,
     ui::{
         AtlasMetrics, UiBatch,
@@ -938,4 +940,74 @@ fn every_open_request_state_installs_and_keeps_its_decision_controls() {
             }
         }
     }
+}
+
+/// Task 12c's request states: the export-recovery offer and the prepared copy,
+/// whose recovered status line is the longest the strip carries. Each must
+/// install, keep 44-pixel controls, and place its two strip controls wherever
+/// the crowded failure places Retry and Cancel. The stage-2 handoff has its own
+/// identifier and must take Retry's place, never be dropped.
+#[test]
+fn every_export_request_state_installs_and_keeps_its_strip_controls() {
+    let list = crowded_list();
+    let ready = |source| LibrarySlotsStatus::ExportReady {
+        slot: SlotId(1),
+        generation: SaveGeneration(2),
+        source,
+    };
+    let statuses = [
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::Export,
+            slot: Some(SlotId(1)),
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::Export,
+            slot: Some(SlotId(1)),
+            code: ClientDiagnosticCode::Store,
+        },
+        LibrarySlotsStatus::ExportRecoveryOffered { slot: SlotId(1) },
+        ready(ExportSource::Head),
+        ready(ExportSource::RecoveredPredecessor),
+    ];
+    let reference = crowded_model(&list);
+    let mut handoffs_placed = 0;
+    for status in statuses {
+        for transfer_available in [false, true] {
+            let model = LibraryUiModel::build(LibraryUiContext {
+                status,
+                transfer_available,
+                ..crowded_context(&list)
+            });
+            for ((viewport, scale), sheet) in sheet_cases() {
+                let case = format!(
+                    "{status:?} transfer={transfer_available} at {viewport} x{scale} {sheet:?}"
+                );
+                let frame = frame_with(&model, viewport, scale, view(sheet));
+                install(&frame).unwrap_or_else(|error| panic!("{case}: refused: {error}"));
+                for control in &frame.controls {
+                    assert!(
+                        control.bounds.width() >= 44.0 && control.bounds.height() >= 44.0,
+                        "{case}: {} is undersized",
+                        control.action_id.as_str()
+                    );
+                }
+                let placed = placed_ids(&frame);
+                let expected = placed_ids(&frame_with(&reference, viewport, scale, view(sheet)));
+                for (id, reference_id) in [
+                    ("library.request.retry", "library.request.retry"),
+                    ("library.request.handoff", "library.request.retry"),
+                    ("library.request.cancel", "library.request.cancel"),
+                ] {
+                    let offered = model.controls().any(|c| c.action_id.as_str() == id);
+                    if offered && expected.contains(reference_id) {
+                        assert!(placed.contains(id), "{case}: {id} was dropped");
+                        if id == "library.request.handoff" {
+                            handoffs_placed += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(handoffs_placed > 0, "no case placed the handoff at all");
 }

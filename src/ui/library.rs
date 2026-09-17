@@ -33,9 +33,9 @@
 //!
 //! # Disabled, never omitted
 //!
-//! Controls whose backing capability has not shipped yet — the exact-catalog
-//! open client, the transfer adapters — render **disabled with a visible
-//! reason**, keeping their focus slot. Omitting them is baseline Finding 5
+//! Controls whose backing capability has not shipped yet — the transfer
+//! adapters, and with them the export handoff — render **disabled with a
+//! visible reason**, keeping their focus slot. Omitting them is baseline Finding 5
 //! exactly: a control that exists logically and cannot be reached.
 //! [`LibraryControl`] makes that structural, because `enabled` and
 //! `disabled_reason` can only be set together.
@@ -51,7 +51,9 @@ pub use confirmation::{
 };
 
 use crate::{
-    app::client_runtime::{ClientDiagnosticCode, LibrarySlotsStatus, SlotRequestKind},
+    app::client_runtime::{
+        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    },
     workshop::store::{SaveGeneration, SlotId, SlotList, SlotSummary},
 };
 
@@ -115,6 +117,12 @@ pub enum LibraryUiIntent {
     SubmitConfirmation(LibraryConfirmationRequest),
     /// Install the validated open the runtime is holding.
     AcceptOpen,
+    /// Accept §4's export-recovery choice: prepare the validated predecessor.
+    AcceptExportRecovery,
+    /// Stage 2 of row Export: hand the prepared bytes to the platform. A
+    /// separate intent from [`Self::ExportSlot`], on a separate control, so a
+    /// repeated stage-1 activation can never perform the handoff (§7).
+    HandOffExport,
 }
 
 /// Why a control is present but not activatable.
@@ -151,8 +159,9 @@ pub enum LibraryDisabledReason {
     RequestInFlight,
     /// The lane holds a failure the user has not resolved yet.
     DecisionPending,
-    /// The exact-catalog Library client is not wired to this screen yet.
-    LibraryClientUnavailable,
+    /// The lane holds a prepared export the user has not handed off or
+    /// discarded.
+    ExportWaiting,
     /// The rename draft is not a name the store accepts.
     InvalidName,
     /// No portable transfer adapter is installed.
@@ -199,9 +208,7 @@ impl LibraryDisabledReason {
             Self::AlreadyContinue => "This save is already the Continue target.",
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
-            Self::LibraryClientUnavailable => {
-                "Continue selection and export are not available yet."
-            }
+            Self::ExportWaiting => "Discard the prepared copy first.",
             Self::InvalidName => {
                 "Names use 1 to 64 printable characters with single spaces between words."
             }
@@ -406,7 +413,9 @@ impl LibraryRequestModel {
     pub const fn decision_pending(&self) -> bool {
         matches!(
             self.status,
-            LibrarySlotsStatus::Failed { .. } | LibrarySlotsStatus::Held { .. }
+            LibrarySlotsStatus::Failed { .. }
+                | LibrarySlotsStatus::Held { .. }
+                | LibrarySlotsStatus::ExportRecoveryOffered { .. }
         )
     }
 
@@ -492,9 +501,6 @@ pub struct LibraryUiContext<'a> {
     /// `ClientRuntime::resident_workshop_blocks_replacement`, the same rule the
     /// runtime refuses an open with.
     pub replacement_blocked: bool,
-    /// Whether the exact-catalog Library client is wired to Use for Continue
-    /// and row Export. Open no longer reads it.
-    pub library_client_available: bool,
     /// Whether a portable transfer adapter is installed.
     pub transfer_available: bool,
     /// The confirmation the user opened, if any. Resolved against the rows:
@@ -513,7 +519,6 @@ impl Default for LibraryUiContext<'_> {
             resident_slot: None,
             workshop_active: false,
             replacement_blocked: false,
-            library_client_available: false,
             transfer_available: false,
             confirmation: None,
             rename_draft: None,
@@ -542,7 +547,11 @@ pub struct LibraryUiModel {
 
 impl LibraryUiModel {
     pub fn build(context: LibraryUiContext<'_>) -> Self {
-        let request = build_request(context.status, context.replacement_blocked);
+        let request = build_request(
+            context.status,
+            context.replacement_blocked,
+            context.transfer_available,
+        );
         let content = library_content(context.slots, context.status);
         let rows = build_rows(context);
         let selected_row = context
@@ -722,9 +731,12 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
     match request.status {
         LibrarySlotsStatus::Idle => None,
         LibrarySlotsStatus::Working { .. } => Some(LibraryDisabledReason::RequestInFlight),
-        LibrarySlotsStatus::Failed { .. } | LibrarySlotsStatus::Held { .. } => {
+        LibrarySlotsStatus::Failed { .. }
+        | LibrarySlotsStatus::Held { .. }
+        | LibrarySlotsStatus::ExportRecoveryOffered { .. } => {
             Some(LibraryDisabledReason::DecisionPending)
         }
+        LibrarySlotsStatus::ExportReady { .. } => Some(LibraryDisabledReason::ExportWaiting),
     }
 }
 
@@ -735,8 +747,13 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
 /// not re-list, because re-listing would resolve a decision the user still
 /// owns. Neither control ever routes to the recovery screen — §6 forbids
 /// collapsing a Library failure into `RecoverableError`.
-fn build_request(status: LibrarySlotsStatus, replacement_blocked: bool) -> LibraryRequestModel {
+fn build_request(
+    status: LibrarySlotsStatus,
+    replacement_blocked: bool,
+    transfer_available: bool,
+) -> LibraryRequestModel {
     let replacement = replacement_blocked.then_some(LibraryDisabledReason::ReplacementBlocked);
+    let transfer = (!transfer_available).then_some(LibraryDisabledReason::TransferUnavailable);
     let (failure_code, retry_control, cancel_control) = match status {
         LibrarySlotsStatus::Idle => (None, None, None),
         LibrarySlotsStatus::Working { .. } => (
@@ -753,7 +770,7 @@ fn build_request(status: LibrarySlotsStatus, replacement_blocked: bool) -> Libra
         // A conflicted open is retried by re-listing; the runtime does exactly
         // that for this code, so the label says so.
         LibrarySlotsStatus::Failed {
-            kind: SlotRequestKind::Open | SlotRequestKind::UseForContinue,
+            kind: SlotRequestKind::Open | SlotRequestKind::UseForContinue | SlotRequestKind::Export,
             code: code @ ClientDiagnosticCode::StaleSave,
             ..
         } => (
@@ -795,6 +812,48 @@ fn build_request(status: LibrarySlotsStatus, replacement_blocked: bool) -> Libra
                 "library.request.cancel",
                 "Cancel",
                 "Do not open this save. Nothing stored is removed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // §4's export-recovery choice. Accepting prepares bytes and replaces
+        // nothing, so unlike Open previous it takes no replacement gate.
+        LibrarySlotsStatus::ExportRecoveryOffered { .. } => (
+            None,
+            Some(LibraryControl::enabled(
+                "library.request.retry",
+                "Export previous",
+                "Prepare a portable copy of the previous valid generation. The stored save and Continue are not changed.",
+                false,
+                LibraryUiIntent::AcceptExportRecovery,
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Do not export this save. Nothing stored is changed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // Stage 2 has its own identifier, never the one Export previous used,
+        // so a repeated activation of the control that prepared the bytes
+        // cannot land on the handoff (§7's second direct activation). It is
+        // disabled with a visible reason until a transfer adapter exists, and
+        // keeps its focus slot meanwhile.
+        LibrarySlotsStatus::ExportReady { .. } => (
+            None,
+            Some(LibraryControl::gated(
+                "library.request.handoff",
+                "Save copy",
+                "Hand the prepared copy to the system.",
+                false,
+                LibraryUiIntent::HandOffExport,
+                &[transfer],
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Discard",
+                "Discard the prepared copy. Nothing stored is changed.",
                 false,
                 LibraryUiIntent::CancelSlotRequest,
             )),
@@ -912,10 +971,11 @@ fn row_description(summary: &SlotSummary, resident: bool) -> String {
 /// control that disappears takes its focus slot and its layout box with it,
 /// which is the defect this screen was told not to repeat.
 ///
-/// Open (task 12a) and Use for Continue (12b) take the lane reason: their
-/// `SelectContinue` contends for the Commit lane a Rename holds, and their
-/// progress, failure and held candidate are all shown in the one request
-/// strip. Row Export does not take it yet; task 12c decides that.
+/// Open (task 12a), Use for Continue (12b) and row Export (12c) take the lane
+/// reason. Open and Use for Continue need it because their `SelectContinue`
+/// contends for the Commit lane a Rename holds; all three need it because
+/// their progress, failure, held candidate or prepared bytes are shown in the
+/// one request strip.
 ///
 /// **§6's replacement-and-persistence gate, item by item, so task 12 adds it
 /// where it belongs rather than where an earlier summary of this list said.**
@@ -942,9 +1002,9 @@ fn row_description(summary: &SlotSummary, resident: bool) -> String {
 ///
 /// **Row Export is deliberately absent from that list.** §6 does not name it and
 /// §4 states it "does not mutate storage, select Continue, or install/replace a
-/// session", so there is no replacement gate to add to it. It needs the
-/// exact-catalog client and nothing more, which is why
-/// [`LibraryDisabledReason::LibraryClientUnavailable`] is its whole story today.
+/// session", so there is no replacement gate to add to it, no archived gate
+/// (task 7 review F5) and no residency gate: exporting the resident's own row
+/// reads its stored generation. The lane is its only gate.
 fn build_actions(
     row: Option<&LibraryRow>,
     request: &LibraryRequestModel,
@@ -970,8 +1030,6 @@ fn build_actions(
         .filter(|row| row.selected_for_continue)
         .map(|_| LibraryDisabledReason::AlreadyContinue);
     let lane = lane_reason(request);
-    let client = (!context.library_client_available)
-        .then_some(LibraryDisabledReason::LibraryClientUnavailable);
     let slot = row.map(|row| row.slot);
     let generation = row.map_or(SaveGeneration(0), |row| row.generation);
     let subject = slot.unwrap_or(SlotId(0));
@@ -1046,7 +1104,7 @@ fn build_actions(
                 slot: subject,
                 generation,
             },
-            &[no_selection, client],
+            &[no_selection, lane],
         ),
     }
 }
@@ -1156,13 +1214,14 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
             SlotRequestKind::Unarchive => "Unarchiving a saved galaxy.",
             SlotRequestKind::Open => "Opening a saved galaxy.",
             SlotRequestKind::UseForContinue => "Checking a saved galaxy for Continue.",
+            SlotRequestKind::Export => "Preparing a portable copy of a saved galaxy.",
         },
         LibrarySlotsStatus::Failed { kind, code, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies failed. Retry or cancel.",
             SlotRequestKind::Rename => "Renaming a saved galaxy failed. Retry or cancel.",
             SlotRequestKind::Archive => "Archiving a saved galaxy failed. Retry or cancel.",
             SlotRequestKind::Unarchive => "Unarchiving a saved galaxy failed. Retry or cancel.",
-            SlotRequestKind::Open | SlotRequestKind::UseForContinue
+            SlotRequestKind::Open | SlotRequestKind::UseForContinue | SlotRequestKind::Export
                 if matches!(code, ClientDiagnosticCode::StaleSave) =>
             {
                 "That save changed. Refresh, then try again."
@@ -1171,6 +1230,7 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
             SlotRequestKind::UseForContinue => {
                 "Choosing the Continue save failed. Retry or cancel."
             }
+            SlotRequestKind::Export => "Preparing a portable copy failed. Retry or cancel.",
         },
         LibrarySlotsStatus::Held {
             recovered: true, ..
@@ -1178,6 +1238,17 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
         LibrarySlotsStatus::Held {
             recovered: false, ..
         } => "A saved galaxy is now the Continue save. Open it or cancel.",
+        LibrarySlotsStatus::ExportRecoveryOffered { .. } => {
+            "The latest save is invalid. Export its previous generation or cancel."
+        }
+        LibrarySlotsStatus::ExportReady {
+            source: ExportSource::Head,
+            ..
+        } => "A portable copy of the latest save is ready.",
+        LibrarySlotsStatus::ExportReady {
+            source: ExportSource::RecoveredPredecessor,
+            ..
+        } => "Portable copy ready. Recovered predecessor; stored head and Continue unchanged.",
     }
 }
 
