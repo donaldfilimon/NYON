@@ -2035,6 +2035,19 @@ fn use_for_continue_is_live_and_refused_while_a_workshop_is_resident() {
         assert!(!action.enabled, "{reason:?}");
         assert_eq!(action.disabled_reason, Some(reason));
     }
+    // The resident refusal says why in the semantic tree, in its own words.
+    let resident = model(LibraryUiContext {
+        workshop_active: true,
+        ..base
+    });
+    let node = resident
+        .semantics
+        .node("library.control.library.action.use-for-continue")
+        .expect("Use for Continue node");
+    assert_eq!(
+        node.value.as_deref(),
+        Some("Continue follows the open Workshop while it is open.")
+    );
 }
 
 /// Its progress, failure and conflict read as Continue, not as Open.

@@ -42,12 +42,18 @@ struct Shared {
     inner: Rc<RefCell<MemoryWorkshopStore>>,
     /// Refuses the next `LoadSlot` start once, then behaves.
     fail_next_load: Rc<Cell<bool>>,
+    /// Refuses the next `ListSlots` start once, then behaves.
+    fail_next_list: Rc<Cell<bool>>,
 }
 
 impl WorkshopStore for Shared {
     fn start(&mut self, request: WorkshopStoreRequest) -> Result<StoreJobId, WorkshopStoreError> {
         if matches!(request, WorkshopStoreRequest::LoadSlot { .. })
             && self.fail_next_load.replace(false)
+        {
+            return Err(WorkshopStoreError::JobIdExhausted);
+        }
+        if matches!(request, WorkshopStoreRequest::ListSlots) && self.fail_next_list.replace(false)
         {
             return Err(WorkshopStoreError::JobIdExhausted);
         }
@@ -620,6 +626,157 @@ fn use_for_continue_is_refused_while_any_workshop_is_resident() {
         Err(ClientRuntimeError::RouteUnavailable)
     );
     assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert_eq!(stored_list(&store).selected_continue, None);
+    // The refusal is reported, as the runtime's other route refusals are.
+    let reported = runtime
+        .diagnostics()
+        .last()
+        .expect("the refusal is reported");
+    assert_eq!(reported.code, ClientDiagnosticCode::RouteUnavailable);
+    assert!(
+        reported.message.contains("Continue"),
+        "{}",
+        reported.message
+    );
+}
+
+/// The lane guard: a request already in flight is neither overwritten nor
+/// orphaned by a Use for Continue activated over it.
+#[test]
+fn use_for_continue_is_refused_while_another_library_request_holds_the_lane() {
+    let store = Shared::default();
+    let (first, generation) = create(&store, "First Forge", 11);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    let listing = LibrarySlotsStatus::Working {
+        kind: SlotRequestKind::List,
+        slot: None,
+    };
+    assert_eq!(runtime.library_slots_status(), listing);
+    assert_eq!(
+        runtime.use_library_slot_for_continue(first, generation),
+        Err(ClientRuntimeError::LibraryRequestActive)
+    );
+    assert_eq!(runtime.library_slots_status(), listing);
+    settle(&mut runtime);
+    assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(runtime.library_slots().is_some());
+    assert_eq!(stored_list(&store).selected_continue, None);
+}
+
+/// The marker moved, so the cached list that named the old one is dropped
+/// even when the re-list that would replace it is refused.
+#[test]
+fn a_refused_relist_after_use_for_continue_leaves_no_stale_list() {
+    let store = Shared::default();
+    create(&store, "First Forge", 11);
+    let (second, generation) = create(&store, "Second Forge", 12);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    assert!(runtime.library_slots().is_some());
+
+    runtime
+        .use_library_slot_for_continue(second, generation)
+        .unwrap();
+    store.fail_next_list.set(true);
+    settle(&mut runtime);
+    assert_eq!(stored_list(&store).selected_continue, Some(second));
+    assert!(runtime.continue_available());
+    assert_eq!(
+        runtime.library_slots_status(),
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::List,
+            slot: None,
+            code: ClientDiagnosticCode::Store,
+        }
+    );
+    assert!(
+        runtime.library_slots().is_none(),
+        "the list naming the old Continue marker survived"
+    );
+}
+
+/// Cancel at every point a Use for Continue can be in drops the cached list,
+/// because one that reached `SelectContinue` may have moved the marker, and
+/// frees the lane without installing anything.
+#[test]
+fn cancelling_a_use_for_continue_in_flight_drops_the_list_and_installs_nothing() {
+    let mut cancelled = 0;
+    for polls in 0..=3 {
+        let store = Shared::default();
+        let (first, generation) = create(&store, "First Forge", 11);
+        let (second, _) = create(&store, "Second Forge", 12);
+        let mut runtime = runtime(&store);
+        runtime.open_library().unwrap();
+        settle(&mut runtime);
+        runtime
+            .use_library_slot_for_continue(first, generation)
+            .unwrap();
+        for _ in 0..polls {
+            runtime.update(Duration::ZERO);
+        }
+        if !matches!(
+            runtime.library_slots_status(),
+            LibrarySlotsStatus::Working { .. }
+        ) {
+            continue;
+        }
+        cancelled += 1;
+        runtime.cancel_library_slot_request().unwrap();
+        assert_eq!(runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+        assert!(runtime.library_slots().is_none(), "{polls}");
+        for _ in 0..8 {
+            runtime.update(Duration::ZERO);
+        }
+        assert!(
+            matches!(runtime.active_session(), ActiveSession::None),
+            "{polls}"
+        );
+        assert_eq!(runtime.screen(), ClientScreen::Library);
+        runtime
+            .rename_library_slot(second, SlotName::new("Renamed Forge").unwrap())
+            .unwrap();
+        settle(&mut runtime);
+        assert_eq!(
+            runtime.library_slots_status(),
+            LibrarySlotsStatus::Idle,
+            "{polls}: the rename did not complete"
+        );
+    }
+    assert!(cancelled > 0, "no poll count left the request in flight");
+}
+
+/// A retry refused because a Workshop became resident keeps the failure, and
+/// keeps it as a Use for Continue failure rather than an Open one.
+#[test]
+fn a_retry_refused_by_a_resident_workshop_keeps_the_use_for_continue_failure() {
+    let store = Shared::default();
+    let (first, observed) = create(&store, "First Forge", 11);
+    let mut runtime = runtime(&store);
+    runtime.open_library().unwrap();
+    settle(&mut runtime);
+    store.fail_next_load.set(true);
+    assert!(
+        runtime
+            .use_library_slot_for_continue(first, observed)
+            .is_err()
+    );
+    let failed = LibrarySlotsStatus::Failed {
+        kind: SlotRequestKind::UseForContinue,
+        slot: Some(first),
+        code: ClientDiagnosticCode::Store,
+    };
+    assert_eq!(runtime.library_slots_status(), failed);
+
+    runtime.close_library();
+    runtime.start_new_workshop(5).unwrap();
+    runtime.open_library().unwrap();
+    assert_eq!(
+        runtime.retry_library_slot_request(),
+        Err(ClientRuntimeError::RouteUnavailable)
+    );
+    assert_eq!(runtime.library_slots_status(), failed);
     assert_eq!(stored_list(&store).selected_continue, None);
 }
 
