@@ -763,6 +763,46 @@ fn a_route_declares_a_nonzero_cadence_and_batch() {
     expect_range(&state, "route cadence");
 }
 
+/// Rules "Freight": "batch size up to ten, cadence ten ticks, source reserve
+/// at least 20". The validator checked only nonzero and the storage limit
+/// (addendum K5, 2026-09-17).
+#[test]
+fn a_route_declares_the_rules_batch_cadence_and_reserve() {
+    let mut state = valid_state();
+    let mut rows = state.routes.into_vec();
+    rows[0].batch_size = 11;
+    state.routes = sorted(rows);
+    expect_range(&state, "route batch_size");
+
+    let mut state = valid_state();
+    let mut rows = state.routes.into_vec();
+    rows[0].cadence_ticks = 11;
+    state.routes = sorted(rows);
+    expect_range(&state, "route cadence");
+
+    let mut state = valid_state();
+    let mut rows = state.routes.into_vec();
+    rows[0].cadence_ticks = 9;
+    state.routes = sorted(rows);
+    expect_range(&state, "route cadence");
+
+    let mut state = valid_state();
+    let mut rows = state.routes.into_vec();
+    rows[0].source_reserve = 19;
+    state.routes = sorted(rows);
+    expect_range(&state, "route source_reserve");
+
+    // The boundaries themselves are valid.
+    let mut state = valid_state();
+    let mut rows = state.routes.into_vec();
+    rows[0].batch_size = 1;
+    rows[0].source_reserve = 20;
+    state.routes = sorted(rows);
+    state
+        .validate(&catalog())
+        .expect("batch 1, reserve 20 is valid");
+}
+
 #[test]
 fn a_shipment_carries_a_nonzero_load_and_arrives_after_it_departs() {
     let mut state = valid_state();

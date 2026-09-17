@@ -68,6 +68,12 @@ pub const LIVING_MAX_DEPOSITS_V2: usize = 1_024;
 pub const LIVING_MAX_INDUSTRIES_V2: usize = 2_048;
 /// Section 1: at most two thousand and forty-eight freight routes.
 pub const LIVING_MAX_ROUTES_V2: usize = 2_048;
+/// Rules "Freight": a route's batch size is at most ten units.
+pub const LIVING_ROUTE_BATCH_LIMIT_V2: u32 = 10;
+/// Rules "Freight": a route dispatches every ten ticks.
+pub const LIVING_ROUTE_CADENCE_TICKS_V2: u32 = 10;
+/// Rules "Freight": a route keeps at least 20 units at its source.
+pub const LIVING_ROUTE_RESERVE_FLOOR_V2: u32 = 20;
 /// Section 1: at most four thousand and ninety-six shipments.
 pub const LIVING_MAX_SHIPMENTS_V2: usize = 4_096;
 /// Section 1: at most two hundred and fifty-six fleets.
@@ -1536,16 +1542,23 @@ impl LivingGalaxyStateV2 {
                     field: "route endpoints",
                 });
             }
-            if route.batch_size == 0 || route.cadence_ticks == 0 {
+            // Rules "Freight": batch size up to ten, cadence ten ticks,
+            // source reserve at least 20.
+            if route.batch_size == 0 || route.cadence_ticks != LIVING_ROUTE_CADENCE_TICKS_V2 {
                 return Err(LivingValidationErrorV2::Range {
                     field: "route cadence",
                 });
             }
-            if route.batch_size > LIVING_RESOURCE_STORAGE_LIMIT_V2
+            if route.batch_size > LIVING_ROUTE_BATCH_LIMIT_V2 {
+                return Err(LivingValidationErrorV2::Range {
+                    field: "route batch_size",
+                });
+            }
+            if route.source_reserve < LIVING_ROUTE_RESERVE_FLOOR_V2
                 || route.source_reserve > LIVING_RESOURCE_STORAGE_LIMIT_V2
             {
                 return Err(LivingValidationErrorV2::Range {
-                    field: "route batch_size",
+                    field: "route source_reserve",
                 });
             }
         }
