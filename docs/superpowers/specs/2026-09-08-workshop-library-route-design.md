@@ -12,12 +12,13 @@ only when built.
 
 **Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
 three row slices (12a Open, 12b Use for Continue, 12c row Export to Ready) have
-landed. Task 11 has landed **in part**: the transfer protocol, its bounded
-jobs, the test adapter, the stage-2 handoff of the bytes 12c prepares, and
-(2026-09-17) three of the transfer strip's four routes: Export this galaxy,
-Export content pack and Import content pack. Still open: Import galaxy, which
-is task 12's Import archive, and every real adapter, which waits on the §8
-compatibility spike; the task 11 note says exactly what. The main-menu gap noted under task 10 is closed: `3b0e229` added
+landed. Task 11 has landed **except its real adapters**: the transfer
+protocol, its bounded jobs, the test adapter, the stage-2 handoff of the bytes
+12c prepares, and (2026-09-17) all four transfer-strip routes: Export this
+galaxy, Export content pack, Import content pack and Import galaxy, which is
+task 12's Import archive (12d below). Still open: every real adapter, which
+waits on the §8 compatibility spike, and with it any live picker or download;
+the task 11 note says exactly what. The main-menu gap noted under task 10 is closed: `3b0e229` added
 the entry. The notes under each task below say what landed and where it moved
 from this plan.
 
@@ -297,10 +298,10 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     - **Deviation from this note's earlier plan: the strip takes the lane.**
       Every strip route shows its progress, failure or prepared bytes on the
       one request strip, so all four take the lane reason.
-    - **Import galaxy** takes §6's replacement gate, the lane, an adapter,
-      and `archive_import_available`, which stays `false` in the product
-      until its route exists; `apply_library_intent` still treats its intent
-      as deferred.
+    - **Import galaxy** takes §6's replacement gate, the lane and an adapter.
+      Its route landed the same day as task 12d (below), which removed the
+      interim `archive_import_available` flag and the deferred arm in
+      `apply_library_intent`.
     Evidence: `tests/workshop_library_transfer_routes.rs`, the model tests in
     `tests/workshop_ui_library.rs`, the crowded-frame sweep over every new
     strip state in `tests/workshop_ui_library_frame.rs`, and
@@ -317,9 +318,6 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
       activation, deferred cleanup), which the route design gates on the same
       spike; installing either in `app.rs` is what makes Save copy live in
       the product;
-    - the transfer strip's last route, Import galaxy, which is task 12's
-      Import archive with §6's replacement gate and §5's missing-pack retry
-      (the other three landed 2026-09-17, above);
     - live native picker and browser download evidence, which no suite
       covers.
 12. Enable Open, Import archive, Set Continue and row Export on the library
@@ -392,6 +390,52 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     read-only through `ClientRuntime::prepared_slot_export` for task 11.
     `library_client_available` and `LibraryClientUnavailable` are removed,
     as 9b removed `slot_changes_available`.
+    **12d landed 2026-09-17 (`2cafa03`): Import archive, as the strip's
+    Import galaxy.**
+    The file comes from the transfer adapter's `ChooseImport`; the bytes go
+    through the same `WorkshopLibraryClient`, generalized over a private
+    subject (a loaded slot, or imported bytes) rather than duplicated, so the
+    catalog resolution, canonical pack check and bounded replay are §4's own.
+    An import has no slot, no observed generation, no predecessor and no
+    marker, so it never selects, promotes or stores anything, and it ends in
+    `WorkshopSession::from_imported`: paused, slotless, dirty, labelled
+    `Imported; not saved`, not a Continue target (§5). Decisions recorded
+    here:
+    - **§6's gate twice**: at dispatch (nothing is chosen while the resident
+      cannot be replaced) and on arrival, where a validated import that finds
+      the resident unreplaceable, or the Library off screen, is held as
+      `ImportHeld` and offered as **Open** on the Held identifiers and gate.
+      **Choose again** after a refused file takes the same gate.
+    - **§5's missing pack is `ImportNeedsPack`**, which retains the archive
+      (bounded by the archive limit the adapter enforces) and offers
+      **Import pack** and Cancel, naming the declared pack by its §7 file
+      name. Import pack is a new `ChooseImport` for a content pack; the chosen
+      pack is decoded and **hash-checked against the declared hash before
+      `PutPack`**, so a different, invalid or noncanonical pack is refused
+      without storing anything and the archive keeps waiting. A matching pack
+      goes through the retryable catalog-import machine, and the archive
+      resumes only once that machine reports `Stored` (§5: durable, not
+      in-memory), without a second archive choice.
+    - **"Missing" is inferred, not observed.** The memory and native adapters
+      answer `GetPack` for an absent hash with `CorruptPack`, the same answer
+      a damaged stored pack gives, so both become `ImportNeedsPack`; a stored
+      pack that decodes but fails the canonical check does too, with a
+      `Catalog` problem. Any other store error (a busy lane) is a retryable
+      `Failed { ImportArchive }` that resolves the retained bytes again. The
+      canonical-check branch has no runtime test, because the memory store
+      validates every pack it accepts.
+    - A file that does not validate as an archive is `Failed
+      { ChooseArchive, Archive }`: the bytes are released and Choose again is
+      a new choice. Cancel from any import state releases the archive;
+      cancelling while a matching pack stores leaves that pack stored.
+    - **The resident's startup Continue candidate is dropped on install**,
+      because the imported Workshop decides Continue once it saves.
+    Evidence: `tests/workshop_library_archive_import.rs` (15),
+    `import_galaxy_states_offer_their_own_strip_controls`, the crowded-frame
+    sweep over every import state, and
+    `import_galaxy_runs_from_the_frame_through_a_missing_pack`; eleven
+    mutations of these rules were each killed by a named test. The file
+    choice is `ScriptedTransfer` throughout; no live picker is exercised.
 
 Ship the screen after tasks 1-4, in two slices: the wiring subset first with the
 client-dependent controls **rendered disabled with a visible reason**, then
