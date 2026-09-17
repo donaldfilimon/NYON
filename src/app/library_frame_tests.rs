@@ -925,3 +925,75 @@ fn an_invalid_head_export_is_accepted_from_the_request_strip() {
     ));
     assert!(has_control(&app, "library.request.handoff"));
 }
+
+/// Task 11 through the real frame: with an adapter installed, Save copy is
+/// live, hands the exact prepared bytes over, and the receipt's Done frees
+/// the lane. The transfer strip stays disabled, because an adapter gives its
+/// four controls nothing to run.
+#[test]
+fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
+    use crate::app::transfer::{HandoffOutcome, ScriptedTransfer, TransferKind};
+
+    let (mut app, slot) = library_app();
+    let adapter = ScriptedTransfer::default();
+    app.runtime
+        .install_transfer_adapter(Box::new(adapter.clone()))
+        .unwrap();
+    app.build_frame();
+    for id in [
+        "library.transfer.import-archive",
+        "library.transfer.import-pack",
+        "library.transfer.export-active-archive",
+        "library.transfer.export-active-pack",
+    ] {
+        assert!(!control_enabled(&app, id), "{id} is live without a route");
+    }
+
+    select(&mut app, slot);
+    app.activate_platform_action_id(
+        &SemanticActionId::new("library.action.export"),
+        InputModality::Keyboard,
+    );
+    settle_export(&mut app);
+    let prepared = app
+        .runtime
+        .prepared_slot_export()
+        .expect("bytes are ready")
+        .archive
+        .clone();
+    let handoff = SemanticActionId::new("library.request.handoff");
+    assert!(control_enabled(&app, handoff.as_str()));
+    assert!(adapter.started().is_empty(), "preparing never hands off");
+
+    app.activate_platform_action_id(&handoff, InputModality::Pointer);
+    settle_export(&mut app);
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::ExportHandedOff {
+            slot: handed,
+            outcome: HandoffOutcome::DownloadStarted,
+            ..
+        } if handed == slot
+    ));
+    let handed = adapter.handed_off();
+    assert_eq!(handed.len(), 1);
+    assert_eq!(handed[0].kind, TransferKind::WorkshopArchive);
+    assert_eq!(
+        handed[0].suggested_name.as_str(),
+        "Two-System-Forge.nyonworkshop.json"
+    );
+    assert_eq!(handed[0].bytes, prepared);
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(!has_control(&app, handoff.as_str()));
+
+    // A queued repeat of the handoff activation reaches nothing now.
+    app.activate_platform_action_id(&handoff, InputModality::Pointer);
+    assert_eq!(adapter.started().len(), 1);
+
+    let done = SemanticActionId::new("library.request.cancel");
+    assert!(control_enabled(&app, done.as_str()));
+    app.activate_platform_action_id(&done, InputModality::Pointer);
+    app.build_frame();
+    assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(control_enabled(&app, "library.action.export"));
+}

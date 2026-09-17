@@ -9,7 +9,13 @@ use std::{collections::VecDeque, time::Duration};
 pub mod library;
 
 use crate::{
-    app::AppCore,
+    app::{
+        AppCore,
+        transfer::{
+            HandoffOutcome, SuggestedName, TransferAdapter, TransferError, TransferFailureCode,
+            TransferJobId, TransferJobState, TransferKind, TransferOutcome, TransferRequest,
+        },
+    },
     preferences::store::PreferencesStore,
     scenario::store::ScenarioStore,
     workshop::{
@@ -116,6 +122,9 @@ pub enum ClientDiagnosticCode {
     /// calls this a refreshable conflict, not a failure, so the remedy offered
     /// is to re-list rather than to repeat the same stale request.
     StaleSave,
+    /// A portable transfer failed or the adapter broke the protocol. Its
+    /// detail is a bounded [`TransferFailureCode`], never platform text.
+    Transfer,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -176,6 +185,9 @@ pub enum SlotRequestKind {
     /// The same validation as a pure read, preparing portable bytes. Selects
     /// nothing and installs nothing.
     Export,
+    /// Stage 2 of row Export: prepared bytes are with the transfer adapter
+    /// (route-design task 11).
+    HandOff,
 }
 
 /// Where prepared row-export bytes came from, so the label cannot claim more
@@ -253,11 +265,31 @@ pub enum LibrarySlotsStatus {
     /// Row-export bytes are validated and waiting for the platform handoff.
     /// The bytes themselves are read through
     /// [`ClientRuntime::prepared_slot_export`]. Offers the handoff (disabled
-    /// until a transfer adapter exists) and Discard.
+    /// while no transfer adapter is installed) and Discard.
+    ///
+    /// While the handoff runs the status is `Working` with
+    /// [`SlotRequestKind::HandOff`]; a cancelled handoff returns here.
     ExportReady {
         slot: SlotId,
         generation: SaveGeneration,
         source: ExportSource,
+    },
+    /// The handoff failed or was refused, and the prepared bytes are still
+    /// held. Offers the handoff again, on its own control, and Discard.
+    HandOffFailed {
+        slot: SlotId,
+        generation: SaveGeneration,
+        source: ExportSource,
+        code: TransferFailureCode,
+    },
+    /// The adapter reported the copy handed off. The bytes are released;
+    /// `outcome` is the only thing the product may claim about where they
+    /// went. Offers Done, which frees the lane.
+    ExportHandedOff {
+        slot: SlotId,
+        generation: SaveGeneration,
+        source: ExportSource,
+        outcome: HandoffOutcome,
     },
 }
 
@@ -275,6 +307,10 @@ pub enum ClientRuntimeError {
     ContinueUnavailable,
     #[error("Galaxy Workshop is not the active session")]
     WorkshopInactive,
+    #[error("no portable transfer adapter is installed")]
+    TransferUnavailable,
+    #[error("portable transfer failed: {}", .0.message())]
+    Transfer(TransferFailureCode),
     #[error("the requested route is not available from the current screen")]
     RouteUnavailable,
     #[error("the built-in Workshop catalog did not validate")]
@@ -379,10 +415,31 @@ enum LibrarySlots {
         loaded: Box<LoadedSlot>,
     },
     /// Validated row-export bytes. The lane stays occupied until the user
-    /// discards them or (task 11) hands them off, so the one request strip is
+    /// discards them or hands them off (task 11), so the one request strip is
     /// the one place they are offered.
     ExportReady {
         export: Box<PreparedSlotExport>,
+    },
+    /// Route-design task 11: the prepared bytes are with the transfer
+    /// adapter. They are kept, because a cancelled or failed handoff returns
+    /// the user to them without a second export.
+    HandingOff {
+        job: TransferJobId,
+        export: Box<PreparedSlotExport>,
+    },
+    /// The handoff was refused or failed. The bytes are kept for the handoff
+    /// control to try again; §7 requires that retry to be its own direct
+    /// activation, so the generic Retry does not reach it.
+    HandOffFailed {
+        export: Box<PreparedSlotExport>,
+        code: TransferFailureCode,
+    },
+    /// The adapter reported the handoff. Only the facts remain.
+    ExportHandedOff {
+        slot: SlotId,
+        generation: SaveGeneration,
+        source: ExportSource,
+        outcome: HandoffOutcome,
     },
 }
 
@@ -488,6 +545,10 @@ where
     continue_candidate: Option<LibraryCandidate>,
     catalog_import: CatalogImport,
     imported_catalog: Option<ValidatedCatalogPackV1>,
+    /// The portable transfer adapter, when one is installed. No product entry
+    /// point installs one until the §8 compatibility spike is accepted, so
+    /// the handoff stays disabled with a visible reason.
+    transfer: Option<Box<dyn TransferAdapter>>,
     diagnostics: VecDeque<ClientDiagnostic>,
     recovery: Option<ClientDiagnostic>,
     credits_visible: bool,
@@ -517,6 +578,7 @@ where
             continue_candidate: None,
             catalog_import: CatalogImport::Idle,
             imported_catalog: None,
+            transfer: None,
             diagnostics: VecDeque::new(),
             recovery: None,
             credits_visible: false,
@@ -706,6 +768,7 @@ where
         // the store's lifetime.
         self.poll_library_slots();
         self.poll_library_open();
+        self.poll_library_handoff();
         match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
@@ -1222,15 +1285,155 @@ where
                 generation: export.generation,
                 source: export.source,
             },
+            LibrarySlots::HandingOff { export, .. } => LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::HandOff,
+                slot: Some(export.slot),
+            },
+            LibrarySlots::HandOffFailed { export, code } => LibrarySlotsStatus::HandOffFailed {
+                slot: export.slot,
+                generation: export.generation,
+                source: export.source,
+                code: *code,
+            },
+            LibrarySlots::ExportHandedOff {
+                slot,
+                generation,
+                source,
+                outcome,
+            } => LibrarySlotsStatus::ExportHandedOff {
+                slot: *slot,
+                generation: *generation,
+                source: *source,
+                outcome: *outcome,
+            },
         }
     }
 
-    /// The validated row-export bytes, while
-    /// [`LibrarySlotsStatus::ExportReady`] holds them.
+    /// The validated row-export bytes, while the lane holds them: Ready, with
+    /// the adapter, or after a failed handoff. Released once handed off or
+    /// discarded.
     pub fn prepared_slot_export(&self) -> Option<&PreparedSlotExport> {
         match &self.slot_requests {
-            LibrarySlots::ExportReady { export } => Some(export),
+            LibrarySlots::ExportReady { export }
+            | LibrarySlots::HandingOff { export, .. }
+            | LibrarySlots::HandOffFailed { export, .. } => Some(export),
             _ => None,
+        }
+    }
+
+    /// Installs the portable transfer adapter (route-design task 11).
+    ///
+    /// Refused while a handoff is in flight, because the job it owns belongs
+    /// to the adapter it would replace and could then never be polled or
+    /// abandoned.
+    pub fn install_transfer_adapter(
+        &mut self,
+        adapter: Box<dyn TransferAdapter>,
+    ) -> Result<(), ClientRuntimeError> {
+        if matches!(self.slot_requests, LibrarySlots::HandingOff { .. }) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.transfer = Some(adapter);
+        Ok(())
+    }
+
+    /// Whether a portable transfer adapter is installed.
+    pub const fn transfer_available(&self) -> bool {
+        self.transfer.is_some()
+    }
+
+    /// Stage 2 of row Export: hands the prepared bytes to the transfer
+    /// adapter (addendum §7).
+    ///
+    /// Accepted only from [`LibrarySlotsStatus::ExportReady`] and
+    /// [`LibrarySlotsStatus::HandOffFailed`]. Every refusal and failure keeps
+    /// the prepared bytes: they are expensive to re-derive and the user's to
+    /// discard, so this is the route design's "preserve at dispatch" case.
+    /// With no adapter installed the state is left exactly as it was.
+    pub fn hand_off_library_export(&mut self) -> Result<(), ClientRuntimeError> {
+        let export = match std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle) {
+            LibrarySlots::ExportReady { export } | LibrarySlots::HandOffFailed { export, .. }
+                if self.transfer.is_some() =>
+            {
+                export
+            }
+            restored @ (LibrarySlots::ExportReady { .. } | LibrarySlots::HandOffFailed { .. }) => {
+                self.slot_requests = restored;
+                return Err(ClientRuntimeError::TransferUnavailable);
+            }
+            other => {
+                self.slot_requests = other;
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "No prepared Workshop Library copy is waiting for a handoff",
+                );
+                return Err(ClientRuntimeError::RouteUnavailable);
+            }
+        };
+        let request = TransferRequest::HandOffExport {
+            kind: TransferKind::WorkshopArchive,
+            suggested_name: SuggestedName::workshop_archive(&export.name),
+            bytes: export.archive.clone(),
+        };
+        let started = match self.transfer.as_mut() {
+            Some(adapter) => adapter.start(request),
+            None => Err(TransferError::new(TransferFailureCode::Unavailable)),
+        };
+        match started {
+            Ok(job) => {
+                self.slot_requests = LibrarySlots::HandingOff { job, export };
+                Ok(())
+            }
+            Err(error) => {
+                self.fail_handoff(export, error.code);
+                Err(ClientRuntimeError::Transfer(error.code))
+            }
+        }
+    }
+
+    fn fail_handoff(&mut self, export: Box<PreparedSlotExport>, code: TransferFailureCode) {
+        self.push_diagnostic(ClientDiagnosticCode::Transfer, code.message());
+        self.slot_requests = LibrarySlots::HandOffFailed { export, code };
+    }
+
+    /// Delivers the handoff's one terminal answer. Not gated on the Library
+    /// being on screen, like the other Library polls.
+    fn poll_library_handoff(&mut self) {
+        let LibrarySlots::HandingOff { job, .. } = &self.slot_requests else {
+            return;
+        };
+        let job = *job;
+        let state = match self.transfer.as_mut() {
+            Some(adapter) => adapter.poll(job),
+            None => TransferJobState::Unknown,
+        };
+        if matches!(state, TransferJobState::Pending) {
+            return;
+        }
+        let LibrarySlots::HandingOff { export, .. } =
+            std::mem::replace(&mut self.slot_requests, LibrarySlots::Idle)
+        else {
+            return;
+        };
+        match state {
+            TransferJobState::Pending => {}
+            TransferJobState::Complete(Ok(TransferOutcome::ExportHandedOff(outcome))) => {
+                self.slot_requests = LibrarySlots::ExportHandedOff {
+                    slot: export.slot,
+                    generation: export.generation,
+                    source: export.source,
+                    outcome,
+                };
+            }
+            // Dismissing the save is ordinary: back to Ready, no diagnostic.
+            TransferJobState::Complete(Ok(TransferOutcome::Cancelled)) => {
+                self.slot_requests = LibrarySlots::ExportReady { export };
+            }
+            TransferJobState::Complete(Ok(TransferOutcome::ImportChosen { .. }))
+            | TransferJobState::Unknown => {
+                self.fail_handoff(export, TransferFailureCode::Protocol);
+            }
+            TransferJobState::Complete(Err(error)) => self.fail_handoff(export, error.code),
         }
     }
 
@@ -1365,9 +1568,23 @@ where
                 self.slot_list = None;
                 Ok(())
             }
+            // Stop waiting for the adapter. The outcome is dropped, not the
+            // work: a download already accepted cannot be recalled, so
+            // nothing is claimed either way and the bytes stay ready.
+            LibrarySlots::HandingOff { job, export } => {
+                if let Some(adapter) = self.transfer.as_mut() {
+                    adapter.abandon(job);
+                }
+                self.slot_requests = LibrarySlots::ExportReady { export };
+                Ok(())
+            }
             // Discarding prepared or offered export bytes releases them and
-            // changes nothing stored.
-            LibrarySlots::ExportRecoveryOffered { .. } | LibrarySlots::ExportReady { .. } => Ok(()),
+            // changes nothing stored; dismissing a handoff receipt frees the
+            // lane.
+            LibrarySlots::ExportRecoveryOffered { .. }
+            | LibrarySlots::ExportReady { .. }
+            | LibrarySlots::HandOffFailed { .. }
+            | LibrarySlots::ExportHandedOff { .. } => Ok(()),
             LibrarySlots::Held { .. } => {
                 self.slot_list = None;
                 Ok(())
@@ -1434,7 +1651,7 @@ where
     /// The same exact-catalog validation and full replay as Open, as a pure
     /// read: no `SelectContinue`, no promotion, no installation. Validated
     /// bytes are held as [`LibrarySlotsStatus::ExportReady`] until the user
-    /// discards them; the handoff is task 11's.
+    /// discards them or [`Self::hand_off_library_export`] hands them off.
     ///
     /// **Not gated on the resident Workshop.** §6 does not name row Export and
     /// §4 says it mutates nothing, so neither an unsaved resident nor the

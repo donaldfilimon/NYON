@@ -12,10 +12,13 @@ only when built.
 
 **Implementation state, 2026-09-16:** tasks 0 to 10 have landed, and task 12's
 three row slices (12a Open, 12b Use for Continue, 12c row Export to Ready) have
-landed. Still open: Import archive, and all of task 11 (transfer protocol),
-which includes the stage-2 handoff of the bytes 12c prepares. The
-main-menu gap noted under task 10 is closed: `3b0e229` added the entry. The
-notes under each task below say what landed and where it moved from this plan.
+landed. Task 11 has landed **in part**: the transfer protocol, its bounded
+jobs, the test adapter and the stage-2 handoff of the bytes 12c prepares. Still
+open: Import archive (task 12), the transfer strip's four routes, and every
+real adapter, which waits on the §8 compatibility spike; the task 11 note says
+exactly what. The main-menu gap noted under task 10 is closed: `3b0e229` added
+the entry. The notes under each task below say what landed and where it moved
+from this plan.
 
 Binding contract: `docs/superpowers/specs/2026-09-04-nyon-workshop-library-addendum.md`,
 cited below by section.
@@ -231,6 +234,53 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     two-slice plan below ships a screen no user can open.
 11. Transfer protocol trait, bounded jobs, test adapter, two-stage export wired
     to the existing byte sources.
+    **Landed in part 2026-09-16: everything that does not wait on the §8
+    spike, for row Export.** `src/app/transfer.rs` holds the object-safe
+    `TransferAdapter` (start, poll, abandon; one job at a time; no `Send`
+    bound, so a browser adapter over `Rc` mailboxes can implement it), §7's
+    vocabulary (`ChooseImport` with kind and maximum bytes, `HandOffExport`
+    with kind, sanitized `SuggestedName` and bytes; Import Chosen, Export
+    Handed Off, Cancelled, or a bounded `TransferFailureCode` that carries no
+    platform text), the two suggested-name forms, and `HandoffOutcome`, whose
+    four labels are the only words a finished handoff may use: only
+    `DurablySaved` says "saved" (§1, §8, §9). `ScriptedTransfer` is the test
+    adapter; no product entry point installs any adapter. The runtime holds
+    `Option<Box<dyn TransferAdapter>>`. **Save copy** (`library.request.handoff`)
+    now dispatches `hand_off_library_export`, live exactly when an adapter is
+    installed and the lane is `ExportReady`. The handoff keeps the lane:
+    in flight it is `Working { kind: HandOff }` with **Stop waiting**, which
+    abandons the job and returns to Ready; a user-dismissed save returns to
+    Ready without a diagnostic; a refused start, a failed job, a forgotten job
+    or a wrong-shaped answer is `HandOffFailed`, which **keeps the bytes**
+    (the dispatch-compensation qualifier's "prepared export bytes" case) and is
+    retried only on the handoff's own control, never on the generic Retry; a
+    finished handoff is `ExportHandedOff`, which releases the bytes, reports
+    the outcome (with the recovered-predecessor label when it applies) and
+    offers **Done**. The adapter cannot be replaced while it owns a job.
+    **Split from the old single flag:** `LibraryUiContext::handoff_available`
+    reads adapter presence; `transfer_available` now means the transfer
+    strip's routes are wired and stays `false`, so the strip is still disabled
+    with `TransferUnavailable` even when an adapter is installed.
+    **Remaining after the §8 spike, or beside it:**
+    - the native adapter (maintained dialog dependency chosen by the spike,
+      size check before allocation, read at most max plus one, same-directory
+      temporary write, flush, sync, atomic placement after overwrite
+      confirmation, parent sync, and `Written`/`HandedToSystem` wording where
+      that sequence cannot be proven), and the browser adapter (semantic file
+      input, `File.size` check, Blob plus Object URL plus anchor during the
+      activation, deferred cleanup), which the route design gates on the same
+      spike; installing either in `app.rs` is what makes Save copy live in
+      the product;
+    - the transfer strip's four routes: Import content pack
+      (`ChooseImport` into `begin_catalog_import`), Export content pack
+      (`export_active_catalog` to Ready, then `SuggestedName::content_pack`),
+      Export this galaxy (the session's `RequestExport` and
+      `take_exported_archive` to Ready, labelled portable-but-not-saved per
+      §10), and Import galaxy, which is task 12's Import archive with §6's
+      replacement gate and §5's missing-pack retry. None of these has a
+      consumer yet; `ChooseImport` exists in the protocol for them;
+    - live native picker and browser download evidence, which no suite
+      covers.
 12. Enable Open, Import archive, Set Continue and row Export on the library
     client.
     **12a landed 2026-09-16: Open.** It runs on a second `WorkshopLibraryClient`

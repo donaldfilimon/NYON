@@ -15,8 +15,9 @@
 //! would have to break for it to fail.
 
 use nyon::{
-    app::client_runtime::{
-        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    app::{
+        client_runtime::{ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind},
+        transfer::{HandoffOutcome, TransferFailureCode},
     },
     ui::{
         accessibility::{InputModality, SemanticActionId, SemanticRole},
@@ -1120,6 +1121,7 @@ fn the_semantic_tree_validates_in_every_shape() {
             resident_slot: Some(SlotId(1)),
             replacement_blocked: true,
             transfer_available: true,
+            handoff_available: true,
             workshop_active: true,
             confirmation: None,
             rename_draft: None,
@@ -1217,6 +1219,7 @@ fn every_control_submits_its_own_intent_in_a_fully_enabled_shape() {
         slots: Some(&listed),
         selected_slot: Some(SlotId(4)),
         transfer_available: true,
+        handoff_available: true,
         workshop_active: true,
         status: LibrarySlotsStatus::Idle,
         resident_slot: None,
@@ -2290,8 +2293,10 @@ fn a_ready_export_offers_a_separate_handoff_and_discard() {
             ]
         );
 
+        // The handoff reads adapter presence, and only that: the strip's
+        // routes are a different flag.
         let live = model(LibraryUiContext {
-            transfer_available: true,
+            handoff_available: true,
             ..LibraryUiContext {
                 slots: Some(&listed),
                 selected_slot: Some(SlotId(1)),
@@ -2302,6 +2307,19 @@ fn a_ready_export_offers_a_separate_handoff_and_discard() {
         assert_eq!(
             control(&live, "library.request.handoff").intent(),
             Some(&LibraryUiIntent::HandOffExport)
+        );
+        let strip_only = model(LibraryUiContext {
+            transfer_available: true,
+            ..LibraryUiContext {
+                slots: Some(&listed),
+                selected_slot: Some(SlotId(1)),
+                status,
+                ..LibraryUiContext::default()
+            }
+        });
+        assert_eq!(
+            control(&strip_only, "library.request.handoff").disabled_reason,
+            Some(LibraryDisabledReason::TransferUnavailable)
         );
     }
 }
@@ -2345,5 +2363,265 @@ fn a_conflicted_export_offers_refresh() {
     assert_eq!(
         request_line(&working),
         "Preparing a portable copy of a saved galaxy."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Route-design task 11: stage 2 of row Export
+// ---------------------------------------------------------------------------
+
+fn handoff_statuses() -> [LibrarySlotsStatus; 3] {
+    [
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::HandOff,
+            slot: Some(SlotId(1)),
+        },
+        LibrarySlotsStatus::HandOffFailed {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+            source: ExportSource::Head,
+            code: TransferFailureCode::Platform,
+        },
+        LibrarySlotsStatus::ExportHandedOff {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+            source: ExportSource::Head,
+            outcome: HandoffOutcome::DownloadStarted,
+        },
+    ]
+}
+
+/// An adapter enables the handoff and nothing else: the transfer strip has
+/// no route behind it yet, and an enabled strip control would reach the
+/// deferred arm in the dispatcher.
+#[test]
+fn an_adapter_enables_the_handoff_and_leaves_the_strip_disabled() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    let built = model(LibraryUiContext {
+        slots: Some(&listed),
+        selected_slot: Some(SlotId(1)),
+        workshop_active: true,
+        handoff_available: true,
+        status: LibrarySlotsStatus::ExportReady {
+            slot: SlotId(1),
+            generation: SaveGeneration(11),
+            source: ExportSource::Head,
+        },
+        ..LibraryUiContext::default()
+    });
+    assert!(control(&built, "library.request.handoff").enabled);
+    for id in [
+        "library.transfer.import-archive",
+        "library.transfer.import-pack",
+        "library.transfer.export-active-archive",
+        "library.transfer.export-active-pack",
+    ] {
+        assert_eq!(
+            control(&built, id).disabled_reason,
+            Some(LibraryDisabledReason::TransferUnavailable),
+            "{id}"
+        );
+    }
+}
+
+/// A failed handoff is retried on the handoff's own identifier, never on the
+/// one Export previous used, and keeps Discard.
+#[test]
+fn a_failed_handoff_retries_on_the_handoff_control() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (source, line) in [
+        (
+            ExportSource::Head,
+            "Handing off the portable copy failed. Save copy again or discard it.",
+        ),
+        (
+            ExportSource::RecoveredPredecessor,
+            "Handing off the portable copy failed. Save copy again or discard it. Recovered predecessor; stored head and Continue unchanged.",
+        ),
+    ] {
+        for available in [false, true] {
+            let built = model(LibraryUiContext {
+                slots: Some(&listed),
+                selected_slot: Some(SlotId(1)),
+                handoff_available: available,
+                status: LibrarySlotsStatus::HandOffFailed {
+                    slot: SlotId(1),
+                    generation: SaveGeneration(11),
+                    source,
+                    code: TransferFailureCode::Platform,
+                },
+                ..LibraryUiContext::default()
+            });
+            assert!(
+                !built
+                    .controls()
+                    .any(|control| control.action_id.as_str() == "library.request.retry"),
+                "a failed handoff must not offer the generic Retry"
+            );
+            let handoff = control(&built, "library.request.handoff");
+            assert_eq!(handoff.label, "Save copy");
+            if available {
+                assert_eq!(handoff.intent(), Some(&LibraryUiIntent::HandOffExport));
+            } else {
+                assert_eq!(
+                    handoff.disabled_reason,
+                    Some(LibraryDisabledReason::TransferUnavailable)
+                );
+            }
+            let discard = control(&built, "library.request.cancel");
+            assert_eq!(discard.label, "Discard");
+            assert_eq!(discard.intent(), Some(&LibraryUiIntent::CancelSlotRequest));
+            assert_eq!(request_line(&built), line);
+            assert_eq!(
+                built.request.failure_code,
+                Some(ClientDiagnosticCode::Transfer)
+            );
+            assert!(built.request.decision_pending());
+            assert_eq!(
+                built
+                    .semantics
+                    .node("library.request.status")
+                    .expect("request status node")
+                    .role,
+                SemanticRole::Alert
+            );
+        }
+    }
+}
+
+/// The receipt says exactly what the adapter reported, and only a durable
+/// save says "saved". It offers Done, and nothing that could send again.
+#[test]
+fn a_handed_off_copy_reports_its_outcome_and_offers_done() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (outcome, source, line) in [
+        (
+            HandoffOutcome::DownloadStarted,
+            ExportSource::Head,
+            "Download started.",
+        ),
+        (
+            HandoffOutcome::HandedToSystem,
+            ExportSource::Head,
+            "Copy handed to the operating system.",
+        ),
+        (HandoffOutcome::Written, ExportSource::Head, "Copy written."),
+        (
+            HandoffOutcome::DurablySaved,
+            ExportSource::Head,
+            "Copy saved.",
+        ),
+        (
+            HandoffOutcome::DownloadStarted,
+            ExportSource::RecoveredPredecessor,
+            "Download started. Recovered predecessor; stored head and Continue unchanged.",
+        ),
+    ] {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(1)),
+            handoff_available: true,
+            status: LibrarySlotsStatus::ExportHandedOff {
+                slot: SlotId(1),
+                generation: SaveGeneration(11),
+                source,
+                outcome,
+            },
+            ..LibraryUiContext::default()
+        });
+        assert_eq!(request_line(&built), line, "{outcome:?}");
+        assert_eq!(
+            line.to_ascii_lowercase().contains("saved"),
+            outcome == HandoffOutcome::DurablySaved,
+            "{outcome:?}"
+        );
+        for id in ["library.request.retry", "library.request.handoff"] {
+            assert!(
+                !built
+                    .controls()
+                    .any(|control| control.action_id.as_str() == id),
+                "{id}"
+            );
+        }
+        let done = control(&built, "library.request.cancel");
+        assert_eq!(done.label, "Done");
+        assert_eq!(done.intent(), Some(&LibraryUiIntent::CancelSlotRequest));
+        assert!(!built.request.decision_pending());
+        assert!(!built.request.in_flight());
+        assert_eq!(
+            built
+                .semantics
+                .node("library.request.status")
+                .expect("request status node")
+                .role,
+            SemanticRole::Status
+        );
+    }
+}
+
+/// In flight, the handoff offers only a way to stop waiting, which keeps the
+/// prepared copy.
+#[test]
+fn a_handoff_in_flight_offers_stop_waiting() {
+    let [working, ..] = handoff_statuses();
+    let built = model(LibraryUiContext {
+        handoff_available: true,
+        status: working,
+        ..LibraryUiContext::default()
+    });
+    assert_eq!(
+        request_line(&built),
+        "Handing the portable copy to the system."
+    );
+    assert!(built.request.in_flight());
+    for id in ["library.request.retry", "library.request.handoff"] {
+        assert!(
+            !built
+                .controls()
+                .any(|control| control.action_id.as_str() == id),
+            "{id}"
+        );
+    }
+    let stop = control(&built, "library.request.cancel");
+    assert_eq!(stop.label, "Stop waiting");
+    assert_eq!(
+        stop.description,
+        "Stop waiting for the system. The prepared copy is kept."
+    );
+    assert_eq!(stop.intent(), Some(&LibraryUiIntent::CancelSlotRequest));
+}
+
+/// Every handoff state occupies the one lane, with a reason that says why.
+#[test]
+fn every_handoff_state_occupies_the_lane() {
+    let listed = list(vec![summary(1, "Andromeda", false)]);
+    for (status, reason) in handoff_statuses().into_iter().zip([
+        LibraryDisabledReason::RequestInFlight,
+        LibraryDisabledReason::ExportWaiting,
+        LibraryDisabledReason::CopyFinished,
+    ]) {
+        let built = model(LibraryUiContext {
+            slots: Some(&listed),
+            selected_slot: Some(SlotId(1)),
+            handoff_available: true,
+            status,
+            ..LibraryUiContext::default()
+        });
+        for id in [
+            "library.action.export",
+            "library.action.open",
+            "library.action.rename",
+            "library.refresh",
+        ] {
+            assert_eq!(
+                control(&built, id).disabled_reason,
+                Some(reason),
+                "{status:?} {id}"
+            );
+        }
+    }
+    assert_eq!(
+        LibraryDisabledReason::CopyFinished.message(),
+        "Dismiss the finished copy first."
     );
 }

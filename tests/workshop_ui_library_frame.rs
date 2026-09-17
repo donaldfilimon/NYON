@@ -13,8 +13,9 @@ use std::collections::BTreeSet;
 
 use glam::Vec2;
 use nyon::{
-    app::client_runtime::{
-        ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind,
+    app::{
+        client_runtime::{ClientDiagnosticCode, ExportSource, LibrarySlotsStatus, SlotRequestKind},
+        transfer::{HandoffOutcome, TransferFailureCode},
     },
     engine::primitives::PrimitiveBatch,
     ui::{
@@ -942,11 +943,13 @@ fn every_open_request_state_installs_and_keeps_its_decision_controls() {
     }
 }
 
-/// Task 12c's request states: the export-recovery offer and the prepared copy,
-/// whose recovered status line is the longest the strip carries. Each must
-/// install, keep 44-pixel controls, and place its two strip controls wherever
-/// the crowded failure places Retry and Cancel. The stage-2 handoff has its own
-/// identifier and must take Retry's place, never be dropped.
+/// Task 12c's request states, and task 11's handoff states: the
+/// export-recovery offer, the prepared copy, the handoff in flight, a failed
+/// handoff (whose recovered status line is the longest the strip carries) and
+/// the receipt. Each must install, keep 44-pixel controls, and place its strip
+/// controls wherever the crowded failure places Retry and Cancel. The stage-2
+/// handoff has its own identifier and must take Retry's place, never be
+/// dropped, with or without an adapter.
 #[test]
 fn every_export_request_state_installs_and_keeps_its_strip_controls() {
     let list = crowded_list();
@@ -968,19 +971,35 @@ fn every_export_request_state_installs_and_keeps_its_strip_controls() {
         LibrarySlotsStatus::ExportRecoveryOffered { slot: SlotId(1) },
         ready(ExportSource::Head),
         ready(ExportSource::RecoveredPredecessor),
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::HandOff,
+            slot: Some(SlotId(1)),
+        },
+        LibrarySlotsStatus::HandOffFailed {
+            slot: SlotId(1),
+            generation: SaveGeneration(2),
+            source: ExportSource::RecoveredPredecessor,
+            code: TransferFailureCode::Platform,
+        },
+        LibrarySlotsStatus::ExportHandedOff {
+            slot: SlotId(1),
+            generation: SaveGeneration(2),
+            source: ExportSource::RecoveredPredecessor,
+            outcome: HandoffOutcome::HandedToSystem,
+        },
     ];
     let reference = crowded_model(&list);
     let mut handoffs_placed = 0;
     for status in statuses {
-        for transfer_available in [false, true] {
+        for handoff_available in [false, true] {
             let model = LibraryUiModel::build(LibraryUiContext {
                 status,
-                transfer_available,
+                handoff_available,
                 ..crowded_context(&list)
             });
             for ((viewport, scale), sheet) in sheet_cases() {
                 let case = format!(
-                    "{status:?} transfer={transfer_available} at {viewport} x{scale} {sheet:?}"
+                    "{status:?} adapter={handoff_available} at {viewport} x{scale} {sheet:?}"
                 );
                 let frame = frame_with(&model, viewport, scale, view(sheet));
                 install(&frame).unwrap_or_else(|error| panic!("{case}: refused: {error}"));

@@ -5,6 +5,7 @@ mod core;
 mod input_router;
 pub mod onboarding;
 pub mod settings;
+pub mod transfer;
 
 pub use core::*;
 
@@ -886,11 +887,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
             replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
-            // Route-design task 11. The flag is what keeps the transfer
-            // controls and the export handoff visible-but-disabled rather than
-            // live with no route behind them; `apply_library_intent` relies on
-            // it.
+            // The strip's four routes have not shipped (route-design tasks 11
+            // and 12), so this stays off even with an adapter installed; it is
+            // what keeps them visible-but-disabled, and `apply_library_intent`
+            // relies on it.
             transfer_available: false,
+            // Task 11: the row Export handoff needs only an adapter. No
+            // product entry point installs one before the §8 spike.
+            handoff_available: self.runtime.transfer_available(),
             confirmation: self.library_confirmation,
             rename_draft: Some(self.library_rename_draft.as_str()),
         });
@@ -1350,8 +1354,8 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                 self.runtime.export_library_slot(slot, generation)
             }
             LibraryUiIntent::AcceptExportRecovery => self.runtime.accept_library_export_recovery(),
-            deferred @ (LibraryUiIntent::HandOffExport
-            | LibraryUiIntent::ImportArchive
+            LibraryUiIntent::HandOffExport => self.runtime.hand_off_library_export(),
+            deferred @ (LibraryUiIntent::ImportArchive
             | LibraryUiIntent::ImportPack
             | LibraryUiIntent::ExportActiveArchive
             | LibraryUiIntent::ExportActivePack) => {
@@ -2063,6 +2067,7 @@ pub(crate) const fn safe_client_diagnostic(code: ClientDiagnosticCode) -> &'stat
         ClientDiagnosticCode::StaleSave => {
             "That save changed before it opened. Refresh the list and try again."
         }
+        ClientDiagnosticCode::Transfer => "The portable copy could not be handed off.",
     }
 }
 

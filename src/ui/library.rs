@@ -34,8 +34,8 @@
 //! # Disabled, never omitted
 //!
 //! Controls whose backing capability has not shipped yet — the transfer
-//! adapters, and with them the export handoff — render **disabled with a
-//! visible reason**, keeping their focus slot. Omitting them is baseline Finding 5
+//! strip, and the export handoff while no transfer adapter is installed —
+//! render **disabled with a visible reason**, keeping their focus slot. Omitting them is baseline Finding 5
 //! exactly: a control that exists logically and cannot be reached.
 //! [`LibraryControl`] makes that structural, because `enabled` and
 //! `disabled_reason` can only be set together.
@@ -162,9 +162,12 @@ pub enum LibraryDisabledReason {
     /// The lane holds a prepared export the user has not handed off or
     /// discarded.
     ExportWaiting,
+    /// The lane holds a finished handoff the user has not dismissed.
+    CopyFinished,
     /// The rename draft is not a name the store accepts.
     InvalidName,
-    /// No portable transfer adapter is installed.
+    /// No portable transfer adapter is installed, or (for the transfer strip)
+    /// the control's route has not shipped.
     TransferUnavailable,
     /// There is no active Workshop session to export.
     WorkshopInactive,
@@ -209,6 +212,7 @@ impl LibraryDisabledReason {
             Self::RequestInFlight => "Another Library request is still running.",
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
             Self::ExportWaiting => "Discard the prepared copy first.",
+            Self::CopyFinished => "Dismiss the finished copy first.",
             Self::InvalidName => {
                 "Names use 1 to 64 printable characters with single spaces between words."
             }
@@ -416,6 +420,7 @@ impl LibraryRequestModel {
             LibrarySlotsStatus::Failed { .. }
                 | LibrarySlotsStatus::Held { .. }
                 | LibrarySlotsStatus::ExportRecoveryOffered { .. }
+                | LibrarySlotsStatus::HandOffFailed { .. }
         )
     }
 
@@ -459,9 +464,11 @@ impl LibraryActionsModel {
 
 /// The portable transfer strip.
 ///
-/// Live with no adapter installed: every control keeps its label, its focus
-/// slot and its disabled reason. §7 and §8 gate the byte handoff on a
-/// compatibility spike, which is a reason to disable these, never to hide them.
+/// Present with no route behind it: every control keeps its label, its focus
+/// slot and its disabled reason. Their stage-1 sources and the Choose Import
+/// consumers have not shipped (route-design tasks 11 and 12), and §8 gates the
+/// real adapters on a compatibility spike, which is a reason to disable these,
+/// never to hide them.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LibraryTransferModel {
     pub import_archive: LibraryControl,
@@ -501,8 +508,13 @@ pub struct LibraryUiContext<'a> {
     /// `ClientRuntime::resident_workshop_blocks_replacement`, the same rule the
     /// runtime refuses an open with.
     pub replacement_blocked: bool,
-    /// Whether a portable transfer adapter is installed.
+    /// Whether the transfer strip's routes are wired. Always `false` in the
+    /// product today: an installed adapter alone does not give Import galaxy,
+    /// Import content pack or the two active exports anything to run.
     pub transfer_available: bool,
+    /// Whether a portable transfer adapter is installed, which is all the row
+    /// Export handoff needs. Read from `ClientRuntime::transfer_available`.
+    pub handoff_available: bool,
     /// The confirmation the user opened, if any. Resolved against the rows:
     /// one naming a save the list no longer holds builds no dialog.
     pub confirmation: Option<LibraryConfirmationRequest>,
@@ -520,6 +532,7 @@ impl Default for LibraryUiContext<'_> {
             workshop_active: false,
             replacement_blocked: false,
             transfer_available: false,
+            handoff_available: false,
             confirmation: None,
             rename_draft: None,
         }
@@ -550,7 +563,7 @@ impl LibraryUiModel {
         let request = build_request(
             context.status,
             context.replacement_blocked,
-            context.transfer_available,
+            context.handoff_available,
         );
         let content = library_content(context.slots, context.status);
         let rows = build_rows(context);
@@ -736,7 +749,10 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
         | LibrarySlotsStatus::ExportRecoveryOffered { .. } => {
             Some(LibraryDisabledReason::DecisionPending)
         }
-        LibrarySlotsStatus::ExportReady { .. } => Some(LibraryDisabledReason::ExportWaiting),
+        LibrarySlotsStatus::ExportReady { .. } | LibrarySlotsStatus::HandOffFailed { .. } => {
+            Some(LibraryDisabledReason::ExportWaiting)
+        }
+        LibrarySlotsStatus::ExportHandedOff { .. } => Some(LibraryDisabledReason::CopyFinished),
     }
 }
 
@@ -750,12 +766,28 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
 fn build_request(
     status: LibrarySlotsStatus,
     replacement_blocked: bool,
-    transfer_available: bool,
+    handoff_available: bool,
 ) -> LibraryRequestModel {
     let replacement = replacement_blocked.then_some(LibraryDisabledReason::ReplacementBlocked);
-    let transfer = (!transfer_available).then_some(LibraryDisabledReason::TransferUnavailable);
+    let adapter = (!handoff_available).then_some(LibraryDisabledReason::TransferUnavailable);
     let (failure_code, retry_control, cancel_control) = match status {
         LibrarySlotsStatus::Idle => (None, None, None),
+        // Stopping the wait keeps the prepared copy, so the label must not
+        // read like Discard.
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::HandOff,
+            ..
+        } => (
+            None,
+            None,
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Stop waiting",
+                "Stop waiting for the system. The prepared copy is kept.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
         LibrarySlotsStatus::Working { .. } => (
             None,
             None,
@@ -838,22 +870,36 @@ fn build_request(
         // Stage 2 has its own identifier, never the one Export previous used,
         // so a repeated activation of the control that prepared the bytes
         // cannot land on the handoff (§7's second direct activation). It is
-        // disabled with a visible reason until a transfer adapter exists, and
-        // keeps its focus slot meanwhile.
-        LibrarySlotsStatus::ExportReady { .. } => (
-            None,
+        // disabled with a visible reason while no transfer adapter is
+        // installed, and keeps its focus slot meanwhile. A failed handoff is
+        // retried on this same control, never on the generic Retry.
+        LibrarySlotsStatus::ExportReady { .. } | LibrarySlotsStatus::HandOffFailed { .. } => (
+            matches!(status, LibrarySlotsStatus::HandOffFailed { .. })
+                .then_some(ClientDiagnosticCode::Transfer),
             Some(LibraryControl::gated(
                 "library.request.handoff",
                 "Save copy",
                 "Hand the prepared copy to the system.",
                 false,
                 LibraryUiIntent::HandOffExport,
-                &[transfer],
+                &[adapter],
             )),
             Some(LibraryControl::enabled(
                 "library.request.cancel",
                 "Discard",
                 "Discard the prepared copy. Nothing stored is changed.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // The copy has left; nothing here may send it again.
+        LibrarySlotsStatus::ExportHandedOff { .. } => (
+            None,
+            None,
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Done",
+                "Dismiss this notice. The copy was already handed off.",
                 false,
                 LibraryUiIntent::CancelSlotRequest,
             )),
@@ -1204,8 +1250,8 @@ const fn content_message(
     }
 }
 
-const fn request_message(status: LibrarySlotsStatus) -> &'static str {
-    match status {
+fn request_message(status: LibrarySlotsStatus) -> String {
+    let line = match status {
         LibrarySlotsStatus::Idle => "No Library request is running.",
         LibrarySlotsStatus::Working { kind, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies.",
@@ -1215,6 +1261,7 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
             SlotRequestKind::Open => "Opening a saved galaxy.",
             SlotRequestKind::UseForContinue => "Checking a saved galaxy for Continue.",
             SlotRequestKind::Export => "Preparing a portable copy of a saved galaxy.",
+            SlotRequestKind::HandOff => "Handing the portable copy to the system.",
         },
         LibrarySlotsStatus::Failed { kind, code, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies failed. Retry or cancel.",
@@ -1231,6 +1278,8 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
                 "Choosing the Continue save failed. Retry or cancel."
             }
             SlotRequestKind::Export => "Preparing a portable copy failed. Retry or cancel.",
+            // Never produced: a failed handoff is `HandOffFailed`.
+            SlotRequestKind::HandOff => "Handing off the portable copy failed.",
         },
         LibrarySlotsStatus::Held {
             recovered: true, ..
@@ -1249,6 +1298,27 @@ const fn request_message(status: LibrarySlotsStatus) -> &'static str {
             source: ExportSource::RecoveredPredecessor,
             ..
         } => "Portable copy ready. Recovered predecessor; stored head and Continue unchanged.",
+        LibrarySlotsStatus::HandOffFailed { source, .. } => {
+            return with_source(
+                "Handing off the portable copy failed. Save copy again or discard it.",
+                source,
+            );
+        }
+        // Keyed to what the adapter reported, never to which adapter ran
+        // (addendum §1, §8, §9): only a durable native write says "saved".
+        LibrarySlotsStatus::ExportHandedOff {
+            source, outcome, ..
+        } => return with_source(outcome.label(), source),
+    };
+    line.to_owned()
+}
+
+/// The predecessor label travels with the bytes to the end, so a copy of a
+/// recovered generation is never reported as the stored head.
+fn with_source(line: &str, source: ExportSource) -> String {
+    match source {
+        ExportSource::Head => line.to_owned(),
+        ExportSource::RecoveredPredecessor => format!("{line} {}.", source.label()),
     }
 }
 
@@ -1374,7 +1444,7 @@ fn build_semantic_tree(
         announcements.push(SemanticAnnouncement {
             kind: AnnouncementKind::Error,
             code: "library-request-failed",
-            message: request_message(request.status).to_owned(),
+            message: request_message(request.status),
         });
     }
 
