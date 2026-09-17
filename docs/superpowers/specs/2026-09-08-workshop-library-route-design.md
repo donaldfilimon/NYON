@@ -222,7 +222,8 @@ Tasks 1-4 are addendum prerequisites and are not the screen.
     stopped fitting under Save); Compact's sits in the Navigator header left of
     Close, because its bottom bar is already full at the 320 floor. Focusing it
     in Compact opens the Navigator. Close and Escape return focus to it once.
-    **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
+    **RESOLVED 2026-09-16 by `3b0e229` (main-menu entry landed); the note below is the
+    record.** **⚠️ GAP FOUND 2026-09-09 while building task 6: this task list has NO task for the
     MAIN-MENU entry control, and the addendum §2 requires main-menu entry.** Task 10 is
     the in-Workshop control only. Task 6 satisfies the constraint **at the runtime seam
     only** — `open_library()` succeeds from `MainMenu` and is tested there — but nothing

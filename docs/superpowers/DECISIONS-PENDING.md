@@ -4,7 +4,9 @@ Date: 2026-09-08 23:1x
 Scope: everything the 2026-09-08/09 session surfaced that an agent should not decide.
 Last reconciled 2026-09-09 02:1x.
 
-**None of these block each other. Four block downstream work; five do not.** Each
+**None of these block each other.** *(2026-09-17: the "four block, five do not" count
+here predates entries 9 and 10. Entry 9 is resolved; the titles marked BLOCKS name the
+entries that still hold downstream work.)* Each
 entry states what it costs to decide *late*, because that is the only thing that
 makes ordering them meaningful — several are free to confirm now and expensive to
 overrule after the next task consumes them.
@@ -111,7 +113,10 @@ while `check_fleets` rejects `hull.hit_points == 0` — **which is the only reas
 genesis fixture's `hit_points: 0` validates at all**. An asymmetry, not obviously
 intentional.
 
-## 9. The Library design has no task for the main-menu entry control
+## 9. The Library design has no task for the main-menu entry control — RESOLVED
+
+**Resolved 2026-09-16 by `3b0e229`** ("open the Library from the main menu; fit the menu
+at 480"). Kept below as the record of the gap.
 
 `docs/superpowers/specs/2026-09-08-workshop-library-route-design.md`, recorded in its own
 task list.
@@ -152,9 +157,12 @@ adapter are already in place, so nothing already built changes.
 
 ## What is NOT waiting on you
 
-Phase 2, the Library screen — twelve design tasks closing baseline Finding 2 and
-unblocking qualification Task 3. All five prerequisites landed and were reviewed on
-2026-09-08. It is the largest remaining body of work and it is ready to start.
+*Updated 2026-09-17.* Phase 2, the Library screen, is mostly landed: design tasks 0-10
+and 12 are on `main`, the main-menu entry is `3b0e229`, and task 11's transfer protocol and
+test adapter are `7abec08`. Not waiting on you: task 11's four transfer-strip routes (the
+design allows them beside the §8 spike) and Living Galaxy authority Task 5 (the creator
+queue and atomic boundary orchestration). Still waiting on you: task 11's native and
+browser adapters (entry 10) and authority Task 3c (entry 1).
 
 ## The ceiling, restated so it is not rediscovered
 

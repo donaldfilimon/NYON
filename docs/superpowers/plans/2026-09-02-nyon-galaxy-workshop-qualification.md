@@ -22,7 +22,9 @@ and cross-platform claim about Workshop V1 as unevidenced until this plan runs.
 
 ### What is executable today, and what is not
 
-**Task 1 is fully executable now.** All five source gates pass on `main`:
+**Task 1 has run** (*updated 2026-09-17*): the artifact-qualified checkpoint is
+`docs/qualification/2026-09-02-galaxy-workshop-evidence.md` (`7a57bf9`). As written
+before it ran: **Task 1 is fully executable now.** All five source gates pass on `main`:
 `fmt`, `clippy --workspace --all-targets --all-features -D warnings`,
 `cargo test --workspace --all-targets` (483 tests, 0 failed, 41 binaries),
 `cargo check -p nyon-workshop-core --target wasm32-unknown-unknown`, and

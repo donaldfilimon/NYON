@@ -31,7 +31,7 @@ The user explicitly approved implementation of the Full Living Galaxy Completion
 
 Current source repairs must be re-reviewed rather than repeated from stale plan descriptions. In particular, the inspector now has partial short-height and stable-identity repairs; SDF and Library remain unfinished. Correct Classic guide/manual energy-versus-defense launch teaching without changing RulesV1. Read the program's execution ledger before resuming a task.
 
-Implementation uses one source owner at a time in canonical `main`, with independent read-only review. The user explicitly selected this default; isolation is an exception requiring a concrete need and reconciliation with machine policy. Preserve existing untracked source and stage only an independently reviewed baseline allowlist. The repository currently has no remote; publication and provider configuration are not part of this authorization.
+Implementation uses one source owner at a time in canonical `main`, with independent read-only review. The user explicitly selected this default; isolation is an exception requiring a concrete need and reconciliation with machine policy. Preserve existing untracked source and stage only an independently reviewed baseline allowlist. The repository had no remote when this was written; since 2026-09-16 it is published to `donaldfilimon/NYON` on Donald's decision, and provider configuration is still not part of this authorization.
 
 ### Shared constraints
 
