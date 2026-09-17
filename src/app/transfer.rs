@@ -18,6 +18,10 @@
 //! - [`ScriptedTransfer`], the test adapter. It touches no platform API, and
 //!   no product entry point installs it.
 //!
+//! The Library's transfer strip and row Export are its consumers
+//! (`ClientRuntime`): stage 1 of every export prepares bytes without an
+//! adapter, and every file choice and handoff goes through one.
+//!
 //! **No real adapter exists yet.** §8 gates the native picker on a
 //! compatibility spike, and the route design gates the browser adapter on the
 //! same spike, so a product build installs nothing and the handoff renders
@@ -91,6 +95,15 @@ impl SuggestedName {
         output.extend(name.as_str().chars().map(sanitize_char));
         output.push_str(TransferKind::WorkshopArchive.extension());
         Self(output)
+    }
+
+    /// `Workshop.nyonworkshop.json`: the name for an open Workshop with no
+    /// listed slot, matching the name its first durable save receives.
+    pub fn unsaved_workshop() -> Self {
+        Self(format!(
+            "Workshop{}",
+            TransferKind::WorkshopArchive.extension()
+        ))
     }
 
     /// `<catalog-hash-prefix>.nyonpack.json`: the first eight bytes of the

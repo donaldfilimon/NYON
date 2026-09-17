@@ -887,13 +887,15 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             resident_slot: self.runtime.resident_slot(),
             workshop_active: matches!(self.runtime.active_session(), ActiveSession::Workshop(_)),
             replacement_blocked: self.runtime.resident_workshop_blocks_replacement(),
-            // The strip's four routes have not shipped (route-design tasks 11
-            // and 12), so this stays off even with an adapter installed; it is
-            // what keeps them visible-but-disabled, and `apply_library_intent`
-            // relies on it.
-            transfer_available: false,
-            // Task 11: the row Export handoff needs only an adapter. No
-            // product entry point installs one before the §8 spike.
+            // Import galaxy (task 12's Import archive) has no route yet, so
+            // this stays off even with an adapter installed; it is what keeps
+            // that one control visible-but-disabled, and
+            // `apply_library_intent` relies on it.
+            archive_import_available: false,
+            // Task 11: every handoff and file choice needs an adapter. No
+            // product entry point installs one before the §8 spike, so the
+            // imports and Save copy stay disabled while both exports prepare
+            // bytes to Ready.
             handoff_available: self.runtime.transfer_available(),
             confirmation: self.library_confirmation,
             rename_draft: Some(self.library_rename_draft.as_str()),
@@ -1287,11 +1289,9 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         result
     }
 
-    /// Route-design task 8 slice 1 and task 9: only the intents with a route
-    /// today.
-    ///
-    /// The rest cannot arrive, because `build_library_frame` builds the model
-    /// with the capability flags off and `activate` refuses a disabled
+    /// Every Library intent with a route. The one without, Import galaxy,
+    /// cannot arrive, because `build_library_frame` builds the model with
+    /// `archive_import_available` off and `activate` refuses a disabled
     /// control. Asserted in debug rather than made unreachable, because a
     /// gating slip here should cost a logged no-op, not a player's session.
     fn apply_library_intent(&mut self, intent: LibraryUiIntent) {
@@ -1355,10 +1355,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             }
             LibraryUiIntent::AcceptExportRecovery => self.runtime.accept_library_export_recovery(),
             LibraryUiIntent::HandOffExport => self.runtime.hand_off_library_export(),
-            deferred @ (LibraryUiIntent::ImportArchive
-            | LibraryUiIntent::ImportPack
-            | LibraryUiIntent::ExportActiveArchive
-            | LibraryUiIntent::ExportActivePack) => {
+            LibraryUiIntent::ExportActiveArchive => self.runtime.export_active_workshop(),
+            LibraryUiIntent::ExportActivePack => self.runtime.export_active_pack(),
+            LibraryUiIntent::ImportPack => self.runtime.import_library_pack(),
+            deferred @ LibraryUiIntent::ImportArchive => {
                 debug_assert!(
                     false,
                     "a deferred Library intent activated; its capability flag should have disabled it: {deferred:?}"

@@ -164,6 +164,8 @@ pub enum LibraryDisabledReason {
     ExportWaiting,
     /// The lane holds a finished handoff the user has not dismissed.
     CopyFinished,
+    /// The lane holds a finished import notice the user has not dismissed.
+    ImportFinished,
     /// The rename draft is not a name the store accepts.
     InvalidName,
     /// No portable transfer adapter is installed, or (for the transfer strip)
@@ -213,6 +215,7 @@ impl LibraryDisabledReason {
             Self::DecisionPending => "Retry or cancel the failed Library request first.",
             Self::ExportWaiting => "Discard the prepared copy first.",
             Self::CopyFinished => "Dismiss the finished copy first.",
+            Self::ImportFinished => "Dismiss the finished import first.",
             Self::InvalidName => {
                 "Names use 1 to 64 printable characters with single spaces between words."
             }
@@ -464,11 +467,10 @@ impl LibraryActionsModel {
 
 /// The portable transfer strip.
 ///
-/// Present with no route behind it: every control keeps its label, its focus
-/// slot and its disabled reason. Their stage-1 sources and the Choose Import
-/// consumers have not shipped (route-design tasks 11 and 12), and §8 gates the
-/// real adapters on a compatibility spike, which is a reason to disable these,
-/// never to hide them.
+/// Every control is always present and keeps its label, its focus slot and,
+/// when it cannot run, its disabled reason. §8 gates the real adapters on a
+/// compatibility spike, which is a reason to disable the imports, never to
+/// hide them. See [`build_transfer`] for each control's gate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LibraryTransferModel {
     pub import_archive: LibraryControl,
@@ -508,12 +510,15 @@ pub struct LibraryUiContext<'a> {
     /// `ClientRuntime::resident_workshop_blocks_replacement`, the same rule the
     /// runtime refuses an open with.
     pub replacement_blocked: bool,
-    /// Whether the transfer strip's routes are wired. Always `false` in the
-    /// product today: an installed adapter alone does not give Import galaxy,
-    /// Import content pack or the two active exports anything to run.
-    pub transfer_available: bool,
-    /// Whether a portable transfer adapter is installed, which is all the row
-    /// Export handoff needs. Read from `ClientRuntime::transfer_available`.
+    /// Whether Import galaxy's route exists. It is task 12's Import archive
+    /// (exact-catalog validation, §6's replacement gate, §5's missing-pack
+    /// retry), which is separate from the transfer protocol, so an installed
+    /// adapter alone does not give that control anything to run.
+    pub archive_import_available: bool,
+    /// Whether a portable transfer adapter is installed. Read from
+    /// `ClientRuntime::transfer_available`. Every step that crosses into a
+    /// platform file surface needs it: the row and active export handoffs,
+    /// and both imports' file choice. Preparing an export does not.
     pub handoff_available: bool,
     /// The confirmation the user opened, if any. Resolved against the rows:
     /// one naming a save the list no longer holds builds no dialog.
@@ -531,7 +536,7 @@ impl Default for LibraryUiContext<'_> {
             resident_slot: None,
             workshop_active: false,
             replacement_blocked: false,
-            transfer_available: false,
+            archive_import_available: false,
             handoff_available: false,
             confirmation: None,
             rename_draft: None,
@@ -572,7 +577,7 @@ impl LibraryUiModel {
             .and_then(|slot| rows.iter().find(|row| row.slot == slot))
             .cloned();
         let actions = build_actions(selected_row.as_ref(), &request, context);
-        let transfer = build_transfer(context);
+        let transfer = build_transfer(context, lane_reason(&request));
         let close_control = build_close();
         let refresh_control = build_refresh(&request);
         let confirmation = context.confirmation.and_then(|request_to_confirm| {
@@ -753,6 +758,7 @@ const fn lane_reason(request: &LibraryRequestModel) -> Option<LibraryDisabledRea
             Some(LibraryDisabledReason::ExportWaiting)
         }
         LibrarySlotsStatus::ExportHandedOff { .. } => Some(LibraryDisabledReason::CopyFinished),
+        LibrarySlotsStatus::PackStored { .. } => Some(LibraryDisabledReason::ImportFinished),
     }
 }
 
@@ -900,6 +906,41 @@ fn build_request(
                 "library.request.cancel",
                 "Done",
                 "Dismiss this notice. The copy was already handed off.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // The stored pack is a fact, not a decision; Done only frees the lane.
+        LibrarySlotsStatus::PackStored { .. } => (
+            None,
+            None,
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Done",
+                "Dismiss this notice. The content pack stays stored.",
+                false,
+                LibraryUiIntent::CancelSlotRequest,
+            )),
+        ),
+        // A refused file is retried by choosing another one, never by
+        // resubmitting the same bytes.
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ChoosePack,
+            code,
+            ..
+        } => (
+            Some(code),
+            Some(LibraryControl::enabled(
+                "library.request.retry",
+                "Choose again",
+                "Choose a portable file again.",
+                false,
+                LibraryUiIntent::RetrySlotRequest,
+            )),
+            Some(LibraryControl::enabled(
+                "library.request.cancel",
+                "Cancel",
+                "Stop importing. Nothing already stored is removed.",
                 false,
                 LibraryUiIntent::CancelSlotRequest,
             )),
@@ -1155,18 +1196,41 @@ fn build_actions(
     }
 }
 
-/// The four transfer controls, live with no adapter installed.
+/// The four transfer controls, each with its own availability.
 ///
-/// **`ImportArchive` needs §6's replacement-and-persistence gate and does not
-/// have it.** It is §6's "Workshop Archive import", gated today only on
-/// [`LibraryDisabledReason::TransferUnavailable`], which is a capability
-/// deferral and not that invariant. `ImportPack` needs no such gate: §6
-/// explicitly permits content-pack storage that requests no session
-/// replacement. See [`build_actions`] for the whole four-item disposition.
-fn build_transfer(context: LibraryUiContext<'_>) -> LibraryTransferModel {
-    let transfer =
-        (!context.transfer_available).then_some(LibraryDisabledReason::TransferUnavailable);
+/// **The two exports are live with no adapter installed.** Preparing bytes is
+/// stage 1 and touches no platform surface; only the Save copy control that
+/// Ready offers waits on an adapter (the route design's "Deferrals" section).
+/// They need an open Workshop and the one request lane, because the prepared
+/// bytes are offered on the request strip.
+///
+/// **The two imports need an adapter**, because choosing a file is the first
+/// thing they do, and the lane, because the choice and everything after it is
+/// presented on the request strip. With no adapter, which is every product
+/// build before the §8 spike, they stay disabled with
+/// [`LibraryDisabledReason::TransferUnavailable`].
+///
+/// **`ImportArchive` also takes §6's replacement-and-persistence gate**: it is
+/// §6's "Workshop Archive import", and succeeding installs a session.
+/// `ImportPack` needs no such gate: §6 explicitly permits content-pack storage
+/// that requests no session replacement. See [`build_actions`] for the whole
+/// four-item disposition.
+///
+/// Precedence follows [`LibraryControl::gated`]: facts the user can act on
+/// now (an unsaved Workshop, no open Workshop, a busy lane) before the
+/// capability that has not shipped.
+fn build_transfer(
+    context: LibraryUiContext<'_>,
+    lane: Option<LibraryDisabledReason>,
+) -> LibraryTransferModel {
+    let adapter =
+        (!context.handoff_available).then_some(LibraryDisabledReason::TransferUnavailable);
+    let archive_route =
+        (!context.archive_import_available).then_some(LibraryDisabledReason::TransferUnavailable);
     let inactive = (!context.workshop_active).then_some(LibraryDisabledReason::WorkshopInactive);
+    let replacement = context
+        .replacement_blocked
+        .then_some(LibraryDisabledReason::ReplacementBlocked);
     LibraryTransferModel {
         import_archive: LibraryControl::gated(
             "library.transfer.import-archive",
@@ -1174,7 +1238,7 @@ fn build_transfer(context: LibraryUiContext<'_>) -> LibraryTransferModel {
             "Choose a portable galaxy file to validate and open.",
             false,
             LibraryUiIntent::ImportArchive,
-            &[transfer],
+            &[replacement, lane, adapter, archive_route],
         ),
         import_pack: LibraryControl::gated(
             "library.transfer.import-pack",
@@ -1182,15 +1246,15 @@ fn build_transfer(context: LibraryUiContext<'_>) -> LibraryTransferModel {
             "Choose a portable content pack to store.",
             false,
             LibraryUiIntent::ImportPack,
-            &[transfer],
+            &[lane, adapter],
         ),
         export_active_archive: LibraryControl::gated(
             "library.transfer.export-active-archive",
             "Export this galaxy",
-            "Prepare a portable copy of the open Workshop.",
+            "Prepare a portable copy of the open Workshop, including unsaved changes.",
             false,
             LibraryUiIntent::ExportActiveArchive,
-            &[inactive, transfer],
+            &[inactive, lane],
         ),
         export_active_pack: LibraryControl::gated(
             "library.transfer.export-active-pack",
@@ -1198,7 +1262,7 @@ fn build_transfer(context: LibraryUiContext<'_>) -> LibraryTransferModel {
             "Prepare a portable copy of the open Workshop's content pack.",
             false,
             LibraryUiIntent::ExportActivePack,
-            &[inactive, transfer],
+            &[inactive, lane],
         ),
     }
 }
@@ -1261,7 +1325,10 @@ fn request_message(status: LibrarySlotsStatus) -> String {
             SlotRequestKind::Open => "Opening a saved galaxy.",
             SlotRequestKind::UseForContinue => "Checking a saved galaxy for Continue.",
             SlotRequestKind::Export => "Preparing a portable copy of a saved galaxy.",
+            SlotRequestKind::ExportWorkshop => "Preparing a portable copy of the open Workshop.",
             SlotRequestKind::HandOff => "Handing the portable copy to the system.",
+            SlotRequestKind::ChoosePack => "Waiting for a portable file to be chosen.",
+            SlotRequestKind::StorePack => "Storing the imported content pack.",
         },
         LibrarySlotsStatus::Failed { kind, code, .. } => match kind {
             SlotRequestKind::List => "Listing saved galaxies failed. Retry or cancel.",
@@ -1278,8 +1345,20 @@ fn request_message(status: LibrarySlotsStatus) -> String {
                 "Choosing the Continue save failed. Retry or cancel."
             }
             SlotRequestKind::Export => "Preparing a portable copy failed. Retry or cancel.",
+            SlotRequestKind::ExportWorkshop => {
+                "Preparing a portable copy of the open Workshop failed. Retry or cancel."
+            }
             // Never produced: a failed handoff is `HandOffFailed`.
             SlotRequestKind::HandOff => "Handing off the portable copy failed.",
+            SlotRequestKind::ChoosePack => match code {
+                ClientDiagnosticCode::Transfer => {
+                    "Choosing a portable file failed. Choose again or cancel."
+                }
+                _ => "That file cannot be imported. Choose another or cancel.",
+            },
+            SlotRequestKind::StorePack => {
+                "Storing the content pack failed. Retry or cancel; nothing stored is removed."
+            }
         },
         LibrarySlotsStatus::Held {
             recovered: true, ..
@@ -1318,6 +1397,7 @@ fn request_message(status: LibrarySlotsStatus) -> String {
         LibrarySlotsStatus::ExportHandedOff {
             source, outcome, ..
         } => return with_source(outcome.label(), source),
+        LibrarySlotsStatus::PackStored { .. } => "Content pack stored in the Workshop store.",
     };
     line.to_owned()
 }

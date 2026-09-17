@@ -925,8 +925,9 @@ fn an_invalid_head_export_is_accepted_from_the_request_strip() {
 
 /// Task 11 through the real frame: with an adapter installed, Save copy is
 /// live, hands the exact prepared bytes over, and the receipt's Done frees
-/// the lane. The transfer strip stays disabled, because an adapter gives its
-/// four controls nothing to run.
+/// the lane. On the transfer strip the adapter makes Import content pack live;
+/// Import galaxy still has no route, and the two exports need an open
+/// Workshop.
 #[test]
 fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
     use crate::app::transfer::{HandoffOutcome, ScriptedTransfer, TransferKind};
@@ -937,13 +938,13 @@ fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
         .install_transfer_adapter(Box::new(adapter.clone()))
         .unwrap();
     app.build_frame();
-    for id in [
-        "library.transfer.import-archive",
-        "library.transfer.import-pack",
-        "library.transfer.export-active-archive",
-        "library.transfer.export-active-pack",
+    for (id, live) in [
+        ("library.transfer.import-archive", false),
+        ("library.transfer.import-pack", true),
+        ("library.transfer.export-active-archive", false),
+        ("library.transfer.export-active-pack", false),
     ] {
-        assert!(!control_enabled(&app, id), "{id} is live without a route");
+        assert_eq!(control_enabled(&app, id), live, "{id}");
     }
 
     select(&mut app, slot);
@@ -992,4 +993,97 @@ fn save_copy_from_the_frame_hands_off_the_prepared_bytes() {
     app.build_frame();
     assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
     assert!(control_enabled(&app, "library.action.export"));
+}
+
+/// Task 11's transfer strip through the real frame, over an unsaved open
+/// Workshop: keyboard and pointer both reach both exports, each lands on
+/// Ready with the Save copy control disabled for want of an adapter, and the
+/// Workshop is left exactly as it was. With an adapter, Import content pack
+/// stores the chosen pack and Done frees the lane.
+#[test]
+fn the_transfer_strip_routes_run_from_the_frame() {
+    use crate::app::client_runtime::ExportSource;
+    use crate::app::transfer::ScriptedTransfer;
+
+    let mut app = crate::app::modal_lifecycle_tests::capacity_app();
+    app.runtime
+        .classic_mut()
+        .set_viewport(glam::Vec2::new(1440.0, 900.0));
+    app.build_frame();
+    let before = app.runtime.workshop_snapshot().unwrap().clone();
+    assert!(before.store.dirty);
+    app.runtime.open_library().unwrap();
+    settle_export(&mut app);
+    assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    assert!(!control_enabled(&app, "library.transfer.import-archive"));
+    assert!(!control_enabled(&app, "library.transfer.import-pack"));
+
+    for (id, modality) in [
+        (
+            "library.transfer.export-active-archive",
+            InputModality::Keyboard,
+        ),
+        (
+            "library.transfer.export-active-pack",
+            InputModality::Pointer,
+        ),
+    ] {
+        assert!(control_enabled(&app, id), "{id}");
+        app.activate_platform_action_id(&SemanticActionId::new(id), modality);
+        settle_export(&mut app);
+        let LibrarySlotsStatus::ExportReady { source } = app.runtime.library_slots_status() else {
+            panic!("{id}: not ready: {:?}", app.runtime.library_slots_status());
+        };
+        match id {
+            "library.transfer.export-active-archive" => assert_eq!(
+                source,
+                ExportSource::ActiveWorkshop {
+                    continue_ready: false
+                }
+            ),
+            _ => assert!(matches!(source, ExportSource::ActivePack { .. })),
+        }
+        assert!(has_control(&app, "library.request.handoff"), "{id}");
+        assert!(!control_enabled(&app, "library.request.handoff"), "{id}");
+        assert!(!control_enabled(&app, id), "{id}: the lane is held");
+        app.activate_platform_action_id(
+            &SemanticActionId::new("library.request.cancel"),
+            InputModality::Keyboard,
+        );
+        app.build_frame();
+        assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+        assert_eq!(app.runtime.screen(), ClientScreen::Library);
+    }
+    let after = app.runtime.workshop_snapshot().unwrap();
+    assert_eq!(after.state_digest, before.state_digest);
+    assert_eq!(after.store.dirty, before.store.dirty);
+    assert_eq!(after.store.slot, before.store.slot);
+
+    let adapter = ScriptedTransfer::default();
+    adapter.set_import_bytes(Some(Box::from(
+        &include_bytes!("../../assets/workshop/core-pack-v1.json")[..],
+    )));
+    app.runtime
+        .install_transfer_adapter(Box::new(adapter.clone()))
+        .unwrap();
+    app.build_frame();
+    // Import galaxy has no route yet, adapter or not.
+    assert!(!control_enabled(&app, "library.transfer.import-archive"));
+    let import = SemanticActionId::new("library.transfer.import-pack");
+    assert!(control_enabled(&app, import.as_str()));
+    app.activate_platform_action_id(&import, InputModality::Pointer);
+    settle_export(&mut app);
+    assert!(matches!(
+        app.runtime.library_slots_status(),
+        LibrarySlotsStatus::PackStored { .. }
+    ));
+    assert_eq!(adapter.started().len(), 1);
+    let done = SemanticActionId::new("library.request.cancel");
+    assert!(control_enabled(&app, done.as_str()));
+    app.activate_platform_action_id(&done, InputModality::Keyboard);
+    app.build_frame();
+    assert_eq!(app.runtime.library_slots_status(), LibrarySlotsStatus::Idle);
+    assert!(control_enabled(&app, import.as_str()));
+    let after = app.runtime.workshop_snapshot().unwrap();
+    assert_eq!(after.state_digest, before.state_digest);
 }

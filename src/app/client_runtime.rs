@@ -185,9 +185,17 @@ pub enum SlotRequestKind {
     /// The same validation as a pure read, preparing portable bytes. Selects
     /// nothing and installs nothing.
     Export,
-    /// Stage 2 of row Export: prepared bytes are with the transfer adapter
+    /// Export this galaxy's stage 1: the session is encoding its own archive
+    /// on its next update (route-design task 11).
+    ExportWorkshop,
+    /// Stage 2 of any export: prepared bytes are with the transfer adapter
     /// (route-design task 11).
     HandOff,
+    /// Import content pack: the transfer adapter is asking the user for a
+    /// file, or the chosen file was refused before anything was stored.
+    ChoosePack,
+    /// Import content pack: the validated pack is being stored (`PutPack`).
+    StorePack,
 }
 
 /// Where prepared export bytes came from, so the label cannot claim more than
@@ -356,6 +364,9 @@ pub enum LibrarySlotsStatus {
         source: ExportSource,
         outcome: HandoffOutcome,
     },
+    /// Import content pack finished: the pack is in the Workshop store under
+    /// `hash`. Offers Done, which frees the lane; the pack stays stored.
+    PackStored { hash: CatalogHash },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -479,7 +490,19 @@ enum LibrarySlots {
     ExportRecoveryOffered {
         loaded: Box<LoadedSlot>,
     },
-    /// Validated row-export bytes. The lane stays occupied until the user
+    /// Export this galaxy (task 11): a `RequestExport` is queued on the
+    /// resident session, whose next update encodes the archive. Resolved in
+    /// [`ClientRuntime::update`] right after that update, because the session
+    /// drains its whole mailbox per update: the archive is there or the
+    /// session refused.
+    ExportingWorkshop,
+    /// The session refused the export or could not encode it. Retry queues it
+    /// again; there is no retained material, because the bytes are whatever
+    /// the open Workshop is when the retry runs.
+    ExportWorkshopFailed {
+        code: ClientDiagnosticCode,
+    },
+    /// Validated export bytes. The lane stays occupied until the user
     /// discards them or hands them off (task 11), so the one request strip is
     /// the one place they are offered.
     ExportReady {
@@ -504,6 +527,24 @@ enum LibrarySlots {
         source: ExportSource,
         outcome: HandoffOutcome,
     },
+    /// An import is waiting for the transfer adapter's file choice.
+    Choosing {
+        job: TransferJobId,
+        kind: TransferKind,
+    },
+    /// The file choice failed, or the chosen file was refused before anything
+    /// was stored. Nothing is retained: Retry asks for a file again, which is
+    /// its own direct activation (§7).
+    ChooseFailed {
+        kind: TransferKind,
+        code: ClientDiagnosticCode,
+    },
+    /// Import content pack handed a validated pack to the catalog-import
+    /// machine. Its public state is that machine's
+    /// ([`ClientRuntime::catalog_import_status`]): storing, a retryable store
+    /// failure, or stored, which this lane reports as
+    /// [`LibrarySlotsStatus::PackStored`] until the user dismisses it.
+    StoringPack,
 }
 
 /// What an exact-catalog open of one row is for. The single encoding of
@@ -550,6 +591,13 @@ fn prepared_export(loaded: LoadedSlot) -> PreparedExport {
         },
         suggested_name: SuggestedName::workshop_archive(&loaded.name),
         bytes: loaded.archive,
+    }
+}
+
+/// The public kind of an import's file-choice step.
+const fn choose_kind(kind: TransferKind) -> SlotRequestKind {
+    match kind {
+        TransferKind::ContentPack | TransferKind::WorkshopArchive => SlotRequestKind::ChoosePack,
     }
 }
 
@@ -831,13 +879,17 @@ where
         // the store's lifetime.
         self.poll_library_slots();
         self.poll_library_open();
-        self.poll_library_handoff();
-        match &mut self.active_session {
+        self.poll_library_transfer();
+        let update = match &mut self.active_session {
             ActiveSession::Workshop(session) => {
                 session.update(frame_delta, &mut self.workshop_store)
             }
             ActiveSession::None | ActiveSession::Classic => WorkshopUpdate::default(),
-        }
+        };
+        // After the session's update, not before: that update is the one that
+        // drains the queued `RequestExport`.
+        self.poll_active_export();
+        update
     }
 
     /// Dispatches one of the visible main-menu capabilities. New Workshop uses
@@ -1343,6 +1395,15 @@ where
             LibrarySlots::ExportRecoveryOffered { loaded } => {
                 LibrarySlotsStatus::ExportRecoveryOffered { slot: loaded.slot }
             }
+            LibrarySlots::ExportingWorkshop => LibrarySlotsStatus::Working {
+                kind: SlotRequestKind::ExportWorkshop,
+                slot: None,
+            },
+            LibrarySlots::ExportWorkshopFailed { code } => LibrarySlotsStatus::Failed {
+                kind: SlotRequestKind::ExportWorkshop,
+                slot: None,
+                code: *code,
+            },
             LibrarySlots::ExportReady { export } => LibrarySlotsStatus::ExportReady {
                 source: export.source,
             },
@@ -1360,6 +1421,33 @@ where
                     outcome: *outcome,
                 }
             }
+            LibrarySlots::Choosing { kind, .. } => LibrarySlotsStatus::Working {
+                kind: choose_kind(*kind),
+                slot: None,
+            },
+            LibrarySlots::ChooseFailed { kind, code } => LibrarySlotsStatus::Failed {
+                kind: choose_kind(*kind),
+                slot: None,
+                code: *code,
+            },
+            LibrarySlots::StoringPack => match &self.catalog_import {
+                CatalogImport::Storing { .. } => LibrarySlotsStatus::Working {
+                    kind: SlotRequestKind::StorePack,
+                    slot: None,
+                },
+                CatalogImport::StoreFailed { code, .. } => LibrarySlotsStatus::Failed {
+                    kind: SlotRequestKind::StorePack,
+                    slot: None,
+                    code: *code,
+                },
+                CatalogImport::Stored { hash } => LibrarySlotsStatus::PackStored { hash: *hash },
+                // The machine was resolved outside the Library (its own
+                // cancel), or holds a seeded start the Library never asks
+                // for; either way nothing here waits on this lane.
+                CatalogImport::Idle | CatalogImport::StartBlocked { .. } => {
+                    LibrarySlotsStatus::Idle
+                }
+            },
         }
     }
 
@@ -1384,7 +1472,10 @@ where
         &mut self,
         adapter: Box<dyn TransferAdapter>,
     ) -> Result<(), ClientRuntimeError> {
-        if matches!(self.slot_requests, LibrarySlots::HandingOff { .. }) {
+        if matches!(
+            self.slot_requests,
+            LibrarySlots::HandingOff { .. } | LibrarySlots::Choosing { .. }
+        ) {
             return Err(ClientRuntimeError::LibraryRequestActive);
         }
         self.transfer = Some(adapter);
@@ -1450,8 +1541,17 @@ where
         self.slot_requests = LibrarySlots::HandOffFailed { export, code };
     }
 
-    /// Delivers the handoff's one terminal answer. Not gated on the Library
-    /// being on screen, like the other Library polls.
+    /// Delivers the one transfer job's terminal answer, whichever step owns
+    /// it. Not gated on the Library being on screen, like the other Library
+    /// polls.
+    fn poll_library_transfer(&mut self) {
+        match &self.slot_requests {
+            LibrarySlots::HandingOff { .. } => self.poll_library_handoff(),
+            LibrarySlots::Choosing { .. } => self.poll_library_choice(),
+            _ => {}
+        }
+    }
+
     fn poll_library_handoff(&mut self) {
         let LibrarySlots::HandingOff { job, .. } = &self.slot_requests else {
             return;
@@ -1486,6 +1586,123 @@ where
                 self.fail_handoff(export, TransferFailureCode::Protocol);
             }
             TransferJobState::Complete(Err(error)) => self.fail_handoff(export, error.code),
+        }
+    }
+
+    /// Import content pack (route-design task 11): asks the transfer adapter
+    /// for one `.nyonpack.json`, then validates, canonicalizes and stores it
+    /// through the catalog-import machine (§6).
+    ///
+    /// **Not gated on the resident Workshop**: §6 permits content-pack storage
+    /// that requests no session replacement, and this one requests none.
+    /// Refused while another request holds the lane, with no adapter, or while
+    /// the catalog-import machine holds a decision started elsewhere.
+    pub fn import_library_pack(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        if self.catalog_import_unresolved() {
+            return Err(ClientRuntimeError::CatalogImportActive);
+        }
+        self.dispatch_choice(TransferKind::ContentPack)
+    }
+
+    /// Starts one file choice. A refused start is a visible, retryable
+    /// failure; with no adapter nothing starts and the lane is untouched.
+    fn dispatch_choice(&mut self, kind: TransferKind) -> Result<(), ClientRuntimeError> {
+        let Some(adapter) = self.transfer.as_mut() else {
+            return Err(ClientRuntimeError::TransferUnavailable);
+        };
+        match adapter.start(TransferRequest::ChooseImport {
+            kind,
+            max_bytes: kind.max_bytes(),
+        }) {
+            Ok(job) => {
+                self.slot_requests = LibrarySlots::Choosing { job, kind };
+                Ok(())
+            }
+            Err(error) => {
+                self.fail_choice(kind, error.code);
+                Err(ClientRuntimeError::Transfer(error.code))
+            }
+        }
+    }
+
+    fn fail_choice(&mut self, kind: TransferKind, code: TransferFailureCode) {
+        self.push_diagnostic(ClientDiagnosticCode::Transfer, code.message());
+        self.slot_requests = LibrarySlots::ChooseFailed {
+            kind,
+            code: ClientDiagnosticCode::Transfer,
+        };
+    }
+
+    fn poll_library_choice(&mut self) {
+        let LibrarySlots::Choosing { job, kind } = &self.slot_requests else {
+            return;
+        };
+        let (job, kind) = (*job, *kind);
+        let state = match self.transfer.as_mut() {
+            Some(adapter) => adapter.poll(job),
+            None => TransferJobState::Unknown,
+        };
+        match state {
+            TransferJobState::Pending => {}
+            // Dismissing the picker is ordinary: no diagnostic (§8).
+            TransferJobState::Complete(Ok(TransferOutcome::Cancelled)) => {
+                self.slot_requests = LibrarySlots::Idle;
+            }
+            TransferJobState::Complete(Ok(TransferOutcome::ImportChosen {
+                kind: chosen,
+                bytes,
+            })) if chosen == kind && !bytes.is_empty() && bytes.len() <= kind.max_bytes() => {
+                self.slot_requests = LibrarySlots::Idle;
+                self.accept_chosen(kind, &bytes);
+            }
+            TransferJobState::Complete(Ok(_)) | TransferJobState::Unknown => {
+                self.fail_choice(kind, TransferFailureCode::Protocol);
+            }
+            TransferJobState::Complete(Err(error)) => self.fail_choice(kind, error.code),
+        }
+    }
+
+    /// Hands chosen bytes to the step that owns their kind. The bytes are
+    /// consumed here: invalid content leaves nothing to retry but a new
+    /// choice.
+    fn accept_chosen(&mut self, kind: TransferKind, bytes: &[u8]) {
+        match kind {
+            TransferKind::ContentPack => match self.begin_catalog_import(bytes) {
+                // A refused `PutPack` start is already the machine's
+                // retryable failure, holding the validated pack.
+                Ok(_) | Err(ClientRuntimeError::Store(_)) => {
+                    self.slot_requests = LibrarySlots::StoringPack;
+                }
+                Err(ClientRuntimeError::InvalidCatalog) => {
+                    self.slot_requests = LibrarySlots::ChooseFailed {
+                        kind,
+                        code: ClientDiagnosticCode::Catalog,
+                    };
+                }
+                Err(_) => {
+                    self.push_diagnostic(
+                        ClientDiagnosticCode::RouteUnavailable,
+                        "Another content-pack import is waiting for a decision",
+                    );
+                    self.slot_requests = LibrarySlots::ChooseFailed {
+                        kind,
+                        code: ClientDiagnosticCode::RouteUnavailable,
+                    };
+                }
+            },
+            TransferKind::WorkshopArchive => {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::RouteUnavailable,
+                    "Workshop archive import is not available yet",
+                );
+                self.slot_requests = LibrarySlots::ChooseFailed {
+                    kind,
+                    code: ClientDiagnosticCode::RouteUnavailable,
+                };
+            }
         }
     }
 
@@ -1536,6 +1753,28 @@ where
                 let outcome = self.dispatch_slot_request(request.clone());
                 if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
                     self.slot_requests = LibrarySlots::Failed { request, code };
+                }
+                outcome
+            }
+            LibrarySlots::ChooseFailed { kind, code } => {
+                let outcome = self.dispatch_choice(kind);
+                if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
+                    self.slot_requests = LibrarySlots::ChooseFailed { kind, code };
+                }
+                outcome
+            }
+            // Only a retryable store failure is retried. The machine keeps
+            // the validated pack, so no file is chosen again.
+            LibrarySlots::StoringPack
+                if matches!(self.catalog_import, CatalogImport::StoreFailed { .. }) =>
+            {
+                self.slot_requests = LibrarySlots::StoringPack;
+                self.retry_catalog_import().map(|_| ())
+            }
+            LibrarySlots::ExportWorkshopFailed { code } => {
+                let outcome = self.dispatch_active_export();
+                if outcome.is_err() && matches!(self.slot_requests, LibrarySlots::Idle) {
+                    self.slot_requests = LibrarySlots::ExportWorkshopFailed { code };
                 }
                 outcome
             }
@@ -1630,6 +1869,30 @@ where
                 self.slot_requests = LibrarySlots::ExportReady { export };
                 Ok(())
             }
+            // The queued `RequestExport` cannot be withdrawn from the session's
+            // mailbox, so its archive may still be encoded; it is dropped, not
+            // offered, and the next Export this galaxy discards it before
+            // queueing its own. Encoding mutates nothing.
+            LibrarySlots::ExportingWorkshop | LibrarySlots::ExportWorkshopFailed { .. } => Ok(()),
+            // Stop waiting for the picker. A file it still delivers is never
+            // read.
+            LibrarySlots::Choosing { job, .. } => {
+                if let Some(adapter) = self.transfer.as_mut() {
+                    adapter.abandon(job);
+                }
+                Ok(())
+            }
+            LibrarySlots::ChooseFailed { .. } => Ok(()),
+            // Clears pending pack intent only. A pack that already stored
+            // stays stored (§6): the store has no pack deletion, and an
+            // abandoned `PutPack` still lands. Dismissing the stored notice
+            // changes nothing either.
+            LibrarySlots::StoringPack => {
+                if self.catalog_import_unresolved() {
+                    let _ = self.cancel_catalog_import();
+                }
+                Ok(())
+            }
             // Discarding prepared or offered export bytes releases them and
             // changes nothing stored; dismissing a handoff receipt frees the
             // lane.
@@ -1720,6 +1983,132 @@ where
             return Err(ClientRuntimeError::LibraryRequestActive);
         }
         self.dispatch_open(slot, generation, OpenPurpose::Export)
+    }
+
+    /// Export this galaxy, stage 1 (route-design task 11, addendum §10).
+    ///
+    /// Queues the session's own `RequestExport`, so the archive comes from
+    /// the same encoder a save uses and `take_exported_archive` finally has
+    /// its caller. The bytes are the open Workshop's in-memory state, dirty or
+    /// not, and are labelled `Portable export; Workshop not saved for
+    /// Continue` unless that state is the saved Continue generation.
+    ///
+    /// **Not gated on the resident Workshop being replaceable**: nothing is
+    /// replaced, and §6 does not name it. Refused while another request holds
+    /// the lane, or with no open Workshop.
+    pub fn export_active_workshop(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        self.dispatch_active_export()
+    }
+
+    fn dispatch_active_export(&mut self) -> Result<(), ClientRuntimeError> {
+        let ActiveSession::Workshop(session) = &mut self.active_session else {
+            self.push_diagnostic(
+                ClientDiagnosticCode::WorkshopInactive,
+                "Workshop export requested without an active Workshop",
+            );
+            return Err(ClientRuntimeError::WorkshopInactive);
+        };
+        // An archive left by an export that was cancelled while queued is
+        // not this request's answer.
+        drop(session.take_exported_archive());
+        session
+            .enqueue(WorkshopAction::RequestExport)
+            .map_err(ClientRuntimeError::WorkshopAction)?;
+        self.slot_requests = LibrarySlots::ExportingWorkshop;
+        Ok(())
+    }
+
+    /// Resolves Export this galaxy once the session has drained its request.
+    fn poll_active_export(&mut self) {
+        if !matches!(self.slot_requests, LibrarySlots::ExportingWorkshop) {
+            return;
+        }
+        let resident_name = self.resident_slot().and_then(|slot| {
+            self.slot_list.as_ref().and_then(|list| {
+                list.slots
+                    .iter()
+                    .find(|summary| summary.id == slot)
+                    .map(|summary| summary.name.clone())
+            })
+        });
+        let ActiveSession::Workshop(session) = &mut self.active_session else {
+            self.slot_requests = LibrarySlots::ExportWorkshopFailed {
+                code: ClientDiagnosticCode::WorkshopInactive,
+            };
+            self.push_diagnostic(
+                ClientDiagnosticCode::WorkshopInactive,
+                "The Workshop being exported is no longer open",
+            );
+            return;
+        };
+        let Some(bytes) = session.take_exported_archive() else {
+            // The session drains its whole mailbox per update, so no archive
+            // means it refused the request (a replacement was in progress) or
+            // could not encode; its own diagnostic says which.
+            self.slot_requests = LibrarySlots::ExportWorkshopFailed {
+                code: ClientDiagnosticCode::Archive,
+            };
+            self.push_diagnostic(
+                ClientDiagnosticCode::Archive,
+                "The open Workshop could not be exported",
+            );
+            return;
+        };
+        // Read after the drain that encoded the bytes. Conservative: anything
+        // later in the same drain can only make the state less saved.
+        let continue_ready = session.continue_ready();
+        // A slotless Workshop's first save is named "Workshop", so the copy
+        // is too; a resident slot lends its listed name when it is known.
+        let suggested_name = resident_name.map_or_else(SuggestedName::unsaved_workshop, |name| {
+            SuggestedName::workshop_archive(&name)
+        });
+        self.slot_requests = LibrarySlots::ExportReady {
+            export: Box::new(PreparedExport {
+                source: ExportSource::ActiveWorkshop { continue_ready },
+                suggested_name,
+                bytes,
+            }),
+        };
+    }
+
+    /// Export content pack, stage 1 (route-design task 11): the open
+    /// Workshop's exact catalog, canonical bytes, straight to Ready.
+    ///
+    /// Not gated on the resident Workshop being replaceable, for the same
+    /// reason as [`Self::export_active_workshop`].
+    pub fn export_active_pack(&mut self) -> Result<(), ClientRuntimeError> {
+        if !matches!(self.slot_requests, LibrarySlots::Idle) {
+            return Err(ClientRuntimeError::LibraryRequestActive);
+        }
+        let ActiveSession::Workshop(session) = &self.active_session else {
+            self.push_diagnostic(
+                ClientDiagnosticCode::WorkshopInactive,
+                "Content-pack export requested without an active Workshop",
+            );
+            return Err(ClientRuntimeError::WorkshopInactive);
+        };
+        let hash = session.history().catalog().catalog_hash();
+        let bytes = match self.export_active_catalog() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.push_diagnostic(
+                    ClientDiagnosticCode::Catalog,
+                    "The open Workshop's content pack could not be encoded",
+                );
+                return Err(error);
+            }
+        };
+        self.slot_requests = LibrarySlots::ExportReady {
+            export: Box::new(PreparedExport {
+                source: ExportSource::ActivePack { hash },
+                suggested_name: SuggestedName::content_pack(hash),
+                bytes,
+            }),
+        };
+        Ok(())
     }
 
     /// Accepts §4's export-recovery choice: the already-validated predecessor

@@ -1011,6 +1011,37 @@ fn every_export_request_state_installs_and_keeps_its_strip_controls() {
             source: unsaved,
             outcome: HandoffOutcome::HandedToSystem,
         },
+        // The transfer strip's own lane states (task 11).
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::ExportWorkshop,
+            slot: None,
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ExportWorkshop,
+            slot: None,
+            code: ClientDiagnosticCode::Archive,
+        },
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::ChoosePack,
+            slot: None,
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::ChoosePack,
+            slot: None,
+            code: ClientDiagnosticCode::Catalog,
+        },
+        LibrarySlotsStatus::Working {
+            kind: SlotRequestKind::StorePack,
+            slot: None,
+        },
+        LibrarySlotsStatus::Failed {
+            kind: SlotRequestKind::StorePack,
+            slot: None,
+            code: ClientDiagnosticCode::Store,
+        },
+        LibrarySlotsStatus::PackStored {
+            hash: nyon::workshop::CatalogHash([0xab; 32]),
+        },
     ];
     let reference = crowded_model(&list);
     let mut handoffs_placed = 0;
