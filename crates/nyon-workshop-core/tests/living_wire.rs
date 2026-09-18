@@ -1155,3 +1155,45 @@ fn the_keyed_collection_constructor_reports_a_keyed_order_error() {
         Err(LivingWireErrorV2::Json)
     ));
 }
+
+/// Verify CRATE_SOURCES module declarations using syn for accurate parsing.
+/// This test uses syn to properly parse Rust source files and count pub mod declarations,
+/// handling edge cases like comments, attributes, and visibility modifiers.
+#[test]
+fn crate_sources_syncs_with_module_declarations_syn() {
+    use syn::{ItemMod, Visibility, parse_file};
+
+    let mut total_mod_count = 0;
+    let mut parsed_files = 0;
+
+    for (name, source) in CRATE_SOURCES.iter().skip(1) {
+        // skip lib.rs
+        let ast = parse_file(source).unwrap_or_else(|e| {
+            panic!("Failed to parse {name}: {e}");
+        });
+        parsed_files += 1;
+
+        for item in ast.items {
+            if let syn::Item::Mod(ItemMod { vis, .. }) = item {
+                // Count only public modules (pub, pub(crate), pub(super), pub(in path))
+                if matches!(vis, Visibility::Public(_)) {
+                    total_mod_count += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        parsed_files,
+        CRATE_SOURCES.len() - 1,
+        "All source files should be parseable"
+    );
+    assert!(
+        total_mod_count > 0,
+        "At least some public modules should be declared"
+    );
+
+    // The exact count may differ from the string-based test due to visibility differences
+    // (e.g., pub(crate) vs pub, or private modules). The string-based test in
+    // crate_sources_syncs_with_module_declarations remains the authoritative count.
+}

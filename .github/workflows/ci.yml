@@ -28,6 +28,8 @@ jobs:
       # simulation, two_system_forge) and leaves that crate's test targets
       # unlinted. Those are the deterministic-authority suites.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # Validate Rust↔WGSL vertex layout cross-contract (frozen 36-byte ABI)
+      - run: python3 tools/validate-vertex-layout.py
       - run: cargo test --workspace --all-targets
       - run: cargo build --release
 
@@ -71,3 +73,7 @@ jobs:
       # Runs after the build above so the artifact-freshness check sees a
       # `dist/` newer than the checkout.
       - run: ./tools/check-workshop.sh
+      # Verify Living V2 vectors against independent spec formulas (no regeneration from implementation)
+      - run: python3 tools/living-v2-vectors.py verify
+      # Cross-build fingerprint comparison: WebGPU vs WebGL2 produce same canonical digest
+      - run: python3 tools/cross-build-fingerprint.py --skip-tests

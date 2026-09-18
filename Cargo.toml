@@ -2,6 +2,7 @@
 members = [".", "crates/nyon-workshop-core"]
 default-members = ["."]
 resolver = "3"
+exclude = ["tools/validate-vertex-layout"]
 
 [package]
 name = "nyon"

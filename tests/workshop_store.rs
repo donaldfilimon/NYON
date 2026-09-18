@@ -754,6 +754,85 @@ fn abandoning_a_native_job_frees_its_lane_while_the_worker_thread_finishes() {
     );
 }
 
+/// Verify that after abandoning a mutation, re-listing produces correct
+/// outcomes and generation CAS is preserved for head-dependent mutations.
+/// AGENTS.md: "Re-list after abandoned mutations; preserve generation CAS
+/// for every head-dependent mutation."
+#[test]
+fn abandoning_mutation_requires_relist_and_preserves_generation_cas() {
+    let mut store = MemoryWorkshopStore::default();
+    let (slot, generation) = create(&mut store, "Forge", archive(1)).unwrap();
+
+    // Start a commit that we'll abandon
+    let wedge = store
+        .start(WorkshopStoreRequest::PutPack {
+            canonical_pack: Box::from(&include_bytes!("../assets/workshop/core-pack-v1.json")[..]),
+        })
+        .unwrap();
+
+    // Verify the commit lane is blocked
+    assert!(matches!(
+        store.start(WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        }),
+        Err(WorkshopStoreError::Busy {
+            class: StoreJobClass::Commit
+        })
+    ));
+
+    // Abandon the wedged job
+    assert!(store.abandon(wedge), "abandon should release the lane");
+
+    // Re-list: the caller must re-list to discover the current state
+    let slots = list(&mut store);
+    assert_eq!(slots.slots.len(), 1);
+    assert_eq!(slots.slots[0].generation, generation);
+    assert_eq!(slots.slots[0].name, SlotName::new("Forge").unwrap());
+
+    // The generation CAS must be preserved: a new commit with the
+    // old generation must still be rejected if another commit happened
+    // (simulated by the fact that we just committed)
+    let committed = run(
+        &mut store,
+        WorkshopStoreRequest::CommitSlot {
+            slot,
+            expected_generation: generation,
+            archive: archive(2),
+        },
+    )
+    .expect("commit lane is free after abandon");
+    assert!(matches!(
+        committed,
+        WorkshopStoreResult::SlotCommitted {
+            slot: _,
+            generation: SaveGeneration(g)
+        } if g == generation.0 + 1
+    ));
+
+    // After the successful commit, the old generation is stale
+    let stale_generation = generation;
+    // The memory store validates generation CAS synchronously in `execute`,
+    // but the `start` method returns the job ID; the error is surfaced on `poll`.
+    // Use `run` to wait for the job and surface the error.
+    assert!(matches!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: stale_generation,
+                archive: archive(3),
+            },
+        ),
+        Err(WorkshopStoreError::StaleGeneration { .. })
+    ));
+
+    // Re-list again to confirm the new head is visible
+    let slots = list(&mut store);
+    assert_eq!(slots.slots[0].generation, SaveGeneration(generation.0 + 1));
+}
+
 #[test]
 fn memory_store_canonicalizes_and_round_trips_validated_packs() {
     let mut store = MemoryWorkshopStore::default();

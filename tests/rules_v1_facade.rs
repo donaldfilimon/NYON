@@ -10,8 +10,21 @@ use nyon::{
 fn classic_facade_preserves_the_frozen_rules_v1_oracles() {
     assert_eq!(DEFAULT_SEED, 0x4947_5731_2026_0902);
     assert_eq!(WORLD_COUNT, 7);
-    assert_eq!(RulesV1::default().base_fleet_speed, 23);
     assert_eq!(size_of::<Vertex>(), 36);
+
+    let rules = RulesV1::default();
+    assert_eq!(rules.tick_hz, 60);
+    assert_eq!(rules.win_world_count, 5);
+    assert_eq!(rules.ai_period_ticks, 60);
+    assert_eq!(rules.hazard_first_tick, 2700);
+    assert_eq!(rules.hazard_period_ticks, 2700);
+    assert_eq!(rules.hazard_duration_ticks, 720);
+    assert_eq!(rules.maximum_energy.0, 250_000);
+    assert_eq!(rules.maximum_defense.0, 100_000);
+    assert_eq!(rules.minimum_launch.0, 10_000);
+    assert_eq!(rules.field_raise_cost.0, 20_000);
+    assert_eq!(rules.field_lower_refund.0, 10_000);
+    assert_eq!(rules.base_fleet_speed, 23);
 
     let scenario = ScenarioDraft::factory_default().validated().unwrap();
     assert_eq!(scenario.worlds().len(), 7);

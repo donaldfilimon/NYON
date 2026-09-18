@@ -15,8 +15,8 @@ NYON is being expanded into **NYON Galaxy Workshop V1**, an offline creative gal
 Current status is intentionally separated by evidence layer:
 
 - Implemented and locally verified: reconstruction of the exact reviewed RulesV1 source tree and the breaking NYON package, crate, binary, browser, product, and primary-storage identity.
-- In progress: the pure Workshop authority and built-in validated content pack.
-- Planned: recorded live galaxy creation, deterministic industry and logistics, immutable branch history, crash-safe native and browser saves, Workshop tools and semantic controls, distinct WebGPU and WebGL2 artifacts, and the full live desktop/browser qualification matrix.
+- Implemented: the pure Workshop authority and built-in validated content pack (creator commands, simulation at 10 Hz, history/branching/undo/redo, archives with CAS, store adapters memory/native/web, UI tools creator/library/inspector, distinct WebGPU/WebGL2 artifacts via `build-web.sh`).
+- In progress: recorded live galaxy creation, deterministic industry and logistics, immutable branch history, crash-safe native and browser saves, Workshop tools and semantic controls, and the full live desktop/browser qualification matrix.
 
 The repository relocation and exact-baseline reconstruction are completed historical operations and must not be repeated. The prior Intergalactic Warfare design and plan remain RulesV1 references, not current execution authority. Legacy Intergalactic Warfare scenario and preference data remains read-only fallback input: a present NYON slot always wins, and Workshop work must not introduce copy-on-read migration, import markers, import reports, or legacy-data rewriting.
 

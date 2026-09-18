@@ -1,0 +1,12 @@
+[package]
+name = "validate-vertex-layout"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "visit", "visit-mut"] }
+thiserror = "2.0"
+regex = "1.10"
+quote = "1.0"

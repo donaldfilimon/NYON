@@ -1,4 +1,10 @@
+/// Number of worlds in a canonical campaign (fixed at 7 since V1).
+/// Indices wrap modulo WORLD_COUNT; world IDs are 0..WORLD_COUNT-1.
 pub const WORLD_COUNT: usize = 7;
+/// Frozen deterministic seed for the RulesV1 generator (0x4947_5731_2026_0902).
+/// Governed by the frozen RulesV1 design; never changes without
+/// a versioned design decision. Used to seed the seven-world generator
+/// and verify campaign digests.
 pub const DEFAULT_SEED: u64 = 0x4947_5731_2026_0902;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -138,6 +144,9 @@ impl FieldLevels {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The immutable RulesV1 rule set: seven worlds, fixed tick rate, and the
+/// canonical command taxonomy. Governed by the frozen design; any alteration
+/// requires a versioned decision, not a replacement golden.
 pub struct RulesV1 {
     pub tick_hz: u32,
     pub win_world_count: u8,
@@ -173,6 +182,10 @@ impl Default for RulesV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// A named world in the canonical campaign. Seven worlds exist (indices
+/// wrap modulo WORLD_COUNT), each with a unique ID, name, position, owner,
+/// and resource state. The world's tick and hazard status are tracked
+/// separately in the simulation.
 pub struct World {
     pub id: WorldId,
     pub name: WorldName,
@@ -187,6 +200,9 @@ pub struct World {
     pub regeneration_remainder: u64,
 }
 
+/// A fleet traveling between two worlds. Carries a faction, strength, route
+/// length, speed, and cargo hydrosphere/movement state. The fleet's tick and
+/// hazard status are tracked separately in the simulation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Fleet {
     pub id: FleetId,

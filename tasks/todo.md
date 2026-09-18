@@ -1,0 +1,8 @@
+- [ ] Verify CRATE_SOURCES sync with living V2 source edits
+- [ ] Automate `python3 tools/living-v2-vectors.py verify` in CI gate
+- [ ] Add WGSL⇆Vertex layout cross-validation script
+- [ ] Expand `tests/rules_v1_facade.rs` to verify all 7 RulesV1 default fields
+- [ ] Add `WorkshopStore::abandon` re-listing test with generation CAS consistency
+- [ ] Integrate living-v2-vectors.py verify after workshop build in CI
+- [ ] Add cross-build fingerprint comparison (WebGPU vs WebGL2 canonical digest)
+- [ ] Verify all new doc comments compile and pass `cargo doc --no-deps`
