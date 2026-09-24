@@ -106,4 +106,4 @@ that no command here reaches.
 
 `cargo test --test advisory_gpu -- --nocapture` is adapter-backed. A printed `SKIP:` is a passing test but is not GPU parity evidence. Headless tests, native builds, wasm compilation, bundle generation, provider CI, live native startup, live browser behavior, and manual visual acceptance are separate evidence layers.
 
-The CI workflow defines native macOS/Windows/Linux gates and a wasm bundle job. Its presence does not establish that a provider has run it successfully.
+The CI workflow defines native macOS/Windows/Linux gates and a wasm bundle job. Its presence does not establish that a provider has run it successfully. For pushes and same-repository pull requests, the macOS, fuzz and wasm jobs run on a self-hosted macOS arm64 runner; see [docs/SelfHostedRunner.md](docs/SelfHostedRunner.md).

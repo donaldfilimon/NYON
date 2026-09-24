@@ -1,5 +1,12 @@
 name: CI
 
+# Trusted events (pushes, and pull requests from branches of this repository)
+# run the macOS, fuzz and wasm gates on the macOS arm64 self-hosted runner
+# registered to this repository with the label `nyon`. Pull requests from forks
+# run the same gates on GitHub-hosted runners through the `*-hosted` jobs: never
+# schedule untrusted code on the self-hosted machine. The Windows and Linux
+# native legs stay GitHub-hosted. See docs/SelfHostedRunner.md.
+
 on:
   push:
   pull_request:
@@ -9,11 +16,72 @@ permissions:
 
 jobs:
   native:
+    name: Native (macos-latest)
+    if: >
+      github.repository == 'donaldfilimon/NYON' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    # The macOS leg of the native matrix. Hosted `macos-latest` is macOS arm64
+    # as well, so this runs the same gate on the same architecture.
+    runs-on: [self-hosted, macOS, ARM64, nyon]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+          components: rustfmt, clippy
+          # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
+          # rustup proxies and installed tools; do not save it to or restore it
+          # from the Actions cache. Registry and target caching stay on.
+          cache-bin: false
+      - run: cargo fmt --all --check
+      # `--workspace` is required. `default-members = ["."]` scopes a bare
+      # invocation to the root package, which skips every integration binary in
+      # `crates/nyon-workshop-core` (archive, creator, history, pack,
+      # simulation, two_system_forge) and leaves that crate's test targets
+      # unlinted. Those are the deterministic-authority suites.
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # Validate Rust↔WGSL vertex layout cross-contract (frozen 36-byte ABI)
+      - run: python3 tools/validate-vertex-layout.py
+      - run: cargo test --workspace --all-targets
+      - run: cargo build --release
+
+  native-hosted:
+    name: Native (macos-latest) (GitHub-hosted, fork PRs)
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      # `--workspace` is required. `default-members = ["."]` scopes a bare
+      # invocation to the root package, which skips every integration binary in
+      # `crates/nyon-workshop-core` (archive, creator, history, pack,
+      # simulation, two_system_forge) and leaves that crate's test targets
+      # unlinted. Those are the deterministic-authority suites.
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # Validate Rust↔WGSL vertex layout cross-contract (frozen 36-byte ABI)
+      - run: python3 tools/validate-vertex-layout.py
+      - run: cargo test --workspace --all-targets
+      - run: cargo build --release
+
+  native-other-os:
+    # The Windows and Linux legs keep their check names and stay GitHub-hosted
+    # for every event: the self-hosted runner is macOS only.
     name: Native (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +105,41 @@ jobs:
     # `crates/nyon-workshop-core/fuzz` declares its own `[workspace]`, so the
     # native job's `--workspace` invocations do not reach it and the target can
     # rot against the core API without any gate noticing. Compile and lint only;
-    # this job does not run the fuzzer and is not fuzzing evidence. Ubuntu only,
-    # because `libfuzzer-sys` builds libFuzzer with a C++ toolchain and does not
-    # support the MSVC target used by the Windows runner.
+    # this job does not run the fuzzer and is not fuzzing evidence. Not on
+    # Windows, because `libfuzzer-sys` builds libFuzzer with a C++ toolchain and
+    # does not support the MSVC target used by the Windows runner. Apple clang
+    # on the macOS arm64 runner builds it; fork PRs use Ubuntu (`fuzz-hosted`).
     name: Fuzz target compile and lint
+    if: >
+      github.repository == 'donaldfilimon/NYON' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: [self-hosted, macOS, ARM64, nyon]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+          components: rustfmt, clippy
+          # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
+          # rustup proxies and installed tools; do not save it to or restore it
+          # from the Actions cache. Registry and target caching stay on.
+          cache-bin: false
+      - run: cargo fmt --manifest-path crates/nyon-workshop-core/fuzz/Cargo.toml --all --check
+      # `--locked` is deliberate. That crate's lockfile had drifted out of date
+      # against `sha2`'s `asm` feature and was silently rewritten by the first
+      # `cargo check` run against it on 2026-09-04.
+      - run: cargo clippy --locked --manifest-path crates/nyon-workshop-core/fuzz/Cargo.toml --all-targets -- -D warnings
+
+  fuzz-hosted:
+    name: Fuzz target compile and lint (GitHub-hosted, fork PRs)
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +155,45 @@ jobs:
 
   wasm:
     name: WASM compile and bundle
+    if: >
+      github.repository == 'donaldfilimon/NYON' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: [self-hosted, macOS, ARM64, nyon]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+          components: rustfmt, clippy
+          # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
+          # rustup proxies and installed tools; do not save it to or restore it
+          # from the Actions cache. Registry and target caching stay on.
+          cache-bin: false
+      - run: ./tools/build-web.sh
+      - run: cargo check --target wasm32-unknown-unknown --lib
+      - run: cargo check -p nyon-workshop-core --target wasm32-unknown-unknown
+      # The host gate never compiles `cfg(target_arch = "wasm32")` code, so
+      # browser-only modules such as `src/ui/platform_web.rs` are otherwise
+      # unlinted. This caught a real `clippy::let_unit_value` on 2026-09-04.
+      - run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
+      # Runs after the build above so the artifact-freshness check sees a
+      # `dist/` newer than the checkout.
+      - run: ./tools/check-workshop.sh
+      # Verify Living V2 vectors against independent spec formulas (no regeneration from implementation)
+      - run: python3 tools/living-v2-vectors.py verify
+      # Cross-build fingerprint comparison: WebGPU vs WebGL2 produce same canonical digest
+      - run: python3 tools/cross-build-fingerprint.py --skip-tests
+
+  wasm-hosted:
+    name: WASM compile and bundle (GitHub-hosted, fork PRs)
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
