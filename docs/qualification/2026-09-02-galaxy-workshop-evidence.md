@@ -229,6 +229,54 @@ is stale at `b7a69f2`: `ClientRuntime` queues it at `src/app/client_runtime.rs`
 are still the enum and match arms only. That product gap blocks Task 3. It is
 not a Step 1 finding, and it does not block Step 2.
 
+## Task 2 Step 2 — Parser and archive attack-surface review (2026-09-30)
+
+Reviewed the Workshop V1 pack parser and archive decoder at `0c1568d` (parent
+of the commit that adds this section). Living V2 wire is outside this step.
+No reproducible parser or archive defect, so there is no repair commit.
+
+| Surface | Where inspected | Result |
+|---|---|---|
+| Byte cap before parse | Pack `strict_preflight` checks `MAX_PACK_BYTES` (1,048,576) before `parse_strict_value`. Archive `inspect_archive_wire` checks `MAX_ARCHIVE_BYTES` (16 MiB) before `serde_json::from_slice` | `pack_rejects_oversized_bom_invalid_utf8_trailing_and_depth`; `archive_catalog_inspection_authenticates_only_a_canonical_supported_envelope` |
+| Duplicate keys | `StrictValueVisitor` rejects a repeated key at every map depth. Archive decode does not use that visitor; canonical re-encode must equal the input, so a duplicate key cannot survive | `pack_rejects_duplicate_keys_at_root_and_recipe_depth`; pretty-printed archive bytes return `NonCanonical` |
+| Depth | Pack preflight rejects nesting above 32 before parse. The design's depth-32 rule is under Validated Data Packs. Archive nesting uses pinned `serde_json` 1.0.151 with no `unbounded_depth` feature: `remaining_depth` starts at 128 and `RecursionLimitExceeded` becomes `ArchiveError::Json` | Pack depth rejection is tested. The archive difference is the spec's pack rule, not a crash |
+| Allocation | Both caps run before parse. After a successful archive parse, revision count is refused above `MAX_REVISIONS` (10,000) and branch count above `MAX_BRANCHES` (64) before the graph walks. `IncrementalMaterializer` refuses a revisit or a chain of length `MAX_REVISIONS` | Counts are bounded by the byte cap plus those limits |
+| Unknown fields and floats | Pack structs use `deny_unknown_fields`. `visit_f64` rejects floats. Archive wire and payload use `deny_unknown_fields` | `pack_rejects_unknown_fields_floats_and_authority_content` |
+| IDs and names | `is_pack_id` is `[a-z][a-z0-9._-]{0,47}`. `is_catalog_id` is `[a-z][a-z0-9_-]{0,31}`. Names are 1 through 64 printable ASCII bytes with no leading, trailing, or doubled space. Descriptions are at most 512 printable ASCII bytes. Branch names use the same printable-ASCII rule | `pack_rejects_bad_ids_names_counts_quantities_and_references` |
+| Reference graph | Unknown resources and duplicate catalog ids are typed pack errors. Archive revision ids must be strictly sorted and unique. `validate_revision_graph` color-marks the parent DAG and returns `ArchiveError::Revisions` on a cycle before `validate_branches`. `is_ancestor` has no visited set of its own and runs only after that color pass | Quantity and reference rejections are in the pack suite. `IncrementalMaterializer` repeats the cycle guard on replay |
+| Hash domains | Pack hash domain is `b"NYON-WORKSHOP-PACK-V1\0"`. Archive integrity domain is `b"NYON-WORKSHOP-ARCHIVE-INTEGRITY-V1\0"` | Tamper returns `Integrity` from `archive_catalog_hash` |
+| Active view | An authenticated archive whose active tick is before the selected branch tick is `ArchiveError::ActiveView` | `authenticated_archive_rejects_active_tick_before_selected_branch_tick` |
+| Paths, URLs, scripts | The pack schema has no path, URL, script, texture, shader, or WASM field. Unknown authority fields (`scenarios`, `tick_hz`) are rejected. Printable ASCII names can contain the characters of a URL. Nothing in `pack.rs` fetches or opens them. That is display text, not a loadable asset | `pack_rejects_unknown_fields_floats_and_authority_content` |
+| Error redaction | `ArchiveError`, `PackValidationError`, `HistoryError`, `CreatorRejectionV1`, and `DeterministicFault` display fixed phrases, static field names, sizes, or a budget. `ArchiveError::History` is transparent over those fixed phrases. Diagnostics receive `error.to_string()` and do not receive the document bytes | Inspected Display impls. No payload echo |
+| Invalid-import atomicity | `RequestImport` builds `ArchiveDecodeJob` before any history assignment. `poll_decode` takes `pending_decode`. `new` `Err`, `poll` `Err`, and `finish` `Err` only push `ArchiveRejected`. `self.history` is assigned only inside `finish()` `Ok`, which also sets `"Imported; not saved"` and marks dirty. `RequestExport` encodes without replacing history | `src/workshop/session.rs` `RequestImport` and `poll_decode` |
+
+`RequestImport` pauses the session before validation. A rejected import leaves the existing history, slot, and dirty flag in place.
+
+### Finding ledger
+
+| Severity | Reproduction | Test | Repair commit | Rerun |
+|---|---|---|---|---|
+| none | No reproducible Step 2 defect | The pack and archive suites below, plus the active-view unit test | none | EXIT 0; archive 3 passed; pack 9 passed; active-view unit 1 passed; 0 failed |
+
+Rerun on this code. Exit codes were read from each command:
+
+```sh
+cargo test -p nyon-workshop-core --test pack --test archive
+cargo test -p nyon-workshop-core --lib authenticated_archive_rejects_active_tick_before_selected_branch_tick
+```
+
+| Suite | Result |
+|---|---|
+| `archive` | `test result: ok. 3 passed; 0 failed` |
+| `pack` | `test result: ok. 9 passed; 0 failed` |
+| `archive::tests::authenticated_archive_rejects_active_tick_before_selected_branch_tick` | `test result: ok. 1 passed; 0 failed` |
+
+**Next for this plan: Task 2 Step 3, storage failure ordering.**
+
+`RequestImport` and `RequestLoad` remain enum and match arms only, so Task 3
+stays blocked. Windows and Linux hosts still block Task 5 only. Neither limit
+is a Step 2 finding.
+
 ## Reproducing this record
 
 ```sh

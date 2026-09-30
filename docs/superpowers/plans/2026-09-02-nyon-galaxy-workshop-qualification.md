@@ -152,7 +152,7 @@ Label this `artifact-qualified` evidence only.
 
 Inspect for unordered traversal, float or wall-clock state, unchecked arithmetic, partial mutation, inconsistent encoding, digest exclusions, local-reference type confusion, ID collision handling, phase-order drift, and RulesV1 coupling.
 
-- [ ] **Step 2: Review parser and archive attack surfaces**
+- [x] **Step 2: Review parser and archive attack surfaces** (2026-09-30, evidence section "Task 2 Step 2"; no repair commit)
 
 Inspect byte caps before parsing, duplicate keys, depth, allocation amplification, unknown fields, float handling, ID and name validation, reference graphs, hash domains, archive DAG cycles, path/URL/script absence, error redaction, and invalid-import atomicity.
 
