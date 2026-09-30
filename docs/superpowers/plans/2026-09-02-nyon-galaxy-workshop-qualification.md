@@ -160,7 +160,7 @@ Inspect byte caps before parsing, duplicate keys, depth, allocation amplificatio
 
 Verify native temporary-file locality, file flush, read-back hash, pointer replacement, directory sync, prior-generation retention, and generation conflict. Verify IndexedDB schema, immutable generation keys, single-transaction ref updates, abort handling, quota handling, and unload non-success.
 
-- [ ] **Step 4: Review UI and accessibility**
+- [x] **Step 4: Review UI and accessibility** (2026-09-30, evidence section "Task 2 Step 4"; sighted cursor repair in the same commit)
 
 Exercise focus order, modal trap/restore, disabled state, branch-head versus cursor presentation, recovery choices, conflict status, keyboard-only tools, semantic names/values/actions, reduced motion, high contrast, and non-color status cues.
 

@@ -326,6 +326,52 @@ cargo build --release
 hosts still block Task 5 only. The wasm store still needs the wasm gate and a
 browser run; this native gate does not supply that.
 
+## Task 2 Step 4 — UI and accessibility review (2026-09-30)
+
+Reviewed the Workshop V1 UI and accessibility surfaces at `4291577` (parent of
+the repair commit). One reproducible defect was repaired in that commit.
+
+| Surface | Where inspected | Result |
+|---|---|---|
+| Focus order | `FocusManager` keeps a stable, cyclic, de-duplicated order. The Workshop model collects menu, creator tools, outliner, inspector removal, timeline, branches, save, library, reduced motion, and high contrast, then the open modal | `focus_order_is_stable_cyclic_and_deduplicated` |
+| Modal trap and restore | Opening a modal rejects focus outside it. Closing it returns the control that was focused before the modal. An empty or nested modal is refused | `modal_focus_is_trapped_then_restored_to_the_prior_control`; `modal_focus_rejects_empty_and_nested_scopes` |
+| Disabled state | `WorkshopUiModel::activate` returns no intent for a disabled control. Undo and redo are disabled while the session is running or a replacement is active. Removal confirm is disabled while blockers remain | `accepted_branch_history_and_overflow_timeline_actions_are_reachable`; `removal_confirmation_lists_ordered_blockers_and_never_cascades` |
+| Branch head versus cursor | The model already stored `browsing_history` and a description, `Selected branch; cursor … is behind head …`. The painted node used the branch name only. Workshop status lines were not copied into visible nodes unless `operational_status` named one of them | Finding, repaired. A selected branch behind its head now publishes that description as the frame's operational status, so the sighted status node shows the cursor and the head |
+| Recovery choices | The recovery screen shows the recovery message, `Continue recovered save` when a previous generation can be opened, and `Dismiss recovery` | `src/ui/platform/shell.rs` labels. Both choices are text |
+| Conflict status | A stale generation is still the allowlisted sentence `Save failed; retry delayed`, plus the fixed store-rejected announcement. Slot and generation numbers stay out of that text | Inspected. The redaction is unchanged |
+| Keyboard-only tools | The same control list is the focus order. `activate` does not require a pointer | A live keyboard-only journey remains Task 3 Step 2 |
+| Semantic name, value, and action | Controls carry a name, description, enabled bit, selected bit, and action id. Creator fields also carry their value | `native_accesskit_creator_fields_expose_editable_roles_and_values` |
+| Reduced motion | Reduced motion zeroes parallax, freezes the background, sets the particle budget to 0, and stops halo animation | `src/presentation/scene.rs` |
+| High contrast and non-color status | High contrast assigns a faction pattern in addition to color. Removal uses `Cancel removal` and `Remove object`. Save status uses words, including `DIRTY` | `faction_pattern`; removal labels. A destructive choice is not color alone |
+
+### Finding ledger
+
+| Severity | Reproduction | Test | Repair commit | Rerun |
+|---|---|---|---|---|
+| A sighted Workshop frame could hide that the view cursor was behind the branch head. The sentence existed only as the branch control's semantic description | Build the platform frame for a selected branch whose head is revision 2 and whose cursor is revision 1. Before the repair, no status visible node contained `behind head` | `branch_chooser_distinguishes_the_immutable_head_from_the_view_cursor` | this commit | Focused test EXIT 0, `test result: ok. 1 passed; 0 failed`. Native gate below |
+
+The failed observation was the same test before `operational_status` carried the branch description. It panicked because no `PlatformTextRole::Status` node contained `behind head`. After the repair, that node is present, and a frame whose cursor is the head does not contain the sentence.
+
+Native CI gate from `AGENTS.md`, each exit read from that command:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets
+cargo build --release
+```
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | EXIT 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | EXIT 0 |
+| `cargo test --workspace --all-targets` | EXIT 0. 53 lines of `test result: ok`, 876 passed, 0 failed |
+| `cargo build --release` | EXIT 0. `Finished release profile [optimized] target(s)` |
+
+**Next for this plan: Task 2 Step 5, repair every reproducible finding.** This review left one repaired finding and no open one. Step 5 is the sweep, not a second copy of this repair.
+
+`RequestImport` and `RequestLoad` still block Task 3 only. Windows and Linux hosts still block Task 5 only. This native gate does not execute `src/workshop/store/web/wasm.rs`.
+
 ## Reproducing this record
 
 ```sh

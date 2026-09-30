@@ -748,6 +748,14 @@ pub fn build_workshop_platform_frame_for_view(
                 .map_or_else(|| "none".to_owned(), |value| value.to_string())
         ),
     ];
+    let history_status = model
+        .branches
+        .iter()
+        .find(|branch| branch.selected && branch.browsing_history)
+        .map(|branch| branch.control.description.clone());
+    if let Some(line) = &history_status {
+        status_lines.push(line.clone());
+    }
     if let Some(dialog) = &model.creator_form {
         status_lines.push(format!("Creator: {}", dialog.title));
         status_lines.extend(dialog.preview.iter().take(1).cloned());
@@ -826,7 +834,7 @@ pub fn build_workshop_platform_frame_for_view(
         sighted_text,
         visible_nodes: Vec::new(),
         source_records,
-        operational_status: None,
+        operational_status: history_status,
         high_contrast: model.preferences.high_contrast,
     };
     frame.rebuild_visible_nodes();

@@ -12,6 +12,7 @@ use nyon::ui::creator::CreatorDraft;
 use nyon::ui::creator::CreatorFieldKind;
 use nyon::ui::platform::build_workshop_platform_frame;
 use nyon::ui::platform::build_workshop_platform_frame_for_view;
+use nyon::ui::platform_sdf::PlatformTextRole;
 use nyon::ui::platform_sdf::build_platform_ui_batch;
 use nyon::ui::workshop::CreatorTool;
 use nyon::ui::workshop::WorkshopUiContext;
@@ -314,6 +315,7 @@ fn undo_and_redo_disable_while_running_or_during_store_replacement() {
 #[test]
 fn branch_chooser_distinguishes_the_immutable_head_from_the_view_cursor() {
     let mut snapshot = snapshot();
+    let at_head = WorkshopUiModel::build(&snapshot, WorkshopUiContext::default());
     snapshot.active_view.view_cursor = Some(revision(1));
     let model = WorkshopUiModel::build(
         &snapshot,
@@ -333,6 +335,26 @@ fn branch_chooser_distinguishes_the_immutable_head_from_the_view_cursor() {
     assert!(main.browsing_history);
     assert!(main.control.description.contains("behind head"));
     assert_eq!(model.timeline.redo_children, vec![revision(2)]);
+
+    let frame = build_workshop_platform_frame(&model, Vec2::new(1_280.0, 720.0), None);
+    assert!(
+        frame
+            .status_lines
+            .iter()
+            .any(|line| line.contains("behind head")),
+        "the sighted status region must show that the cursor is behind the branch head"
+    );
+    assert!(frame.visible_nodes.iter().any(|node| {
+        node.role == PlatformTextRole::Status && node.display_text.contains("behind head")
+    }));
+
+    let at_head_frame = build_workshop_platform_frame(&at_head, Vec2::new(1_280.0, 720.0), None);
+    assert!(
+        at_head_frame
+            .status_lines
+            .iter()
+            .all(|line| !line.contains("behind head"))
+    );
 }
 
 #[test]
