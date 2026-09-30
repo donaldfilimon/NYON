@@ -156,7 +156,7 @@ Inspect for unordered traversal, float or wall-clock state, unchecked arithmetic
 
 Inspect byte caps before parsing, duplicate keys, depth, allocation amplification, unknown fields, float handling, ID and name validation, reference graphs, hash domains, archive DAG cycles, path/URL/script absence, error redaction, and invalid-import atomicity.
 
-- [ ] **Step 3: Review storage failure ordering**
+- [x] **Step 3: Review storage failure ordering** (2026-09-30, evidence section "Task 2 Step 3"; read-back repair in the same commit)
 
 Verify native temporary-file locality, file flush, read-back hash, pointer replacement, directory sync, prior-generation retention, and generation conflict. Verify IndexedDB schema, immutable generation keys, single-transaction ref updates, abort handling, quota handling, and unload non-success.
 

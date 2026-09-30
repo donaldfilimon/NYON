@@ -277,6 +277,55 @@ cargo test -p nyon-workshop-core --lib authenticated_archive_rejects_active_tick
 stays blocked. Windows and Linux hosts still block Task 5 only. Neither limit
 is a Step 2 finding.
 
+## Task 2 Step 3 — Storage failure ordering (2026-09-30)
+
+Reviewed Workshop V1 native and browser storage at `893140b` (parent of the
+repair commit). One reproducible defect was repaired in that commit.
+
+| Surface | Where inspected | Result |
+|---|---|---|
+| Temporary-file locality | `persist_generation` creates the temporary with `NamedTempFile::new_in` on the slot directory | Same directory as `generation-*.archive` |
+| Flush and directory sync | `flush`, then `File::sync_all`, then `persist`, then `sync_directory`. On Unix that opens the directory and calls `sync_all` | Present before and after the repair |
+| Read-back hash | Before the repair, the descriptor hash was `Sha256::digest(archive)` of the caller buffer. The synced temporary was not read | Finding, repaired. `read_synced_temporary` seeks to the start of the synced file and the commit refuses when those bytes differ from `archive`. The stored hash is the digest of the bytes read back |
+| Pointer replacement | `NamedTempFile::persist` renames the temporary onto the generation path. The manifest, which is the generation pointer, is written only after that rename | `native_crash_after_generation_write_leaves_the_atomic_manifest_on_the_old_head` |
+| Prior-generation retention | A commit keeps the new descriptor and the previous valid descriptor. A manifest with more than two generations is `CorruptManifest` | `native_store_recovers_the_previous_valid_generation_without_moving_the_head` |
+| Generation conflict | `CommitSlot` compares `expected_generation` with the manifest head and returns `StaleGeneration` without writing. Two store instances serialize on `store-v1.lock` | `native_generation_cas_is_atomic_across_store_instances` |
+| IndexedDB schema | Database `nyon.workshop.v1`, version 1, object stores `slots`, `archives`, and `packs` | `indexeddb_identity_and_object_store_names_are_frozen` |
+| Immutable generation keys | Archive keys are `slot:{id}:generation:{generation:020}` | A new commit writes a new key. The slot reference keeps at most two generations |
+| Single-transaction ref updates | `mutate_references` opens one read-write transaction over `slots` and, for archive writes, `archives`. A mutation error calls `abort` | `transaction_model_publishes_only_after_success`; `wasm_source_uses_atomic_transactions_and_bounded_diagnostics` |
+| Abort, quota, schema, eviction | The host transaction model publishes the candidate only when no injected failure is pending | `browser_failure_classes_preserve_the_committed_generation`; `promotion_abort_and_quota_failure_preserve_head_and_exact_recovered_predecessor` |
+| Unload non-success | Session status becomes `Saved` only from `StoreJobState::Complete` with `SlotCreated` or `SlotCommitted`. The wasm waiter resolves only from IndexedDB `oncomplete` and rejects from `onabort`. No `beforeunload` or `pagehide` path assigns `Saved` | Inspected. The native gate does not execute `src/workshop/store/web/wasm.rs` |
+
+### Finding ledger
+
+| Severity | Reproduction | Test | Repair commit | Rerun |
+|---|---|---|---|---|
+| The native commit could publish a generation whose synced file bytes did not match the archive it claimed | At `BeforeGenerationPersist` on the second generation write, overwrite the synced temporary with `torn-temporary`. Before the repair the commit did not return `WriteGeneration` / `InvalidData` | `native_commit_refuses_a_synced_temporary_that_does_not_match_its_archive` | this commit | Focused test EXIT 0, `test result: ok. 1 passed; 0 failed`. Native gate below |
+
+The failed observation was the same test before `read_synced_temporary` existed. After the repair, a mismatch returns `WorkshopStoreError::Io { operation: WriteGeneration, kind: InvalidData }`, the generation file is not renamed into place, and a reopened store still loads generation 1.
+
+Native CI gate from `AGENTS.md`, each exit read from that command:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets
+cargo build --release
+```
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | EXIT 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | EXIT 0 |
+| `cargo test --workspace --all-targets` | EXIT 0. 53 lines of `test result: ok`, 876 passed, 0 failed |
+| `cargo build --release` | EXIT 0. `Finished release profile [optimized] target(s)` |
+
+**Next for this plan: Task 2 Step 4, the UI and accessibility review.**
+
+`RequestImport` and `RequestLoad` still block Task 3 only. Windows and Linux
+hosts still block Task 5 only. The wasm store still needs the wasm gate and a
+browser run; this native gate does not supply that.
+
 ## Reproducing this record
 
 ```sh

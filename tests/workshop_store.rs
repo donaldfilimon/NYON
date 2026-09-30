@@ -9,9 +9,9 @@ use std::{
 use nyon::workshop::store::{
     LoadedSlot, MAX_WORKSHOP_ARCHIVE_BYTES, MAX_WORKSHOP_PACKS, MemoryWorkshopStore,
     NativeStoreFaultInjector, NativeStoreFaultPoint, NativeWorkshopPlatform, NativeWorkshopStore,
-    SaveGeneration, SlotId, SlotList, SlotName, StoreJobClass, StoreJobId, StoreJobState,
-    WorkshopPathEnvironment, WorkshopStore, WorkshopStoreError, WorkshopStoreRequest,
-    WorkshopStoreResult, native_workshop_root,
+    SaveGeneration, SlotId, SlotList, SlotName, StoreIoKind, StoreIoOperation, StoreJobClass,
+    StoreJobId, StoreJobState, WorkshopPathEnvironment, WorkshopStore, WorkshopStoreError,
+    WorkshopStoreRequest, WorkshopStoreResult, native_workshop_root,
 };
 
 fn archive(version: u32) -> Box<[u8]> {
@@ -1351,4 +1351,84 @@ fn native_crash_after_generation_write_leaves_the_atomic_manifest_on_the_old_hea
     };
     assert_eq!(loaded.archive, archive(1));
     assert!(!loaded.recovered_from_previous);
+}
+
+struct CorruptSecondSyncedTemporary {
+    root: std::path::PathBuf,
+    persists_seen: usize,
+}
+
+impl NativeStoreFaultInjector for CorruptSecondSyncedTemporary {
+    fn check(&mut self, point: NativeStoreFaultPoint) -> Result<(), WorkshopStoreError> {
+        if point != NativeStoreFaultPoint::BeforeGenerationPersist {
+            return Ok(());
+        }
+        self.persists_seen += 1;
+        if self.persists_seen != 2 {
+            return Ok(());
+        }
+        let directory = self.root.join("slots/slot-00");
+        let mut corrupted = false;
+        for entry in std::fs::read_dir(&directory).expect("slot directory exists after sync") {
+            let entry = entry.expect("slot directory entry is readable");
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("generation-") {
+                continue;
+            }
+            std::fs::write(entry.path(), b"torn-temporary")
+                .expect("temporary generation is writable");
+            corrupted = true;
+        }
+        assert!(
+            corrupted,
+            "a synced temporary generation was present to corrupt"
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn native_commit_refuses_a_synced_temporary_that_does_not_match_its_archive() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = NativeWorkshopStore::with_fault_injector(
+        directory.path(),
+        Box::new(CorruptSecondSyncedTemporary {
+            root: directory.path().to_path_buf(),
+            persists_seen: 0,
+        }),
+    )
+    .unwrap();
+    let (slot, first) = create(&mut store, "Forge", archive(1)).unwrap();
+
+    assert!(matches!(
+        run(
+            &mut store,
+            WorkshopStoreRequest::CommitSlot {
+                slot,
+                expected_generation: first,
+                archive: archive(2),
+            },
+        ),
+        Err(WorkshopStoreError::Io {
+            operation: StoreIoOperation::WriteGeneration,
+            kind: StoreIoKind::InvalidData,
+        })
+    ));
+
+    let mut reopened = NativeWorkshopStore::at_root(directory.path()).unwrap();
+    let slots = list(&mut reopened);
+    assert_eq!(slots.slots[0].generation, first);
+    let loaded = run(&mut reopened, WorkshopStoreRequest::LoadSlot { slot }).unwrap();
+    let WorkshopStoreResult::SlotLoaded(loaded) = loaded else {
+        panic!("unexpected load result: {loaded:?}");
+    };
+    assert_eq!(loaded.archive, archive(1));
+    assert!(!loaded.recovered_from_previous);
+    assert!(
+        !directory
+            .path()
+            .join("slots/slot-00/generation-00000000000000000002.archive")
+            .exists()
+    );
 }

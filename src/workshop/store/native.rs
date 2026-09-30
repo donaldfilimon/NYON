@@ -7,7 +7,7 @@
 use std::{
     collections::BTreeSet,
     fs::{File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -582,6 +582,14 @@ impl NativeStoreWorker {
             .and_then(|_| temporary.as_file().sync_all())
             .map_err(|error| io_error(StoreIoOperation::WriteGeneration, error))?;
         self.check_fault(NativeStoreFaultPoint::BeforeGenerationPersist)?;
+        let read_back = read_synced_temporary(temporary.as_file())?;
+        if read_back.as_slice() != archive {
+            return Err(WorkshopStoreError::Io {
+                operation: StoreIoOperation::WriteGeneration,
+                kind: StoreIoKind::InvalidData,
+            });
+        }
+        let sha256 = <[u8; 32]>::from(Sha256::digest(&read_back));
         temporary
             .persist(self.generation_path(slot, generation))
             .map_err(|error| io_error(StoreIoOperation::WriteGeneration, error.error))?;
@@ -589,8 +597,8 @@ impl NativeStoreWorker {
         self.check_fault(NativeStoreFaultPoint::AfterGenerationPersist)?;
         Ok(GenerationDescriptor {
             generation,
-            byte_len: archive.len() as u64,
-            sha256: Sha256::digest(archive).into(),
+            byte_len: read_back.len() as u64,
+            sha256,
         })
     }
 
@@ -844,6 +852,20 @@ fn validate_manifest(manifest: &NativeManifest) -> Result<(), WorkshopStoreError
         }
     }
     Ok(())
+}
+
+fn read_synced_temporary(file: &File) -> Result<Vec<u8>, WorkshopStoreError> {
+    let mut synced = file
+        .try_clone()
+        .map_err(|error| io_error(StoreIoOperation::WriteGeneration, error))?;
+    synced
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| io_error(StoreIoOperation::WriteGeneration, error))?;
+    let mut bytes = Vec::new();
+    synced
+        .read_to_end(&mut bytes)
+        .map_err(|error| io_error(StoreIoOperation::WriteGeneration, error))?;
+    Ok(bytes)
 }
 
 fn read_bounded(
