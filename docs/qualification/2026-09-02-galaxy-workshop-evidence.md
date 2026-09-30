@@ -396,6 +396,17 @@ The Step 3 and Step 4 commits already contain the failing-then-passing regressio
 
 `RequestImport` and `RequestLoad` still block Task 3 only. Windows and Linux hosts still block Task 5 only. This native gate does not execute `src/workshop/store/web/wasm.rs`.
 
+## Task 2 Step 6 — Repair commits already on main (2026-09-30)
+
+Step 6 asks for scoped commits whose messages name the actual fixes, and it forbids an empty ceremonial `fix(workshop): close acceptance findings` commit. Those scoped commits are already on `main`:
+
+- `4291577` `fix(workshop): read a synced generation back before publishing it`
+- `03ab268` `fix(workshop): show the branch cursor when it is behind the head`
+
+`4ddec12` records the Step 5 sweep. It is not a repair. This Step 6 record adds no source change and no third fix commit. The native gate those repairs were re-measured against is the Step 5 run on the tree at `03ab268`, before `4ddec12`: `cargo fmt --all --check` EXIT 0; `cargo clippy --workspace --all-targets --all-features -- -D warnings` EXIT 0; `cargo test --workspace --all-targets` EXIT 0 (53 `test result: ok` lines, 876 passed, 0 failed), including both regressions; `cargo build --release` EXIT 0 (`Finished release profile [optimized] target(s)`).
+
+**Next for this plan: Task 3 stays blocked.** `RequestImport` and `RequestLoad` are still declarations and match arms only under `src/` (`session.rs` enum variants and match arms, `platform.rs` icon matches). Product `src/` does not construct them. Tests that construct them do not count. The qualification plan returns that gap to the owning child plan instead of fixing it inside Task 3. Windows and Linux hosts still block Task 5 only. A live keyboard-only journey remains Task 3 Step 2 and is not started here. This native gate does not execute `src/workshop/store/web/wasm.rs`.
+
 ## Reproducing this record
 
 ```sh

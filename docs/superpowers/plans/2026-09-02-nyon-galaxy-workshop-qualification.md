@@ -176,7 +176,7 @@ For each finding:
 6. Repeat the full source and artifact gates.
 7. Record the repair commit and evidence.
 
-- [ ] **Step 6: Commit repaired findings**
+- [x] **Step 6: Commit repaired findings** (2026-09-30, evidence section "Task 2 Step 6"; scoped repairs already `4291577` and `03ab268`; no empty close-out commit)
 
 Use one or more scoped commits whose messages reflect actual fixes. If the final review sweep is one coherent UI/accessibility batch, use:
 
