@@ -164,7 +164,7 @@ Verify native temporary-file locality, file flush, read-back hash, pointer repla
 
 Exercise focus order, modal trap/restore, disabled state, branch-head versus cursor presentation, recovery choices, conflict status, keyboard-only tools, semantic names/values/actions, reduced motion, high contrast, and non-color status cues.
 
-- [ ] **Step 5: Repair every reproducible finding**
+- [x] **Step 5: Repair every reproducible finding** (2026-09-30, evidence section "Task 2 Step 5"; both findings already repaired in `4291577` and `03ab268`)
 
 For each finding:
 

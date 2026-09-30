@@ -372,6 +372,30 @@ cargo build --release
 
 `RequestImport` and `RequestLoad` still block Task 3 only. Windows and Linux hosts still block Task 5 only. This native gate does not execute `src/workshop/store/web/wasm.rs`.
 
+## Task 2 Step 5 — Repair sweep (2026-09-30)
+
+Swept the Task 2 finding ledgers at `03ab268`. Steps 1 and 2 recorded no defect. Steps 3 and 4 each recorded one defect, and each repair is already on `main`. No finding was still open, so this sweep did not add a third repair.
+
+| Step | Finding | Repair commit | Still open |
+|---|---|---|---|
+| 1, deterministic authority | none | none | no |
+| 2, parser and archive | none | none | no |
+| 3, storage failure ordering | A native commit could publish a generation whose synced bytes did not match the archive | `4291577` (`fix(workshop): read a synced generation back before publishing it`) | no. `read_synced_temporary` compares the synced file with the archive and refuses a mismatch before `persist` |
+| 4, UI and accessibility | A sighted frame hid a cursor that was behind the branch head | `03ab268` (`fix(workshop): show the branch cursor when it is behind the head`) | no. The selected branch's description is the frame's operational status |
+
+The Step 3 and Step 4 commits already contain the failing-then-passing regression, the repair, and a native gate of 876 passed and 0 failed. This sweep ran that gate again on the same code, before this ledger commit. Both regressions passed inside it: `native_commit_refuses_a_synced_temporary_that_does_not_match_its_archive` and `branch_chooser_distinguishes_the_immutable_head_from_the_view_cursor`.
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | EXIT 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | EXIT 0 |
+| `cargo test --workspace --all-targets` | EXIT 0. 53 lines of `test result: ok`, 876 passed, 0 failed |
+| `cargo build --release` | EXIT 0. `Finished release profile [optimized] target(s)` |
+
+**Next for this plan: Task 2 Step 6.** The repair commits already exist. Step 6 must not add an empty `close acceptance findings` commit.
+
+`RequestImport` and `RequestLoad` still block Task 3 only. Windows and Linux hosts still block Task 5 only. This native gate does not execute `src/workshop/store/web/wasm.rs`.
+
 ## Reproducing this record
 
 ```sh
