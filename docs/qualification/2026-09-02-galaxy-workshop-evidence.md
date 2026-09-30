@@ -172,6 +172,63 @@ a page full of zeros.
   design is that return, and its five prerequisites all landed on 2026-09-08, but the
   screen itself is not built.
 
+## Task 2 Step 1 — Deterministic authority review (2026-09-30)
+
+The status banner and the "Tasks 2 through 6, none run" bullet describe the
+2026-09-08 Task 1 checkpoint. This section is Task 2 Step 1 only. Steps 2
+through 6, and Tasks 3 through 6, are not claimed here.
+
+Reviewed `nyon-workshop-core` Workshop V1 authority at `b7a69f2` (parent of
+the commit that adds this section). Living V2 is a separate rule set
+(`living/mod.rs`) and is outside this step. The root presentation camera uses
+`f32`; it is not the authority.
+
+| Hazard | Where inspected | Result |
+|---|---|---|
+| Unordered traversal | Entity, revision, and branch maps are `BTreeMap` / `BTreeSet` (`model.rs`, `simulation.rs`, `history.rs`, `archive.rs`, `command.rs`) | Typed-ID order. `ordered_state_encoding_ignores_map_insertion_order` |
+| Float or wall-clock state | No `SystemTime` or `Instant` in the core sources. Pack `visit_f64` rejects floats (`pack.rs`). Orbit and travel use integers (`simulation.rs` distance ceiling) | Presentation floats stay out of `WorkshopStateV1` |
+| Unchecked arithmetic | `step_state` and batch apply use `checked_add` / `checked_sub` / `checked_mul` and return `DeterministicFault` | No wrapping on the tick or batch path |
+| Partial mutation | `step_state` writes `state` only after every phase (`simulation.rs` assignment after the event digest). `apply_batch` clones, and replay assigns the candidate only after the digest matches (`history.rs`) | `shipment_capacity_fault_rolls_back_the_complete_tick` |
+| Inconsistent encoding | Domain-separated SHA-256 for state, tick events, revision, and entity (`model.rs`, `simulation.rs`, `command.rs`) | `deny_unknown_fields` on `TickEventV1` |
+| Digest exclusions | `digest_with_dynamic` hashes tick plus every entity map, including the post-tick worlds, deposits, and shipments | Pause, speed, and camera are not fields of `WorkshopStateV1` |
+| Local-reference type confusion | `allocate` rejects a duplicate local id and an id already in state or the batch. `resolve` rejects an absent, forward, or wrong-kind reference (`command.rs`) | Creator rejection, not a committed state |
+| ID collision | `allocate` returns `IdentityCollision`. `dispatch_routes` returns `DeterministicFault::IdentityCollision` when `occupied_ids.insert` fails | Typed fault, no second shipment |
+| Phase-order drift | `step_state` order is hazards, deliveries, primary industries, processors, route dispatch, then digest and tick increment | Matches the design's six simulation steps. `exact_phase_order_delivers_then_produces_then_dispatches` |
+| RulesV1 coupling | `nyon-workshop-core` does not depend on the Classic crate. Workshop step rate in the design is 10 ticks per second | No RulesV1 phase order in `step_state` |
+
+Checkpoint scheduling uses `saturating_sub` (`history.rs`, `maybe_checkpoint`).
+That path does not change canonical state. `checkpoint_cadence_cannot_change_replay_digest_or_archive_bytes`
+pins the digest. It is not a tick-path finding.
+
+### Finding ledger
+
+| Severity | Reproduction | Test | Repair commit | Rerun |
+|---|---|---|---|---|
+| none | No reproducible Step 1 defect | The six suites below | none | EXIT 0, 38 passed, 0 failed |
+
+Rerun on this code, one Cargo invocation, exit code read from the command:
+
+```sh
+cargo test -p nyon-workshop-core --test simulation --test history --test archive --test two_system_forge --test creator --test pack
+```
+
+| Suite | Result |
+|---|---|
+| `archive` | 3 passed |
+| `creator` | 11 passed |
+| `history` | 6 passed |
+| `pack` | 9 passed |
+| `simulation` | 8 passed |
+| `two_system_forge` | 1 passed |
+
+**Next for this plan: Task 2 Step 2, the parser and archive attack-surface review.**
+
+The 2026-09-08 sentence that `RequestExport` is constructed nowhere in `src/`
+is stale at `b7a69f2`: `ClientRuntime` queues it at `src/app/client_runtime.rs`
+(`enqueue(WorkshopAction::RequestExport)`). `RequestImport` and `RequestLoad`
+are still the enum and match arms only. That product gap blocks Task 3. It is
+not a Step 1 finding, and it does not block Step 2.
+
 ## Reproducing this record
 
 ```sh

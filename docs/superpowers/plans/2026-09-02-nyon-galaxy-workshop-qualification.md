@@ -148,7 +148,7 @@ Label this `artifact-qualified` evidence only.
 - Consumes: frozen candidate diff, design, and child plans.
 - Produces: finding ledger with severity, reproduction, test, repair commit, and rerun evidence.
 
-- [ ] **Step 1: Review deterministic authority**
+- [x] **Step 1: Review deterministic authority** (2026-09-30, evidence section "Task 2 Step 1"; no repair commit)
 
 Inspect for unordered traversal, float or wall-clock state, unchecked arithmetic, partial mutation, inconsistent encoding, digest exclusions, local-reference type confusion, ID collision handling, phase-order drift, and RulesV1 coupling.
 
