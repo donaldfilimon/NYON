@@ -151,6 +151,7 @@ fn scripted_commander_observes_a_finish_on_the_inclusive_limit() {
         run_scripted_union_commander(&mut simulation, 54_000),
         Some(Tick(54_000))
     );
+    eprintln!("fifth-world finish: {:?}", simulation.state().phase);
 }
 
 #[test]
@@ -416,4 +417,5 @@ fn command_preview_reports_finished_campaign_without_mutation() {
         ),
         Err(CommandRejection::CampaignFinished)
     );
+    eprintln!("absorbing finished campaign rejects further commands");
 }

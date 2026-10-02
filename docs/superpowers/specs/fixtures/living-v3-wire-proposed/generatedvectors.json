@@ -1,0 +1,1105 @@
+{
+  "status": "PROPOSED_INDEPENDENT_WRITTEN_FORMULA_SUBSET",
+  "source_freeze": {
+    "2026-10-01-living-expansion-wire.md": "a6d0cd2319127a10c93642626b88a89b25a57dcbbfef91800a2ed1da0320b1d3",
+    "2026-10-01-living-v3-complete-schema.md": "2b08b4438201e9729374d8969827aab3861aaf991371a507b2935a6cd2669d28"
+  },
+  "synthetic_input_notice": "Author-selected labels and inputs; no shipped V3 pack or Rust-derived expected outputs.",
+  "scope": "T0 empty complete documents; selected structural/scalar negatives; literal framing bytes and digests; record-shape edge examples. Not full gap6.",
+  "documents": [
+    {
+      "label": "synthetic_empty_catalog",
+      "kind": "catalog",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_PACK_V3\",\"format_version\":3,\"rules_version\":3,\"pack_id\":\"nyon_living_core_v3_wire_fixture\",\"pack_version\":1,\"star_archetypes\":[{\"id\":\"main_sequence\",\"name\":\"Main Sequence\"},{\"id\":\"red_dwarf\",\"name\":\"Red Dwarf\"}],\"world_archetypes\":[{\"id\":\"barren\",\"name\":\"Barren\"},{\"id\":\"temperate\",\"name\":\"Temperate\"}],\"resources\":[{\"id\":\"alloy\",\"name\":\"Alloy\",\"storage_limit\":10000},{\"id\":\"energy\",\"name\":\"Energy\",\"storage_limit\":10000},{\"id\":\"food\",\"name\":\"Food\",\"storage_limit\":10000},{\"id\":\"ore\",\"name\":\"Ore\",\"storage_limit\":10000}],\"industry_definitions\":[{\"id\":\"defense_battery\",\"name\":\"Defense Battery\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"defense\",\"hit_points\":40,\"damage_per_round\":4},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"extractor\",\"name\":\"Extractor\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":4,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"ore\",\"quantity\":4}]},\"workforce_units\":1,\"stress_per_operation\":1},{\"id\":\"farm\",\"name\":\"Farm\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"food\",\"quantity\":20}]},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"foundry\",\"name\":\"Foundry\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":20,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":4},{\"resource\":\"ore\",\"quantity\":4}],\"outputs\":[{\"resource\":\"alloy\",\"quantity\":2}]},\"workforce_units\":1,\"stress_per_operation\":2},{\"id\":\"habitation\",\"name\":\"Habitation\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"habitation\",\"base_capacity\":1000},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"research_lab\",\"name\":\"Research Lab\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"research\",\"period_ticks\":20,\"inputs\":[{\"resource\":\"alloy\",\"quantity\":1},{\"resource\":\"energy\",\"quantity\":2}],\"points\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"shipyard\",\"name\":\"Shipyard\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"hull_assembly\",\"concurrent_jobs\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"solar_array\",\"name\":\"Solar Array\",\"alloy_cost\":20,\"build_ticks\":100,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[],\"outputs\":[{\"resource\":\"energy\",\"quantity\":8}]},\"workforce_units\":1,\"stress_per_operation\":0}],\"hull_definitions\":[{\"id\":\"colony_ark\",\"name\":\"Colony Ark\",\"alloy_cost\":60,\"build_ticks\":200,\"hit_points\":20,\"damage\":0,\"role\":\"ark\"},{\"id\":\"escort\",\"name\":\"Escort\",\"alloy_cost\":20,\"build_ticks\":100,\"hit_points\":10,\"damage\":2,\"role\":\"escort\"},{\"id\":\"scout\",\"name\":\"Scout\",\"alloy_cost\":10,\"build_ticks\":50,\"hit_points\":10,\"damage\":0,\"role\":\"scout\"}],\"hazard_definitions\":[{\"id\":\"ion_storm\",\"name\":\"Ion Storm\",\"effect\":{\"type\":\"freight_batch_scale\",\"numerator\":1,\"denominator\":2}}],\"policy_definitions\":[{\"id\":\"expansionist\",\"name\":\"Expansionist\",\"bonuses\":[{\"intent\":\"build_ark\",\"bonus\":20},{\"intent\":\"settle\",\"bonus\":20}]},{\"id\":\"guardian\",\"name\":\"Guardian\",\"bonuses\":[{\"intent\":\"build_battery\",\"bonus\":20},{\"intent\":\"build_escort\",\"bonus\":20},{\"intent\":\"defend\",\"bonus\":20}]},{\"id\":\"industrialist\",\"name\":\"Industrialist\",\"bonuses\":[{\"intent\":\"build_extractor\",\"bonus\":20},{\"intent\":\"build_foundry\",\"bonus\":20}]},{\"id\":\"neutral\",\"name\":\"Neutral\",\"bonuses\":[]},{\"id\":\"trader\",\"name\":\"Trader\",\"bonuses\":[{\"intent\":\"establish_trade_route\",\"bonus\":20},{\"intent\":\"supply\",\"bonus\":20}]}],\"technology_definitions\":[{\"id\":\"agronomy\",\"name\":\"Agronomy\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"farm_base_output\",\"units\":25}},{\"id\":\"efficient_logistics\",\"name\":\"Efficient Logistics\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"departure_energy_scale\",\"numerator\":3,\"denominator\":4}},{\"id\":\"resilient_habitation\",\"name\":\"Resilient Habitation\",\"prerequisites\":[\"agronomy\"],\"point_cost\":150,\"effect\":{\"type\":\"habitability_penalty_scale\",\"numerator\":1,\"denominator\":2}}]}",
+      "bytes": 4280,
+      "raw_sha256": "0fee64b6b27c6d5df93de19add24600161c3f25b3b957712be9e70cf3707dcf8"
+    },
+    {
+      "label": "synthetic_empty_state",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 613,
+      "raw_sha256": "c8aa9787441ac13a19c92162e016a1001b763c9cca4508fbf087d4cccdd71c19"
+    },
+    {
+      "label": "synthetic_empty_genesis",
+      "kind": "genesis",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_GENESIS_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"seed\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"generator\":{\"generator_id\":\"wire_fixture\",\"generator_version\":1},\"allocations\":[],\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 802,
+      "raw_sha256": "c4bcc1f3db117a8ab1127d50507f47ad66e781dd15e75909f60884e1b277fbee"
+    },
+    {
+      "label": "synthetic_empty_archive",
+      "kind": "archive",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_ARCHIVE_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"genesis\":{\"kind\":\"NYON_LIVING_GENESIS_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"seed\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"generator\":{\"generator_id\":\"wire_fixture\",\"generator_version\":1},\"allocations\":[],\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}},\"revisions\":[],\"branches\":[{\"id\":\"63dd4dd8013907928530262c6dbeb552\",\"parent\":null,\"fork_revision\":null,\"fork_tick\":\"0\",\"fork_state_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\",\"ordinal\":\"0\",\"head\":null,\"tip_tick\":\"0\"}],\"active_view\":{\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\"},\"final_tick\":\"0\",\"final_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\",\"accepted_sequence_high_water\":\"0\",\"branch_sequence_high_water\":\"0\",\"anchors\":[],\"integrity_sha256\":\"ac784e16744b23fee1734d02c3dd1d767f76b081f5432dab6f2f86dceb5c287d\"}",
+      "bytes": 1567,
+      "raw_sha256": "a0bc8282bd01307766ad3d69d81d18d5b9e256507ec2726b3ccd0b37dca9b501"
+    },
+    {
+      "label": "synthetic_empty_notebook",
+      "kind": "notebook",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_NOTEBOOK_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"genesis_digest\":\"8864c14030d78176642cfca43216eb96b0ab3c97fe922f3b44cc02e1c3bb14e2\",\"archive_integrity_sha256\":\"ac784e16744b23fee1734d02c3dd1d767f76b081f5432dab6f2f86dceb5c287d\",\"next_ordinal\":\"1\",\"bookmarks\":[],\"experiments\":[],\"evidence\":[],\"integrity_sha256\":\"3ee75e474057c87a51b61440be46e28c8776ddb4d9f134e2a519bd66e8851a7c\"}",
+      "bytes": 482,
+      "raw_sha256": "c12b6d41bc4569d5fccbfb499ded3d9c27c23ec134259c519b4106fe202089e2"
+    },
+    {
+      "label": "synthetic_empty_transfer",
+      "kind": "transfer",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_TRANSFER_V3\",\"format_version\":3,\"rules_version\":3,\"catalog\":{\"kind\":\"NYON_LIVING_PACK_V3\",\"format_version\":3,\"rules_version\":3,\"pack_id\":\"nyon_living_core_v3_wire_fixture\",\"pack_version\":1,\"star_archetypes\":[{\"id\":\"main_sequence\",\"name\":\"Main Sequence\"},{\"id\":\"red_dwarf\",\"name\":\"Red Dwarf\"}],\"world_archetypes\":[{\"id\":\"barren\",\"name\":\"Barren\"},{\"id\":\"temperate\",\"name\":\"Temperate\"}],\"resources\":[{\"id\":\"alloy\",\"name\":\"Alloy\",\"storage_limit\":10000},{\"id\":\"energy\",\"name\":\"Energy\",\"storage_limit\":10000},{\"id\":\"food\",\"name\":\"Food\",\"storage_limit\":10000},{\"id\":\"ore\",\"name\":\"Ore\",\"storage_limit\":10000}],\"industry_definitions\":[{\"id\":\"defense_battery\",\"name\":\"Defense Battery\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"defense\",\"hit_points\":40,\"damage_per_round\":4},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"extractor\",\"name\":\"Extractor\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":4,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"ore\",\"quantity\":4}]},\"workforce_units\":1,\"stress_per_operation\":1},{\"id\":\"farm\",\"name\":\"Farm\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"food\",\"quantity\":20}]},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"foundry\",\"name\":\"Foundry\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":20,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":4},{\"resource\":\"ore\",\"quantity\":4}],\"outputs\":[{\"resource\":\"alloy\",\"quantity\":2}]},\"workforce_units\":1,\"stress_per_operation\":2},{\"id\":\"habitation\",\"name\":\"Habitation\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"habitation\",\"base_capacity\":1000},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"research_lab\",\"name\":\"Research Lab\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"research\",\"period_ticks\":20,\"inputs\":[{\"resource\":\"alloy\",\"quantity\":1},{\"resource\":\"energy\",\"quantity\":2}],\"points\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"shipyard\",\"name\":\"Shipyard\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"hull_assembly\",\"concurrent_jobs\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"solar_array\",\"name\":\"Solar Array\",\"alloy_cost\":20,\"build_ticks\":100,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[],\"outputs\":[{\"resource\":\"energy\",\"quantity\":8}]},\"workforce_units\":1,\"stress_per_operation\":0}],\"hull_definitions\":[{\"id\":\"colony_ark\",\"name\":\"Colony Ark\",\"alloy_cost\":60,\"build_ticks\":200,\"hit_points\":20,\"damage\":0,\"role\":\"ark\"},{\"id\":\"escort\",\"name\":\"Escort\",\"alloy_cost\":20,\"build_ticks\":100,\"hit_points\":10,\"damage\":2,\"role\":\"escort\"},{\"id\":\"scout\",\"name\":\"Scout\",\"alloy_cost\":10,\"build_ticks\":50,\"hit_points\":10,\"damage\":0,\"role\":\"scout\"}],\"hazard_definitions\":[{\"id\":\"ion_storm\",\"name\":\"Ion Storm\",\"effect\":{\"type\":\"freight_batch_scale\",\"numerator\":1,\"denominator\":2}}],\"policy_definitions\":[{\"id\":\"expansionist\",\"name\":\"Expansionist\",\"bonuses\":[{\"intent\":\"build_ark\",\"bonus\":20},{\"intent\":\"settle\",\"bonus\":20}]},{\"id\":\"guardian\",\"name\":\"Guardian\",\"bonuses\":[{\"intent\":\"build_battery\",\"bonus\":20},{\"intent\":\"build_escort\",\"bonus\":20},{\"intent\":\"defend\",\"bonus\":20}]},{\"id\":\"industrialist\",\"name\":\"Industrialist\",\"bonuses\":[{\"intent\":\"build_extractor\",\"bonus\":20},{\"intent\":\"build_foundry\",\"bonus\":20}]},{\"id\":\"neutral\",\"name\":\"Neutral\",\"bonuses\":[]},{\"id\":\"trader\",\"name\":\"Trader\",\"bonuses\":[{\"intent\":\"establish_trade_route\",\"bonus\":20},{\"intent\":\"supply\",\"bonus\":20}]}],\"technology_definitions\":[{\"id\":\"agronomy\",\"name\":\"Agronomy\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"farm_base_output\",\"units\":25}},{\"id\":\"efficient_logistics\",\"name\":\"Efficient Logistics\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"departure_energy_scale\",\"numerator\":3,\"denominator\":4}},{\"id\":\"resilient_habitation\",\"name\":\"Resilient Habitation\",\"prerequisites\":[\"agronomy\"],\"point_cost\":150,\"effect\":{\"type\":\"habitability_penalty_scale\",\"numerator\":1,\"denominator\":2}}]},\"archive\":{\"kind\":\"NYON_LIVING_ARCHIVE_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"genesis\":{\"kind\":\"NYON_LIVING_GENESIS_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"seed\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"generator\":{\"generator_id\":\"wire_fixture\",\"generator_version\":1},\"allocations\":[],\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}},\"revisions\":[],\"branches\":[{\"id\":\"63dd4dd8013907928530262c6dbeb552\",\"parent\":null,\"fork_revision\":null,\"fork_tick\":\"0\",\"fork_state_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\",\"ordinal\":\"0\",\"head\":null,\"tip_tick\":\"0\"}],\"active_view\":{\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\"},\"final_tick\":\"0\",\"final_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\",\"accepted_sequence_high_water\":\"0\",\"branch_sequence_high_water\":\"0\",\"anchors\":[],\"integrity_sha256\":\"ac784e16744b23fee1734d02c3dd1d767f76b081f5432dab6f2f86dceb5c287d\"},\"notebook\":{\"kind\":\"NYON_LIVING_NOTEBOOK_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"genesis_digest\":\"8864c14030d78176642cfca43216eb96b0ab3c97fe922f3b44cc02e1c3bb14e2\",\"archive_integrity_sha256\":\"ac784e16744b23fee1734d02c3dd1d767f76b081f5432dab6f2f86dceb5c287d\",\"next_ordinal\":\"1\",\"bookmarks\":[],\"experiments\":[],\"evidence\":[],\"integrity_sha256\":\"3ee75e474057c87a51b61440be46e28c8776ddb4d9f134e2a519bd66e8851a7c\"},\"selected_view\":{\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\"},\"integrity_sha256\":\"87e74e4942d4e1df48d77c47f32d2911439ef7dcd3d02d3be40617c622e3c795\"}",
+      "bytes": 6609,
+      "raw_sha256": "0522226187550e95ec4ee12c9d8f39e2eefdd44a0c9fcee7259894cf3be76d02"
+    },
+    {
+      "label": "synthetic_empty_coordinator",
+      "kind": "coordinator",
+      "canonical_utf8": "{\"kind\":\"NYON_SANDBOX_SELECTION_V3\",\"format_version\":3,\"authority\":\"living_v3\",\"rules_version\":3,\"slot\":\"11111111111111111111111111111111\",\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"view\":{\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\"},\"generation\":\"1\",\"integrity_sha256\":\"af80c1aa3453e3f078bb813c8be610e2a7ed884ce98283412321970346676fe3\"}",
+      "bytes": 404,
+      "raw_sha256": "8261ef568c2a935d4659c9c0dbf459ddbc7ca7afc5d0ba4f1498651d9151e4af"
+    },
+    {
+      "label": "synthetic_populated_genesis",
+      "kind": "genesis",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_GENESIS_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"seed\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"generator\":{\"generator_id\":\"wire_fixture\",\"generator_version\":1},\"allocations\":[{\"kind\":1,\"ordinal\":\"1\",\"id\":\"dfb45186a16f8088f847269ab6a66bcb\"},{\"kind\":2,\"ordinal\":\"1\",\"id\":\"9bb3cdc758a4a468b3f60b9a8086b015\"},{\"kind\":3,\"ordinal\":\"1\",\"id\":\"311f573ad90e49632ff3a4e18636e3d7\"},{\"kind\":5,\"ordinal\":\"1\",\"id\":\"66439f3eb0f4489bdda791c051e7ab8b\"},{\"kind\":10,\"ordinal\":\"1\",\"id\":\"f6dfc75af40c0eb9c3ba13bb2f1a3965\"},{\"kind\":11,\"ordinal\":\"1\",\"id\":\"3706a705af9142037a5d2609bb50b8c9\"}],\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"dfb45186a16f8088f847269ab6a66bcb\",\"name\":\"Synthetic System\"}],\"stars\":[{\"id\":\"9bb3cdc758a4a468b3f60b9a8086b015\",\"system\":\"dfb45186a16f8088f847269ab6a66bcb\",\"archetype\":\"main_sequence\",\"name\":\"Synthetic Star\",\"next_activity_tick\":\"100\"}],\"worlds\":[{\"id\":\"311f573ad90e49632ff3a4e18636e3d7\",\"system\":\"dfb45186a16f8088f847269ab6a66bcb\",\"archetype\":\"barren\",\"name\":\"Synthetic World\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"inventory\":{\"energy\":10,\"ore\":100,\"alloy\":100,\"food\":20},\"environment\":{\"base_habitability\":8000,\"stress\":0,\"fertility\":1000,\"maximum_fertility\":1000,\"next_environment_tick\":\"100\"}}],\"lanes\":[],\"civilizations\":[{\"id\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"name\":\"Synthetic Civilization\",\"policy\":\"neutral\",\"research\":{\"target\":null,\"progress\":[],\"completed_technologies\":[]},\"status\":\"active\"}],\"deposits\":[],\"colonies\":[{\"world\":\"311f573ad90e49632ff3a4e18636e3d7\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"hub\":{\"energy_next_due\":\"10\",\"ore_next_due\":\"100\",\"fallback_next_due\":\"100\",\"blocked_reasons\":[]},\"society\":{\"population\":500,\"specialization\":\"balanced\",\"next_needs_tick\":\"100\",\"last_needs\":null,\"workforce_assignments\":[]}}],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[{\"id\":\"f6dfc75af40c0eb9c3ba13bb2f1a3965\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"location\":{\"type\":\"docked\",\"world\":\"311f573ad90e49632ff3a4e18636e3d7\"},\"order\":null,\"hulls\":[{\"id\":\"3706a705af9142037a5d2609bb50b8c9\",\"definition\":\"scout\",\"hit_points\":10,\"return_credit\":false,\"next_repair\":null,\"passengers\":{\"count\":0}}],\"supply\":{\"last_success\":null,\"last_attempt\":null,\"readiness\":\"never_supplied\"},\"blockade\":null}],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 2691,
+      "raw_sha256": "0a08d75bcaea76fd5a9f0094340edb9a03d7c0c95ebfeea5d98387a73f6f0a9c"
+    },
+    {
+      "label": "synthetic_populated_state",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"dfb45186a16f8088f847269ab6a66bcb\",\"name\":\"Synthetic System\"}],\"stars\":[{\"id\":\"9bb3cdc758a4a468b3f60b9a8086b015\",\"system\":\"dfb45186a16f8088f847269ab6a66bcb\",\"archetype\":\"main_sequence\",\"name\":\"Synthetic Star\",\"next_activity_tick\":\"100\"}],\"worlds\":[{\"id\":\"311f573ad90e49632ff3a4e18636e3d7\",\"system\":\"dfb45186a16f8088f847269ab6a66bcb\",\"archetype\":\"barren\",\"name\":\"Synthetic World\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"inventory\":{\"energy\":10,\"ore\":100,\"alloy\":100,\"food\":20},\"environment\":{\"base_habitability\":8000,\"stress\":0,\"fertility\":1000,\"maximum_fertility\":1000,\"next_environment_tick\":\"100\"}}],\"lanes\":[],\"civilizations\":[{\"id\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"name\":\"Synthetic Civilization\",\"policy\":\"neutral\",\"research\":{\"target\":null,\"progress\":[],\"completed_technologies\":[]},\"status\":\"active\"}],\"deposits\":[],\"colonies\":[{\"world\":\"311f573ad90e49632ff3a4e18636e3d7\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"hub\":{\"energy_next_due\":\"10\",\"ore_next_due\":\"100\",\"fallback_next_due\":\"100\",\"blocked_reasons\":[]},\"society\":{\"population\":500,\"specialization\":\"balanced\",\"next_needs_tick\":\"100\",\"last_needs\":null,\"workforce_assignments\":[]}}],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[{\"id\":\"f6dfc75af40c0eb9c3ba13bb2f1a3965\",\"owner\":\"66439f3eb0f4489bdda791c051e7ab8b\",\"location\":{\"type\":\"docked\",\"world\":\"311f573ad90e49632ff3a4e18636e3d7\"},\"order\":null,\"hulls\":[{\"id\":\"3706a705af9142037a5d2609bb50b8c9\",\"definition\":\"scout\",\"hit_points\":10,\"return_credit\":false,\"next_repair\":null,\"passengers\":{\"count\":0}}],\"supply\":{\"last_success\":null,\"last_attempt\":null,\"readiness\":\"never_supplied\"},\"blockade\":null}],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 2111,
+      "raw_sha256": "4e6022a2029cae007380ea7570ffa97661e6ec9cf63cd59d1839636ac38c40b8"
+    },
+    {
+      "label": "systems_capacity64_structural",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"00000000000000000000000000000000\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000001\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000002\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000003\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000004\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000005\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000006\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000007\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000008\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000009\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000a\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000b\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000c\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000d\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000e\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000000f\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000010\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000011\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000012\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000013\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000014\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000015\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000016\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000017\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000018\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000019\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001a\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001b\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001c\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001d\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001e\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000001f\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000020\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000021\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000022\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000023\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000024\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000025\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000026\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000027\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000028\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000029\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002a\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002b\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002c\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002d\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002e\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000002f\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000030\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000031\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000032\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000033\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000034\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000035\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000036\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000037\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000038\",\"name\":\"Synthetic\"},{\"id\":\"00000000000000000000000000000039\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003a\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003b\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003c\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003d\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003e\",\"name\":\"Synthetic\"},{\"id\":\"0000000000000000000000000000003f\",\"name\":\"Synthetic\"}],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 4516,
+      "raw_sha256": "8addc322619beb0771cdc5c7202ccf45cb3ac3a9426bbd99f6db5704ce8c62ef"
+    },
+    {
+      "label": "t0_bookmark_exact_anchor",
+      "kind": "notebook",
+      "canonical_utf8": "{\"kind\":\"NYON_LIVING_NOTEBOOK_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"genesis_digest\":\"8864c14030d78176642cfca43216eb96b0ab3c97fe922f3b44cc02e1c3bb14e2\",\"archive_integrity_sha256\":\"ac784e16744b23fee1734d02c3dd1d767f76b081f5432dab6f2f86dceb5c287d\",\"next_ordinal\":\"2\",\"bookmarks\":[{\"ordinal\":\"1\",\"label\":\"Synthetic bookmark\",\"view\":{\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\"},\"digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\"}],\"experiments\":[],\"evidence\":[],\"integrity_sha256\":\"ee076489b33c24beb5d8c8f359c0ede1ab48a40cd4c114099ffa37262a8e4599\"}",
+      "bytes": 682,
+      "raw_sha256": "980396374d4d61a6b4c613fba64cb36163ba5575697492e6ee75173779c94282"
+    },
+    {
+      "label": "emoji64",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"01010101010101010101010101010101\",\"name\":\"🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌🌌\"}],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 920,
+      "raw_sha256": "5e4377ce3950c33637d7e290e01bde4fb627cd54298a52658dc436035ec1212c"
+    },
+    {
+      "label": "composed",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"01010101010101010101010101010101\",\"name\":\"Étoile\"}],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 671,
+      "raw_sha256": "f4f5bfe109a62a0e917c716267f441caec56e88501fed344f0d3954814348571"
+    },
+    {
+      "label": "decomposed",
+      "kind": "state",
+      "canonical_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[{\"id\":\"01010101010101010101010101010101\",\"name\":\"Étoile\"}],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}",
+      "bytes": 672,
+      "raw_sha256": "0282d6953b8caa7be9c7894ea655606284a99fbe9056d70886a38d9ac593a162"
+    }
+  ],
+  "negative_documents": [
+    {
+      "label": "state_rules_version2",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a322c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "unsupported_rules_version",
+      "expected_wire_error": "unsupported_rules_version",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "state_format_version2",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a322c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "unsupported_format_version",
+      "expected_wire_error": "unsupported_format_version",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "state_catalog_mismatch",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "catalog_mismatch",
+      "expected_wire_error": "catalog_mismatch",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "state_unknown_field",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d2c22756e6b6e6f776e223a6e756c6c7d",
+      "must_reject": true,
+      "local_diagnostic": "unknown_field",
+      "expected_wire_error": "unknown_field",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "state_missing_field",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666227d",
+      "must_reject": true,
+      "local_diagnostic": "missing_field_local",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "state_field_order",
+      "kind": "state",
+      "raw_hex": "7b227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d2c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2272756c65735f76657273696f6e223a332c22666f726d61745f76657273696f6e223a337d",
+      "must_reject": true,
+      "local_diagnostic": "field_order_local",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "tick_00",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a223030222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "noncanonical_decimal",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "tick_-1",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a222d31222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "noncanonical_decimal",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "tick_18446744073709551616",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a223138343436373434303733373039353531363136222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_range",
+      "expected_wire_error": "invalid_range",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "tick_0",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a302c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "noncanonical_decimal",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "catalog_enum",
+      "kind": "catalog",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f5041434b5f5632222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c227061636b5f6964223a226e796f6e5f6c6976696e675f636f72655f76335f776972655f66697874757265222c227061636b5f76657273696f6e223a312c22737461725f61726368657479706573223a5b7b226964223a226d61696e5f73657175656e6365222c226e616d65223a224d61696e2053657175656e6365227d2c7b226964223a227265645f6477617266222c226e616d65223a22526564204477617266227d5d2c22776f726c645f61726368657479706573223a5b7b226964223a2262617272656e222c226e616d65223a2242617272656e227d2c7b226964223a2274656d706572617465222c226e616d65223a2254656d706572617465227d5d2c227265736f7572636573223a5b7b226964223a22616c6c6f79222c226e616d65223a22416c6c6f79222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22656e65726779222c226e616d65223a22456e65726779222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22666f6f64222c226e616d65223a22466f6f64222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a226f7265222c226e616d65223a224f7265222c2273746f726167655f6c696d6974223a31303030307d5d2c22696e6475737472795f646566696e6974696f6e73223a5b7b226964223a22646566656e73655f62617474657279222c226e616d65223a22446566656e73652042617474657279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a22646566656e7365222c226869745f706f696e7473223a34302c2264616d6167655f7065725f726f756e64223a347d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22657874726163746f72222c226e616d65223a22457874726163746f72222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a342c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a317d2c7b226964223a226661726d222c226e616d65223a224661726d222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a22666f6f64222c227175616e74697479223a32307d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22666f756e647279222c226e616d65223a22466f756e647279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a32302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a347d2c7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d2c226f757470757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a327d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a327d2c7b226964223a2268616269746174696f6e222c226e616d65223a2248616269746174696f6e222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a2268616269746174696f6e222c22626173655f6361706163697479223a313030307d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a2272657365617263685f6c6162222c226e616d65223a225265736561726368204c6162222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a227265736561726368222c22706572696f645f7469636b73223a32302c22696e70757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a317d2c7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c22706f696e7473223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a227368697079617264222c226e616d65223a225368697079617264222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a2268756c6c5f617373656d626c79222c22636f6e63757272656e745f6a6f6273223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22736f6c61725f6172726179222c226e616d65223a22536f6c6172204172726179222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b5d2c226f757470757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a387d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d5d2c2268756c6c5f646566696e6974696f6e73223a5b7b226964223a22636f6c6f6e795f61726b222c226e616d65223a22436f6c6f6e792041726b222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3230302c226869745f706f696e7473223a32302c2264616d616765223a302c22726f6c65223a2261726b227d2c7b226964223a226573636f7274222c226e616d65223a224573636f7274222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c226869745f706f696e7473223a31302c2264616d616765223a322c22726f6c65223a226573636f7274227d2c7b226964223a2273636f7574222c226e616d65223a2253636f7574222c22616c6c6f795f636f7374223a31302c226275696c645f7469636b73223a35302c226869745f706f696e7473223a31302c2264616d616765223a302c22726f6c65223a2273636f7574227d5d2c2268617a6172645f646566696e6974696f6e73223a5b7b226964223a22696f6e5f73746f726d222c226e616d65223a22496f6e2053746f726d222c22656666656374223a7b2274797065223a22667265696768745f62617463685f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d2c22706f6c6963795f646566696e6974696f6e73223a5b7b226964223a22657870616e73696f6e697374222c226e616d65223a22457870616e73696f6e697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f61726b222c22626f6e7573223a32307d2c7b22696e74656e74223a22736574746c65222c22626f6e7573223a32307d5d7d2c7b226964223a22677561726469616e222c226e616d65223a22477561726469616e222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f62617474657279222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f6573636f7274222c22626f6e7573223a32307d2c7b22696e74656e74223a22646566656e64222c22626f6e7573223a32307d5d7d2c7b226964223a22696e647573747269616c697374222c226e616d65223a22496e647573747269616c697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f657874726163746f72222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f666f756e647279222c22626f6e7573223a32307d5d7d2c7b226964223a226e65757472616c222c226e616d65223a224e65757472616c222c22626f6e75736573223a5b5d7d2c7b226964223a22747261646572222c226e616d65223a22547261646572222c22626f6e75736573223a5b7b22696e74656e74223a2265737461626c6973685f74726164655f726f757465222c22626f6e7573223a32307d2c7b22696e74656e74223a22737570706c79222c22626f6e7573223a32307d5d7d5d2c22746563686e6f6c6f67795f646566696e6974696f6e73223a5b7b226964223a226167726f6e6f6d79222c226e616d65223a224167726f6e6f6d79222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226661726d5f626173655f6f7574707574222c22756e697473223a32357d7d2c7b226964223a22656666696369656e745f6c6f67697374696373222c226e616d65223a22456666696369656e74204c6f67697374696373222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226465706172747572655f656e657267795f7363616c65222c226e756d657261746f72223a332c2264656e6f6d696e61746f72223a347d7d2c7b226964223a22726573696c69656e745f68616269746174696f6e222c226e616d65223a22526573696c69656e742048616269746174696f6e222c2270726572657175697369746573223a5b226167726f6e6f6d79225d2c22706f696e745f636f7374223a3135302c22656666656374223a7b2274797065223a2268616269746162696c6974795f70656e616c74795f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d7d",
+      "must_reject": true,
+      "local_diagnostic": "unsupported_kind",
+      "expected_wire_error": "unsupported_kind",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "hull_enum",
+      "kind": "catalog",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f5041434b5f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c227061636b5f6964223a226e796f6e5f6c6976696e675f636f72655f76335f776972655f66697874757265222c227061636b5f76657273696f6e223a312c22737461725f61726368657479706573223a5b7b226964223a226d61696e5f73657175656e6365222c226e616d65223a224d61696e2053657175656e6365227d2c7b226964223a227265645f6477617266222c226e616d65223a22526564204477617266227d5d2c22776f726c645f61726368657479706573223a5b7b226964223a2262617272656e222c226e616d65223a2242617272656e227d2c7b226964223a2274656d706572617465222c226e616d65223a2254656d706572617465227d5d2c227265736f7572636573223a5b7b226964223a22616c6c6f79222c226e616d65223a22416c6c6f79222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22656e65726779222c226e616d65223a22456e65726779222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22666f6f64222c226e616d65223a22466f6f64222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a226f7265222c226e616d65223a224f7265222c2273746f726167655f6c696d6974223a31303030307d5d2c22696e6475737472795f646566696e6974696f6e73223a5b7b226964223a22646566656e73655f62617474657279222c226e616d65223a22446566656e73652042617474657279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a22646566656e7365222c226869745f706f696e7473223a34302c2264616d6167655f7065725f726f756e64223a347d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22657874726163746f72222c226e616d65223a22457874726163746f72222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a342c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a317d2c7b226964223a226661726d222c226e616d65223a224661726d222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a22666f6f64222c227175616e74697479223a32307d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22666f756e647279222c226e616d65223a22466f756e647279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a32302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a347d2c7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d2c226f757470757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a327d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a327d2c7b226964223a2268616269746174696f6e222c226e616d65223a2248616269746174696f6e222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a2268616269746174696f6e222c22626173655f6361706163697479223a313030307d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a2272657365617263685f6c6162222c226e616d65223a225265736561726368204c6162222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a227265736561726368222c22706572696f645f7469636b73223a32302c22696e70757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a317d2c7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c22706f696e7473223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a227368697079617264222c226e616d65223a225368697079617264222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a2268756c6c5f617373656d626c79222c22636f6e63757272656e745f6a6f6273223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22736f6c61725f6172726179222c226e616d65223a22536f6c6172204172726179222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b5d2c226f757470757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a387d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d5d2c2268756c6c5f646566696e6974696f6e73223a5b7b226964223a22636f6c6f6e795f61726b222c226e616d65223a22436f6c6f6e792041726b222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3230302c226869745f706f696e7473223a32302c2264616d616765223a302c22726f6c65223a227472616e73706f7274227d2c7b226964223a226573636f7274222c226e616d65223a224573636f7274222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c226869745f706f696e7473223a31302c2264616d616765223a322c22726f6c65223a226573636f7274227d2c7b226964223a2273636f7574222c226e616d65223a2253636f7574222c22616c6c6f795f636f7374223a31302c226275696c645f7469636b73223a35302c226869745f706f696e7473223a31302c2264616d616765223a302c22726f6c65223a2273636f7574227d5d2c2268617a6172645f646566696e6974696f6e73223a5b7b226964223a22696f6e5f73746f726d222c226e616d65223a22496f6e2053746f726d222c22656666656374223a7b2274797065223a22667265696768745f62617463685f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d2c22706f6c6963795f646566696e6974696f6e73223a5b7b226964223a22657870616e73696f6e697374222c226e616d65223a22457870616e73696f6e697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f61726b222c22626f6e7573223a32307d2c7b22696e74656e74223a22736574746c65222c22626f6e7573223a32307d5d7d2c7b226964223a22677561726469616e222c226e616d65223a22477561726469616e222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f62617474657279222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f6573636f7274222c22626f6e7573223a32307d2c7b22696e74656e74223a22646566656e64222c22626f6e7573223a32307d5d7d2c7b226964223a22696e647573747269616c697374222c226e616d65223a22496e647573747269616c697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f657874726163746f72222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f666f756e647279222c22626f6e7573223a32307d5d7d2c7b226964223a226e65757472616c222c226e616d65223a224e65757472616c222c22626f6e75736573223a5b5d7d2c7b226964223a22747261646572222c226e616d65223a22547261646572222c22626f6e75736573223a5b7b22696e74656e74223a2265737461626c6973685f74726164655f726f757465222c22626f6e7573223a32307d2c7b22696e74656e74223a22737570706c79222c22626f6e7573223a32307d5d7d5d2c22746563686e6f6c6f67795f646566696e6974696f6e73223a5b7b226964223a226167726f6e6f6d79222c226e616d65223a224167726f6e6f6d79222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226661726d5f626173655f6f7574707574222c22756e697473223a32357d7d2c7b226964223a22656666696369656e745f6c6f67697374696373222c226e616d65223a22456666696369656e74204c6f67697374696373222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226465706172747572655f656e657267795f7363616c65222c226e756d657261746f72223a332c2264656e6f6d696e61746f72223a347d7d2c7b226964223a22726573696c69656e745f68616269746174696f6e222c226e616d65223a22526573696c69656e742048616269746174696f6e222c2270726572657175697369746573223a5b226167726f6e6f6d79225d2c22706f696e745f636f7374223a3135302c22656666656374223a7b2274797065223a2268616269746162696c6974795f70656e616c74795f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_enum",
+      "expected_wire_error": "invalid_enum",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "intent_enum_not_status",
+      "kind": "catalog",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f5041434b5f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c227061636b5f6964223a226e796f6e5f6c6976696e675f636f72655f76335f776972655f66697874757265222c227061636b5f76657273696f6e223a312c22737461725f61726368657479706573223a5b7b226964223a226d61696e5f73657175656e6365222c226e616d65223a224d61696e2053657175656e6365227d2c7b226964223a227265645f6477617266222c226e616d65223a22526564204477617266227d5d2c22776f726c645f61726368657479706573223a5b7b226964223a2262617272656e222c226e616d65223a2242617272656e227d2c7b226964223a2274656d706572617465222c226e616d65223a2254656d706572617465227d5d2c227265736f7572636573223a5b7b226964223a22616c6c6f79222c226e616d65223a22416c6c6f79222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22656e65726779222c226e616d65223a22456e65726779222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22666f6f64222c226e616d65223a22466f6f64222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a226f7265222c226e616d65223a224f7265222c2273746f726167655f6c696d6974223a31303030307d5d2c22696e6475737472795f646566696e6974696f6e73223a5b7b226964223a22646566656e73655f62617474657279222c226e616d65223a22446566656e73652042617474657279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a22646566656e7365222c226869745f706f696e7473223a34302c2264616d6167655f7065725f726f756e64223a347d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22657874726163746f72222c226e616d65223a22457874726163746f72222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a342c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a317d2c7b226964223a226661726d222c226e616d65223a224661726d222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a22666f6f64222c227175616e74697479223a32307d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22666f756e647279222c226e616d65223a22466f756e647279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a32302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a347d2c7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d2c226f757470757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a327d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a327d2c7b226964223a2268616269746174696f6e222c226e616d65223a2248616269746174696f6e222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a2268616269746174696f6e222c22626173655f6361706163697479223a313030307d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a2272657365617263685f6c6162222c226e616d65223a225265736561726368204c6162222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a227265736561726368222c22706572696f645f7469636b73223a32302c22696e70757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a317d2c7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c22706f696e7473223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a227368697079617264222c226e616d65223a225368697079617264222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a2268756c6c5f617373656d626c79222c22636f6e63757272656e745f6a6f6273223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22736f6c61725f6172726179222c226e616d65223a22536f6c6172204172726179222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b5d2c226f757470757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a387d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d5d2c2268756c6c5f646566696e6974696f6e73223a5b7b226964223a22636f6c6f6e795f61726b222c226e616d65223a22436f6c6f6e792041726b222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3230302c226869745f706f696e7473223a32302c2264616d616765223a302c22726f6c65223a2261726b227d2c7b226964223a226573636f7274222c226e616d65223a224573636f7274222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c226869745f706f696e7473223a31302c2264616d616765223a322c22726f6c65223a226573636f7274227d2c7b226964223a2273636f7574222c226e616d65223a2253636f7574222c22616c6c6f795f636f7374223a31302c226275696c645f7469636b73223a35302c226869745f706f696e7473223a31302c2264616d616765223a302c22726f6c65223a2273636f7574227d5d2c2268617a6172645f646566696e6974696f6e73223a5b7b226964223a22696f6e5f73746f726d222c226e616d65223a22496f6e2053746f726d222c22656666656374223a7b2274797065223a22667265696768745f62617463685f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d2c22706f6c6963795f646566696e6974696f6e73223a5b7b226964223a22657870616e73696f6e697374222c226e616d65223a22457870616e73696f6e697374222c22626f6e75736573223a5b7b22696e74656e74223a22616374697665222c22626f6e7573223a317d5d7d2c7b226964223a22677561726469616e222c226e616d65223a22477561726469616e222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f62617474657279222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f6573636f7274222c22626f6e7573223a32307d2c7b22696e74656e74223a22646566656e64222c22626f6e7573223a32307d5d7d2c7b226964223a22696e647573747269616c697374222c226e616d65223a22496e647573747269616c697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f657874726163746f72222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f666f756e647279222c22626f6e7573223a32307d5d7d2c7b226964223a226e65757472616c222c226e616d65223a224e65757472616c222c22626f6e75736573223a5b5d7d2c7b226964223a22747261646572222c226e616d65223a22547261646572222c22626f6e75736573223a5b7b22696e74656e74223a2265737461626c6973685f74726164655f726f757465222c22626f6e7573223a32307d2c7b22696e74656e74223a22737570706c79222c22626f6e7573223a32307d5d7d5d2c22746563686e6f6c6f67795f646566696e6974696f6e73223a5b7b226964223a226167726f6e6f6d79222c226e616d65223a224167726f6e6f6d79222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226661726d5f626173655f6f7574707574222c22756e697473223a32357d7d2c7b226964223a22656666696369656e745f6c6f67697374696373222c226e616d65223a22456666696369656e74204c6f67697374696373222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226465706172747572655f656e657267795f7363616c65222c226e756d657261746f72223a332c2264656e6f6d696e61746f72223a347d7d2c7b226964223a22726573696c69656e745f68616269746174696f6e222c226e616d65223a22526573696c69656e742048616269746174696f6e222c2270726572657175697369746573223a5b226167726f6e6f6d79225d2c22706f696e745f636f7374223a3135302c22656666656374223a7b2274797065223a2268616269746162696c6974795f70656e616c74795f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_enum",
+      "expected_wire_error": "invalid_enum",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "archive_integrity",
+      "kind": "archive",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f415243484956455f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2267656e65736973223a7b226b696e64223a224e594f4e5f4c4956494e475f47454e455349535f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2273656564223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030222c2267656e657261746f72223a7b2267656e657261746f725f6964223a22776972655f66697874757265222c2267656e657261746f725f76657273696f6e223a317d2c22616c6c6f636174696f6e73223a5b5d2c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d2c227265766973696f6e73223a5b5d2c226272616e63686573223a5b7b226964223a223633646434646438303133393037393238353330323632633664626562353532222c22706172656e74223a6e756c6c2c22666f726b5f7265766973696f6e223a6e756c6c2c22666f726b5f7469636b223a2230222c22666f726b5f73746174655f646967657374223a2264353466373731623232356332316561663330643161633263666436616264316337323135626631383236383236323731393233323965653666623562656164222c226f7264696e616c223a2230222c2268656164223a6e756c6c2c227469705f7469636b223a2230227d5d2c226163746976655f76696577223a7b226272616e6368223a223633646434646438303133393037393238353330323632633664626562353532222c227265766973696f6e223a6e756c6c2c227469636b223a2230227d2c2266696e616c5f7469636b223a2230222c2266696e616c5f646967657374223a2264353466373731623232356332316561663330643161633263666436616264316337323135626631383236383236323731393233323965653666623562656164222c2261636365707465645f73657175656e63655f686967685f7761746572223a2230222c226272616e63685f73657175656e63655f686967685f7761746572223a2230222c22616e63686f7273223a5b5d2c22696e746567726974795f736861323536223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030227d",
+      "must_reject": true,
+      "local_diagnostic": "integrity_mismatch",
+      "expected_wire_error": "integrity_mismatch",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "bookmark_replayed_digest_mismatch",
+      "kind": "notebook",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f4e4f5445424f4f4b5f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2267656e657369735f646967657374223a2238383634633134303330643738313736363432636663613433323136656239366230616233633937666539323266336234346363303265316333626231346532222c22617263686976655f696e746567726974795f736861323536223a2261633738346531363734346232336665653137333464303263336464316437363766373662303831663534333264616236663266383664636562356332383764222c226e6578745f6f7264696e616c223a2232222c22626f6f6b6d61726b73223a5b7b226f7264696e616c223a2231222c226c6162656c223a2253796e74686574696320626f6f6b6d61726b222c2276696577223a7b226272616e6368223a223633646434646438303133393037393238353330323632633664626562353532222c227265766973696f6e223a6e756c6c2c227469636b223a2230227d2c22646967657374223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030227d5d2c226578706572696d656e7473223a5b5d2c2265766964656e6365223a5b5d2c22696e746567726974795f736861323536223a2231646232356461313135646230363765646330383365386438336464393038633333373136616636336630303537303365373134643436646437306563313430227d",
+      "must_reject": true,
+      "local_diagnostic": "replay_mismatch",
+      "expected_wire_error": "replay_mismatch",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "whitespace",
+      "kind": "state",
+      "raw_hex": "207b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "noncanonical_bytes",
+      "expected_wire_error": "noncanonical_bytes",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "duplicate_key",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "duplicate_key",
+      "expected_wire_error": "duplicate_key",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "float",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332e302c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_number",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "invalid_utf8",
+      "kind": "state",
+      "raw_hex": "ff7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "malformed_bytes",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "unicode_escape_equivalence",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2273745c75303036317465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "noncanonical_bytes",
+      "expected_wire_error": "noncanonical_bytes",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "array_null",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a6e756c6c2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_type",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "systems65",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223030303030303030303030303030303030303030303030303030303030303030222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303031222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303032222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303033222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303034222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303035222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303036222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303037222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303038222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303039222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303061222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303062222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303063222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303064222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303065222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303066222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303130222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303131222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303132222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303133222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303134222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303135222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303136222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303137222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303138222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303139222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303161222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303162222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303163222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303164222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303165222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303166222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303230222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303231222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303232222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303233222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303234222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303235222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303236222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303237222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303238222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303239222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303261222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303262222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303263222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303264222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303265222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303266222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303330222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303331222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303332222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303333222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303334222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303335222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303336222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303337222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303338222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303339222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303361222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303362222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303363222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303364222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303365222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303366222c226e616d65223a2253796e746865746963227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303430222c226e616d65223a2253796e746865746963227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "record_capacity",
+      "expected_wire_error": "record_capacity",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "unsorted_ids",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223031303130313031303130313031303130313031303130313031303130313031222c226e616d65223a224f6e65227d2c7b226964223a223030303030303030303030303030303030303030303030303030303030303030222c226e616d65223a2254776f227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "unsorted_or_duplicate_key",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "uppercase_id",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a224141414141414141414141414141414141414141414141414141414141414141222c226e616d65223a224f6e65227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "invalid_hex",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "ascii65",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223031303130313031303130313031303130313031303130313031303130313031222c226e616d65223a226161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "name_capacity",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "control",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223031303130313031303130313031303130313031303130313031303130313031222c226e616d65223a22615c7530303061227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "name_control",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "padding",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223031303130313031303130313031303130313031303130313031303130313031222c226e616d65223a222061227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "name_spacing",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "double_space",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a223031303130313031303130313031303130313031303130313031303130313031222c226e616d65223a2261202062227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "name_spacing",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "wrong_kind_system_reference",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a226466623435313836613136663830383866383437323639616236613636626362222c226e616d65223a2253796e7468657469632053797374656d227d5d2c227374617273223a5b7b226964223a223962623363646337353861346134363862336636306239613830383662303135222c2273797374656d223a226466623435313836613136663830383866383437323639616236613636626362222c22617263686574797065223a226d61696e5f73657175656e6365222c226e616d65223a2253796e7468657469632053746172222c226e6578745f61637469766974795f7469636b223a22313030227d5d2c22776f726c6473223a5b7b226964223a223331316635373361643930653439363332666633613465313836333665336437222c2273797374656d223a223331316635373361643930653439363332666633613465313836333665336437222c22617263686574797065223a2262617272656e222c226e616d65223a2253796e74686574696320576f726c64222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c22696e76656e746f7279223a7b22656e65726779223a31302c226f7265223a3130302c22616c6c6f79223a3130302c22666f6f64223a32307d2c22656e7669726f6e6d656e74223a7b22626173655f68616269746162696c697479223a383030302c22737472657373223a302c2266657274696c697479223a313030302c226d6178696d756d5f66657274696c697479223a313030302c226e6578745f656e7669726f6e6d656e745f7469636b223a22313030227d7d5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b7b226964223a223636343339663365623066343438396264646137393163303531653761623862222c226e616d65223a2253796e74686574696320436976696c697a6174696f6e222c22706f6c696379223a226e65757472616c222c227265736561726368223a7b22746172676574223a6e756c6c2c2270726f6772657373223a5b5d2c22636f6d706c657465645f746563686e6f6c6f67696573223a5b5d7d2c22737461747573223a22616374697665227d5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b7b22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c22687562223a7b22656e657267795f6e6578745f647565223a223130222c226f72655f6e6578745f647565223a22313030222c2266616c6c6261636b5f6e6578745f647565223a22313030222c22626c6f636b65645f726561736f6e73223a5b5d7d2c22736f6369657479223a7b22706f70756c6174696f6e223a3530302c227370656369616c697a6174696f6e223a2262616c616e636564222c226e6578745f6e656564735f7469636b223a22313030222c226c6173745f6e65656473223a6e756c6c2c22776f726b666f7263655f61737369676e6d656e7473223a5b5d7d7d5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b7b226964223a226636646663373561663430633065623963336261313362623266316133393635222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c226c6f636174696f6e223a7b2274797065223a22646f636b6564222c22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437227d2c226f72646572223a6e756c6c2c2268756c6c73223a5b7b226964223a223337303661373035616639313432303337613564323630396262353062386339222c22646566696e6974696f6e223a2273636f7574222c226869745f706f696e7473223a31302c2272657475726e5f637265646974223a66616c73652c226e6578745f726570616972223a6e756c6c2c2270617373656e67657273223a7b22636f756e74223a307d7d5d2c22737570706c79223a7b226c6173745f73756363657373223a6e756c6c2c226c6173745f617474656d7074223a6e756c6c2c2272656164696e657373223a226e657665725f737570706c696564227d2c22626c6f636b616465223a6e756c6c7d5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "wrong_reference_kind",
+      "expected_wire_error": "wrong_reference_kind",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "missing_colony_owner",
+      "kind": "state",
+      "raw_hex": "7b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a226466623435313836613136663830383866383437323639616236613636626362222c226e616d65223a2253796e7468657469632053797374656d227d5d2c227374617273223a5b7b226964223a223962623363646337353861346134363862336636306239613830383662303135222c2273797374656d223a226466623435313836613136663830383866383437323639616236613636626362222c22617263686574797065223a226d61696e5f73657175656e6365222c226e616d65223a2253796e7468657469632053746172222c226e6578745f61637469766974795f7469636b223a22313030227d5d2c22776f726c6473223a5b7b226964223a223331316635373361643930653439363332666633613465313836333665336437222c2273797374656d223a226466623435313836613136663830383866383437323639616236613636626362222c22617263686574797065223a2262617272656e222c226e616d65223a2253796e74686574696320576f726c64222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c22696e76656e746f7279223a7b22656e65726779223a31302c226f7265223a3130302c22616c6c6f79223a3130302c22666f6f64223a32307d2c22656e7669726f6e6d656e74223a7b22626173655f68616269746162696c697479223a383030302c22737472657373223a302c2266657274696c697479223a313030302c226d6178696d756d5f66657274696c697479223a313030302c226e6578745f656e7669726f6e6d656e745f7469636b223a22313030227d7d5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b7b226964223a223636343339663365623066343438396264646137393163303531653761623862222c226e616d65223a2253796e74686574696320436976696c697a6174696f6e222c22706f6c696379223a226e65757472616c222c227265736561726368223a7b22746172676574223a6e756c6c2c2270726f6772657373223a5b5d2c22636f6d706c657465645f746563686e6f6c6f67696573223a5b5d7d2c22737461747573223a22616374697665227d5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b7b22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437222c226f776e6572223a226666666666666666666666666666666666666666666666666666666666666666222c22687562223a7b22656e657267795f6e6578745f647565223a223130222c226f72655f6e6578745f647565223a22313030222c2266616c6c6261636b5f6e6578745f647565223a22313030222c22626c6f636b65645f726561736f6e73223a5b5d7d2c22736f6369657479223a7b22706f70756c6174696f6e223a3530302c227370656369616c697a6174696f6e223a2262616c616e636564222c226e6578745f6e656564735f7469636b223a22313030222c226c6173745f6e65656473223a6e756c6c2c22776f726b666f7263655f61737369676e6d656e7473223a5b5d7d7d5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b7b226964223a226636646663373561663430633065623963336261313362623266316133393635222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c226c6f636174696f6e223a7b2274797065223a22646f636b6564222c22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437227d2c226f72646572223a6e756c6c2c2268756c6c73223a5b7b226964223a223337303661373035616639313432303337613564323630396262353062386339222c22646566696e6974696f6e223a2273636f7574222c226869745f706f696e7473223a31302c2272657475726e5f637265646974223a66616c73652c226e6578745f726570616972223a6e756c6c2c2270617373656e67657273223a7b22636f756e74223a307d7d5d2c22737570706c79223a7b226c6173745f73756363657373223a6e756c6c2c226c6173745f617474656d7074223a6e756c6c2c2272656164696e657373223a226e657665725f737570706c696564227d2c22626c6f636b616465223a6e756c6c7d5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "missing_reference",
+      "expected_wire_error": "missing_reference",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "forged_genesis_allocation",
+      "kind": "genesis",
+      "raw_hex": "7b226b696e64223a224e594f4e5f4c4956494e475f47454e455349535f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2273656564223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030222c2267656e657261746f72223a7b2267656e657261746f725f6964223a22776972655f66697874757265222c2267656e657261746f725f76657273696f6e223a317d2c22616c6c6f636174696f6e73223a5b7b226b696e64223a312c226f7264696e616c223a2231222c226964223a226666666666666666666666666666666666666666666666666666666666666666227d2c7b226b696e64223a322c226f7264696e616c223a2231222c226964223a223962623363646337353861346134363862336636306239613830383662303135227d2c7b226b696e64223a332c226f7264696e616c223a2231222c226964223a223331316635373361643930653439363332666633613465313836333665336437227d2c7b226b696e64223a352c226f7264696e616c223a2231222c226964223a223636343339663365623066343438396264646137393163303531653761623862227d2c7b226b696e64223a31302c226f7264696e616c223a2231222c226964223a226636646663373561663430633065623963336261313362623266316133393635227d2c7b226b696e64223a31312c226f7264696e616c223a2231222c226964223a223337303661373035616639313432303337613564323630396262353062386339227d5d2c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b7b226964223a226466623435313836613136663830383866383437323639616236613636626362222c226e616d65223a2253796e7468657469632053797374656d227d5d2c227374617273223a5b7b226964223a223962623363646337353861346134363862336636306239613830383662303135222c2273797374656d223a226466623435313836613136663830383866383437323639616236613636626362222c22617263686574797065223a226d61696e5f73657175656e6365222c226e616d65223a2253796e7468657469632053746172222c226e6578745f61637469766974795f7469636b223a22313030227d5d2c22776f726c6473223a5b7b226964223a223331316635373361643930653439363332666633613465313836333665336437222c2273797374656d223a226466623435313836613136663830383866383437323639616236613636626362222c22617263686574797065223a2262617272656e222c226e616d65223a2253796e74686574696320576f726c64222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c22696e76656e746f7279223a7b22656e65726779223a31302c226f7265223a3130302c22616c6c6f79223a3130302c22666f6f64223a32307d2c22656e7669726f6e6d656e74223a7b22626173655f68616269746162696c697479223a383030302c22737472657373223a302c2266657274696c697479223a313030302c226d6178696d756d5f66657274696c697479223a313030302c226e6578745f656e7669726f6e6d656e745f7469636b223a22313030227d7d5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b7b226964223a223636343339663365623066343438396264646137393163303531653761623862222c226e616d65223a2253796e74686574696320436976696c697a6174696f6e222c22706f6c696379223a226e65757472616c222c227265736561726368223a7b22746172676574223a6e756c6c2c2270726f6772657373223a5b5d2c22636f6d706c657465645f746563686e6f6c6f67696573223a5b5d7d2c22737461747573223a22616374697665227d5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b7b22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c22687562223a7b22656e657267795f6e6578745f647565223a223130222c226f72655f6e6578745f647565223a22313030222c2266616c6c6261636b5f6e6578745f647565223a22313030222c22626c6f636b65645f726561736f6e73223a5b5d7d2c22736f6369657479223a7b22706f70756c6174696f6e223a3530302c227370656369616c697a6174696f6e223a2262616c616e636564222c226e6578745f6e656564735f7469636b223a22313030222c226c6173745f6e65656473223a6e756c6c2c22776f726b666f7263655f61737369676e6d656e7473223a5b5d7d7d5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b7b226964223a226636646663373561663430633065623963336261313362623266316133393635222c226f776e6572223a223636343339663365623066343438396264646137393163303531653761623862222c226c6f636174696f6e223a7b2274797065223a22646f636b6564222c22776f726c64223a223331316635373361643930653439363332666633613465313836333665336437227d2c226f72646572223a6e756c6c2c2268756c6c73223a5b7b226964223a223337303661373035616639313432303337613564323630396262353062386339222c22646566696e6974696f6e223a2273636f7574222c226869745f706f696e7473223a31302c2272657475726e5f637265646974223a66616c73652c226e6578745f726570616972223a6e756c6c2c2270617373656e67657273223a7b22636f756e74223a307d7d5d2c22737570706c79223a7b226c6173745f73756363657373223a6e756c6c2c226c6173745f617474656d7074223a6e756c6c2c2272656164696e657373223a226e657665725f737570706c696564227d2c22626c6f636b616465223a6e756c6c7d5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "must_reject": true,
+      "local_diagnostic": "identity_mismatch",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "state_byte_cap_plus1",
+      "kind": "state",
+      "input_descriptor": {
+        "repeat_hex": "20",
+        "count": 8388609
+      },
+      "must_reject": true,
+      "local_diagnostic": "byte_capacity",
+      "expected_wire_error": "byte_capacity",
+      "claim": "exact_wire_tag"
+    }
+  ],
+  "primitive_cases": [
+    {
+      "label": "u64_max",
+      "input": "18446744073709551615",
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "u64_overflow",
+      "input": "18446744073709551616",
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "invalid_range",
+      "expected_wire_error": "invalid_range",
+      "claim": "exact_wire_tag"
+    },
+    {
+      "label": "genesis_G",
+      "input_hex": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000",
+      "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+      "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+      "generator": {
+        "generator_id": "wire_fixture",
+        "generator_version": 1
+      }
+    },
+    {
+      "label": "stellar_capture_acyclic_record",
+      "input": {
+        "id": "9b63f8e8c37c191015175f4f7f266fdd",
+        "star": "9bb3cdc758a4a468b3f60b9a8086b015",
+        "warning_tick": "10",
+        "start_tick": "20",
+        "end_tick": "30",
+        "habitability_impact": 1000,
+        "freight_factor": {
+          "numerator": 1,
+          "denominator": 2
+        },
+        "provenance": {
+          "type": "creator",
+          "capture": {
+            "accepted_sequence": "1",
+            "operation_index": 0,
+            "application_tick": "0",
+            "mode": "paused",
+            "snapshot": {
+              "domain": 3,
+              "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+              "branch": "63dd4dd8013907928530262c6dbeb552",
+              "revision": null,
+              "tick": "0",
+              "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+              "phase": 1,
+              "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+            }
+          }
+        }
+      },
+      "scope": "framing_only_star_reference_not_present_in_empty_genesis"
+    },
+    {
+      "label": "threat_acyclic_valid_shape",
+      "input": {
+        "enemy": "44444444444444444444444444444444",
+        "target_world": "55555555555555555555555555555555",
+        "war": null,
+        "observed_tick": "100",
+        "originating_observer": "33333333333333333333333333333333",
+        "observation_snapshot_digest": "8ab2703ecfd8f0955bbfd2ab1dca61d4a3c1c207c421dead8f4e93f5aa798f5e",
+        "hostile_escort_count": 2,
+        "occupation": false,
+        "hostile_fleets": [
+          "66666666666666666666666666666666"
+        ]
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "threat_cannot_substitute_state_digest",
+      "input": {
+        "enemy": "44444444444444444444444444444444",
+        "target_world": "55555555555555555555555555555555",
+        "war": null,
+        "observed_tick": "100",
+        "originating_observer": "33333333333333333333333333333333",
+        "observation_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+        "hostile_escort_count": 2,
+        "occupation": false,
+        "hostile_fleets": [
+          "66666666666666666666666666666666"
+        ]
+      },
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "threat_digest_mismatch",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "copied_threat_no_receive_time_refresh",
+      "input": {
+        "enemy": "44444444444444444444444444444444",
+        "target_world": "55555555555555555555555555555555",
+        "war": null,
+        "observed_tick": "100",
+        "originating_observer": "33333333333333333333333333333333",
+        "observation_snapshot_digest": "8ab2703ecfd8f0955bbfd2ab1dca61d4a3c1c207c421dead8f4e93f5aa798f5e",
+        "hostile_escort_count": 2,
+        "occupation": false,
+        "hostile_fleets": [
+          "66666666666666666666666666666666"
+        ]
+      },
+      "copy": {
+        "enemy": "44444444444444444444444444444444",
+        "target_world": "55555555555555555555555555555555",
+        "war": null,
+        "observed_tick": "100",
+        "originating_observer": "33333333333333333333333333333333",
+        "observation_snapshot_digest": "8ab2703ecfd8f0955bbfd2ab1dca61d4a3c1c207c421dead8f4e93f5aa798f5e",
+        "hostile_escort_count": 2,
+        "occupation": false,
+        "hostile_fleets": [
+          "66666666666666666666666666666666"
+        ]
+      },
+      "scope": "record_framing_not_visibility_simulation"
+    },
+    {
+      "label": "supply_never",
+      "input": {
+        "last_success": null,
+        "last_attempt": null,
+        "readiness": "never_supplied"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "supply_first_unavailable",
+      "input": {
+        "last_success": null,
+        "last_attempt": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 0,
+          "outcome": "unavailable"
+        },
+        "readiness": "supply_unavailable"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "supply_paid",
+      "input": {
+        "last_success": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "supplies_paid": 1,
+          "deadline": "200"
+        },
+        "last_attempt": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 1,
+          "outcome": "paid"
+        },
+        "readiness": "supplied"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "supply_failed_prior_unexpired",
+      "input": {
+        "last_success": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "supplies_paid": 1,
+          "deadline": "200"
+        },
+        "last_attempt": {
+          "tick": "150",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 0,
+          "outcome": "unavailable"
+        },
+        "readiness": "supplied"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "supply_failed_prior_expired",
+      "input": {
+        "last_success": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "supplies_paid": 1,
+          "deadline": "200"
+        },
+        "last_attempt": {
+          "tick": "150",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 0,
+          "outcome": "unavailable"
+        },
+        "readiness": "supply_unavailable"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "supply_unavailable_cannot_claim_payment",
+      "input": {
+        "last_success": null,
+        "last_attempt": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 1,
+          "outcome": "unavailable"
+        },
+        "readiness": "supply_unavailable"
+      },
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "unpaid_success",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "supply_failure_does_not_expire_prior",
+      "input": {
+        "last_success": {
+          "tick": "100",
+          "world": "55555555555555555555555555555555",
+          "supplies_paid": 1,
+          "deadline": "200"
+        },
+        "last_attempt": {
+          "tick": "150",
+          "world": "55555555555555555555555555555555",
+          "required": 1,
+          "paid": 0,
+          "outcome": "unavailable"
+        },
+        "readiness": "supply_unavailable"
+      },
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "invalid_supply_readiness",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "supply_terms_shape",
+      "input": {
+        "type": "resource_supply",
+        "source_world": "55555555555555555555555555555555",
+        "destination_world": "77777777777777777777777777777777",
+        "resource": "food",
+        "batch": 4,
+        "cadence_ticks": 10,
+        "source_reserve": 20,
+        "duration_ticks": 1200
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "manifest_paid_shape",
+      "input": {
+        "type": "paid",
+        "snapshot": {
+          "domain": 3,
+          "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+          "branch": "63dd4dd8013907928530262c6dbeb552",
+          "revision": null,
+          "tick": "0",
+          "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+          "phase": 1,
+          "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+        },
+        "route": "99999999999999999999999999999999",
+        "commitment": {
+          "id": "88888888888888888888888888888888",
+          "created_tick": "100",
+          "terms_digest": "1b7cbad97df611de211ac57f7b8748926254d957be34faedbcb8c2c9ed31985b"
+        },
+        "withdrawn": {
+          "resource": "food",
+          "quantity": 4
+        }
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "manifest_requires_terms_digest",
+      "input": {
+        "type": "paid",
+        "snapshot": {
+          "domain": 3,
+          "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+          "branch": "63dd4dd8013907928530262c6dbeb552",
+          "revision": null,
+          "tick": "0",
+          "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+          "phase": 1,
+          "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+        },
+        "route": "99999999999999999999999999999999",
+        "commitment": {
+          "id": "88888888888888888888888888888888",
+          "created_tick": "100",
+          "terms_digest": null
+        },
+        "withdrawn": {
+          "resource": "food",
+          "quantity": 4
+        }
+      },
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "invalid_hex",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "creator_capture_shape",
+      "input": {
+        "accepted_sequence": "1",
+        "operation_index": 0,
+        "application_tick": "0",
+        "mode": "paused",
+        "snapshot": {
+          "domain": 3,
+          "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+          "branch": "63dd4dd8013907928530262c6dbeb552",
+          "revision": null,
+          "tick": "0",
+          "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+          "phase": 1,
+          "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+        }
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "manifest_creator_shape",
+      "input": {
+        "type": "creator",
+        "capture": {
+          "accepted_sequence": "1",
+          "operation_index": 0,
+          "application_tick": "0",
+          "mode": "paused",
+          "snapshot": {
+            "domain": 3,
+            "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+            "branch": "63dd4dd8013907928530262c6dbeb552",
+            "revision": null,
+            "tick": "0",
+            "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+            "phase": 1,
+            "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+          }
+        }
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "manifest_original_binding",
+      "input": {
+        "type": "paid",
+        "snapshot": {
+          "domain": 3,
+          "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+          "branch": "63dd4dd8013907928530262c6dbeb552",
+          "revision": null,
+          "tick": "0",
+          "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+          "phase": 1,
+          "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+        },
+        "route": "99999999999999999999999999999999",
+        "commitment": {
+          "id": "88888888888888888888888888888888",
+          "created_tick": "100",
+          "terms_digest": "1b7cbad97df611de211ac57f7b8748926254d957be34faedbcb8c2c9ed31985b"
+        },
+        "withdrawn": {
+          "resource": "food",
+          "quantity": 4
+        }
+      },
+      "different_commitment_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "same_id_different_terms": {
+        "type": "resource_supply",
+        "source_world": "55555555555555555555555555555555",
+        "destination_world": "77777777777777777777777777777777",
+        "resource": "food",
+        "batch": 5,
+        "cadence_ticks": 10,
+        "source_reserve": 20,
+        "duration_ticks": 1200
+      },
+      "scope": "immutable_framing_only_no_fulfillment_simulation"
+    },
+    {
+      "label": "creator_manifest",
+      "input": {
+        "type": "creator",
+        "capture": {
+          "accepted_sequence": "1",
+          "operation_index": 0,
+          "application_tick": "0",
+          "mode": "paused",
+          "snapshot": {
+            "domain": 3,
+            "catalog_hash": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+            "branch": "63dd4dd8013907928530262c6dbeb552",
+            "revision": null,
+            "tick": "0",
+            "state_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+            "phase": 1,
+            "permitted_snapshot_digest": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead"
+          }
+        }
+      },
+      "scope": "creator_provenance_never_paid_witness"
+    },
+    {
+      "label": "waiting_consideration_shape",
+      "input": {
+        "tick": "200",
+        "disposition": "waiting",
+        "reason": "capacity_unavailable"
+      },
+      "outcome": "accepted_subset",
+      "local_diagnostic": null,
+      "expected_wire_error": null,
+      "claim": "accepted_subset"
+    },
+    {
+      "label": "waiting_cannot_masquerade_as_refusal",
+      "input": {
+        "tick": "200",
+        "disposition": "refused",
+        "reason": "capacity_unavailable"
+      },
+      "outcome": "rejected",
+      "must_reject": true,
+      "local_diagnostic": "invalid_consideration",
+      "expected_wire_error": null,
+      "claim": "rejection_only"
+    },
+    {
+      "label": "offer_waiting_capacity_preserves_id",
+      "before": null,
+      "after": {
+        "tick": "200",
+        "disposition": "waiting",
+        "reason": "capacity_unavailable"
+      },
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "record_shape_not_acceptance_simulation"
+    }
+  ],
+  "hash_vectors": [
+    {
+      "label": "catalog_domain",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f5041434b007b226b696e64223a224e594f4e5f4c4956494e475f5041434b5f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c227061636b5f6964223a226e796f6e5f6c6976696e675f636f72655f76335f776972655f66697874757265222c227061636b5f76657273696f6e223a312c22737461725f61726368657479706573223a5b7b226964223a226d61696e5f73657175656e6365222c226e616d65223a224d61696e2053657175656e6365227d2c7b226964223a227265645f6477617266222c226e616d65223a22526564204477617266227d5d2c22776f726c645f61726368657479706573223a5b7b226964223a2262617272656e222c226e616d65223a2242617272656e227d2c7b226964223a2274656d706572617465222c226e616d65223a2254656d706572617465227d5d2c227265736f7572636573223a5b7b226964223a22616c6c6f79222c226e616d65223a22416c6c6f79222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22656e65726779222c226e616d65223a22456e65726779222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a22666f6f64222c226e616d65223a22466f6f64222c2273746f726167655f6c696d6974223a31303030307d2c7b226964223a226f7265222c226e616d65223a224f7265222c2273746f726167655f6c696d6974223a31303030307d5d2c22696e6475737472795f646566696e6974696f6e73223a5b7b226964223a22646566656e73655f62617474657279222c226e616d65223a22446566656e73652042617474657279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a22646566656e7365222c226869745f706f696e7473223a34302c2264616d6167655f7065725f726f756e64223a347d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22657874726163746f72222c226e616d65223a22457874726163746f72222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a342c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a317d2c7b226964223a226661726d222c226e616d65223a224661726d222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c226f757470757473223a5b7b227265736f75726365223a22666f6f64222c227175616e74697479223a32307d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22666f756e647279222c226e616d65223a22466f756e647279222c22616c6c6f795f636f7374223a34302c226275696c645f7469636b73223a3230302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a32302c226465706f7369745f756e697473223a302c22696e70757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a347d2c7b227265736f75726365223a226f7265222c227175616e74697479223a347d5d2c226f757470757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a327d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a327d2c7b226964223a2268616269746174696f6e222c226e616d65223a2248616269746174696f6e222c22616c6c6f795f636f7374223a33302c226275696c645f7469636b73223a3135302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a2268616269746174696f6e222c22626173655f6361706163697479223a313030307d2c22776f726b666f7263655f756e697473223a302c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a2272657365617263685f6c6162222c226e616d65223a225265736561726368204c6162222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a382c22656666656374223a7b2274797065223a227265736561726368222c22706572696f645f7469636b73223a32302c22696e70757473223a5b7b227265736f75726365223a22616c6c6f79222c227175616e74697479223a317d2c7b227265736f75726365223a22656e65726779222c227175616e74697479223a327d5d2c22706f696e7473223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a227368697079617264222c226e616d65223a225368697079617264222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3330302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a312c22656666656374223a7b2274797065223a2268756c6c5f617373656d626c79222c22636f6e63757272656e745f6a6f6273223a317d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d2c7b226964223a22736f6c61725f6172726179222c226e616d65223a22536f6c6172204172726179222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c22736c6f745f636f7374223a312c226d61785f7065725f636f6c6f6e79223a362c22656666656374223a7b2274797065223a22726563697065222c22706572696f645f7469636b73223a31302c226465706f7369745f756e697473223a302c22696e70757473223a5b5d2c226f757470757473223a5b7b227265736f75726365223a22656e65726779222c227175616e74697479223a387d5d7d2c22776f726b666f7263655f756e697473223a312c227374726573735f7065725f6f7065726174696f6e223a307d5d2c2268756c6c5f646566696e6974696f6e73223a5b7b226964223a22636f6c6f6e795f61726b222c226e616d65223a22436f6c6f6e792041726b222c22616c6c6f795f636f7374223a36302c226275696c645f7469636b73223a3230302c226869745f706f696e7473223a32302c2264616d616765223a302c22726f6c65223a2261726b227d2c7b226964223a226573636f7274222c226e616d65223a224573636f7274222c22616c6c6f795f636f7374223a32302c226275696c645f7469636b73223a3130302c226869745f706f696e7473223a31302c2264616d616765223a322c22726f6c65223a226573636f7274227d2c7b226964223a2273636f7574222c226e616d65223a2253636f7574222c22616c6c6f795f636f7374223a31302c226275696c645f7469636b73223a35302c226869745f706f696e7473223a31302c2264616d616765223a302c22726f6c65223a2273636f7574227d5d2c2268617a6172645f646566696e6974696f6e73223a5b7b226964223a22696f6e5f73746f726d222c226e616d65223a22496f6e2053746f726d222c22656666656374223a7b2274797065223a22667265696768745f62617463685f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d2c22706f6c6963795f646566696e6974696f6e73223a5b7b226964223a22657870616e73696f6e697374222c226e616d65223a22457870616e73696f6e697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f61726b222c22626f6e7573223a32307d2c7b22696e74656e74223a22736574746c65222c22626f6e7573223a32307d5d7d2c7b226964223a22677561726469616e222c226e616d65223a22477561726469616e222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f62617474657279222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f6573636f7274222c22626f6e7573223a32307d2c7b22696e74656e74223a22646566656e64222c22626f6e7573223a32307d5d7d2c7b226964223a22696e647573747269616c697374222c226e616d65223a22496e647573747269616c697374222c22626f6e75736573223a5b7b22696e74656e74223a226275696c645f657874726163746f72222c22626f6e7573223a32307d2c7b22696e74656e74223a226275696c645f666f756e647279222c22626f6e7573223a32307d5d7d2c7b226964223a226e65757472616c222c226e616d65223a224e65757472616c222c22626f6e75736573223a5b5d7d2c7b226964223a22747261646572222c226e616d65223a22547261646572222c22626f6e75736573223a5b7b22696e74656e74223a2265737461626c6973685f74726164655f726f757465222c22626f6e7573223a32307d2c7b22696e74656e74223a22737570706c79222c22626f6e7573223a32307d5d7d5d2c22746563686e6f6c6f67795f646566696e6974696f6e73223a5b7b226964223a226167726f6e6f6d79222c226e616d65223a224167726f6e6f6d79222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226661726d5f626173655f6f7574707574222c22756e697473223a32357d7d2c7b226964223a22656666696369656e745f6c6f67697374696373222c226e616d65223a22456666696369656e74204c6f67697374696373222c2270726572657175697369746573223a5b5d2c22706f696e745f636f7374223a3130302c22656666656374223a7b2274797065223a226465706172747572655f656e657267795f7363616c65222c226e756d657261746f72223a332c2264656e6f6d696e61746f72223a347d7d2c7b226964223a22726573696c69656e745f68616269746174696f6e222c226e616d65223a22526573696c69656e742048616269746174696f6e222c2270726572657175697369746573223a5b226167726f6e6f6d79225d2c22706f696e745f636f7374223a3135302c22656666656374223a7b2274797065223a2268616269746162696c6974795f70656e616c74795f7363616c65222c226e756d657261746f72223a312c2264656e6f6d696e61746f72223a327d7d5d7d",
+      "sha256": "98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff",
+      "canonical_payload_utf8": "{\"kind\":\"NYON_LIVING_PACK_V3\",\"format_version\":3,\"rules_version\":3,\"pack_id\":\"nyon_living_core_v3_wire_fixture\",\"pack_version\":1,\"star_archetypes\":[{\"id\":\"main_sequence\",\"name\":\"Main Sequence\"},{\"id\":\"red_dwarf\",\"name\":\"Red Dwarf\"}],\"world_archetypes\":[{\"id\":\"barren\",\"name\":\"Barren\"},{\"id\":\"temperate\",\"name\":\"Temperate\"}],\"resources\":[{\"id\":\"alloy\",\"name\":\"Alloy\",\"storage_limit\":10000},{\"id\":\"energy\",\"name\":\"Energy\",\"storage_limit\":10000},{\"id\":\"food\",\"name\":\"Food\",\"storage_limit\":10000},{\"id\":\"ore\",\"name\":\"Ore\",\"storage_limit\":10000}],\"industry_definitions\":[{\"id\":\"defense_battery\",\"name\":\"Defense Battery\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"defense\",\"hit_points\":40,\"damage_per_round\":4},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"extractor\",\"name\":\"Extractor\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":4,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"ore\",\"quantity\":4}]},\"workforce_units\":1,\"stress_per_operation\":1},{\"id\":\"farm\",\"name\":\"Farm\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":2}],\"outputs\":[{\"resource\":\"food\",\"quantity\":20}]},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"foundry\",\"name\":\"Foundry\",\"alloy_cost\":40,\"build_ticks\":200,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":20,\"deposit_units\":0,\"inputs\":[{\"resource\":\"energy\",\"quantity\":4},{\"resource\":\"ore\",\"quantity\":4}],\"outputs\":[{\"resource\":\"alloy\",\"quantity\":2}]},\"workforce_units\":1,\"stress_per_operation\":2},{\"id\":\"habitation\",\"name\":\"Habitation\",\"alloy_cost\":30,\"build_ticks\":150,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"habitation\",\"base_capacity\":1000},\"workforce_units\":0,\"stress_per_operation\":0},{\"id\":\"research_lab\",\"name\":\"Research Lab\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":8,\"effect\":{\"type\":\"research\",\"period_ticks\":20,\"inputs\":[{\"resource\":\"alloy\",\"quantity\":1},{\"resource\":\"energy\",\"quantity\":2}],\"points\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"shipyard\",\"name\":\"Shipyard\",\"alloy_cost\":60,\"build_ticks\":300,\"slot_cost\":1,\"max_per_colony\":1,\"effect\":{\"type\":\"hull_assembly\",\"concurrent_jobs\":1},\"workforce_units\":1,\"stress_per_operation\":0},{\"id\":\"solar_array\",\"name\":\"Solar Array\",\"alloy_cost\":20,\"build_ticks\":100,\"slot_cost\":1,\"max_per_colony\":6,\"effect\":{\"type\":\"recipe\",\"period_ticks\":10,\"deposit_units\":0,\"inputs\":[],\"outputs\":[{\"resource\":\"energy\",\"quantity\":8}]},\"workforce_units\":1,\"stress_per_operation\":0}],\"hull_definitions\":[{\"id\":\"colony_ark\",\"name\":\"Colony Ark\",\"alloy_cost\":60,\"build_ticks\":200,\"hit_points\":20,\"damage\":0,\"role\":\"ark\"},{\"id\":\"escort\",\"name\":\"Escort\",\"alloy_cost\":20,\"build_ticks\":100,\"hit_points\":10,\"damage\":2,\"role\":\"escort\"},{\"id\":\"scout\",\"name\":\"Scout\",\"alloy_cost\":10,\"build_ticks\":50,\"hit_points\":10,\"damage\":0,\"role\":\"scout\"}],\"hazard_definitions\":[{\"id\":\"ion_storm\",\"name\":\"Ion Storm\",\"effect\":{\"type\":\"freight_batch_scale\",\"numerator\":1,\"denominator\":2}}],\"policy_definitions\":[{\"id\":\"expansionist\",\"name\":\"Expansionist\",\"bonuses\":[{\"intent\":\"build_ark\",\"bonus\":20},{\"intent\":\"settle\",\"bonus\":20}]},{\"id\":\"guardian\",\"name\":\"Guardian\",\"bonuses\":[{\"intent\":\"build_battery\",\"bonus\":20},{\"intent\":\"build_escort\",\"bonus\":20},{\"intent\":\"defend\",\"bonus\":20}]},{\"id\":\"industrialist\",\"name\":\"Industrialist\",\"bonuses\":[{\"intent\":\"build_extractor\",\"bonus\":20},{\"intent\":\"build_foundry\",\"bonus\":20}]},{\"id\":\"neutral\",\"name\":\"Neutral\",\"bonuses\":[]},{\"id\":\"trader\",\"name\":\"Trader\",\"bonuses\":[{\"intent\":\"establish_trade_route\",\"bonus\":20},{\"intent\":\"supply\",\"bonus\":20}]}],\"technology_definitions\":[{\"id\":\"agronomy\",\"name\":\"Agronomy\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"farm_base_output\",\"units\":25}},{\"id\":\"efficient_logistics\",\"name\":\"Efficient Logistics\",\"prerequisites\":[],\"point_cost\":100,\"effect\":{\"type\":\"departure_energy_scale\",\"numerator\":3,\"denominator\":4}},{\"id\":\"resilient_habitation\",\"name\":\"Resilient Habitation\",\"prerequisites\":[\"agronomy\"],\"point_cost\":150,\"effect\":{\"type\":\"habitability_penalty_scale\",\"numerator\":1,\"denominator\":2}}]}"
+    },
+    {
+      "label": "state_version_catalog_wrapped",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "sha256": "d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+      "canonical_payload_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}"
+    },
+    {
+      "label": "genesis_domain",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e45534953007b226b696e64223a224e594f4e5f4c4956494e475f47454e455349535f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c2273656564223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030222c2267656e657261746f72223a7b2267656e657261746f725f6964223a22776972655f66697874757265222c2267656e657261746f725f76657273696f6e223a317d2c22616c6c6f636174696f6e73223a5b5d2c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "sha256": "8864c14030d78176642cfca43216eb96b0ab3c97fe922f3b44cc02e1c3bb14e2",
+      "canonical_payload_utf8": "{\"kind\":\"NYON_LIVING_GENESIS_V3\",\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"seed\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"generator\":{\"generator_id\":\"wire_fixture\",\"generator_version\":1},\"allocations\":[],\"state\":{\"tick\":\"0\",\"branch_sequence\":\"0\",\"next_sequence\":\"0\",\"systems\":[],\"stars\":[],\"worlds\":[],\"lanes\":[],\"civilizations\":[],\"deposits\":[],\"colonies\":[],\"facilities\":[],\"construction_jobs\":[],\"hull_jobs\":[],\"fleets\":[],\"routes\":[],\"shipments\":[],\"relations\":[],\"agreements\":[],\"wars\":[],\"observations\":[],\"hazards\":[],\"settlement_claims\":[],\"occupations\":[],\"offers\":[],\"demand_requests\":[],\"commitments\":[],\"defense_requests\":[],\"shared_intelligence\":[],\"stellar_events\":[],\"counters\":{}}}"
+    },
+    {
+      "label": "root_branch",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f524f4f545f4252414e43480098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000008864c14030d78176642cfca43216eb96b0ab3c97fe922f3b44cc02e1c3bb14e20c000000776972655f6669787475726501000000",
+      "sha256": "63dd4dd8013907928530262c6dbeb5527ab53ac64047e119ea26405fca7678cc",
+      "id": "63dd4dd8013907928530262c6dbeb552"
+    },
+    {
+      "label": "genesis_kind_1",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000301000100000000000000",
+      "sha256": "dfb45186a16f8088f847269ab6a66bcb5966bc309c99171aa10ccf3c29bfde06",
+      "id": "dfb45186a16f8088f847269ab6a66bcb"
+    },
+    {
+      "label": "genesis_kind_2",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000302000100000000000000",
+      "sha256": "9bb3cdc758a4a468b3f60b9a8086b015f4345d7827a68fe8f7a5fc6503a58b2d",
+      "id": "9bb3cdc758a4a468b3f60b9a8086b015"
+    },
+    {
+      "label": "genesis_kind_3",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000303000100000000000000",
+      "sha256": "311f573ad90e49632ff3a4e18636e3d72f12405b3001ea45c4e96aac2eae3b47",
+      "id": "311f573ad90e49632ff3a4e18636e3d7"
+    },
+    {
+      "label": "genesis_kind_4",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000304000100000000000000",
+      "sha256": "0c9c0300aaec018312feefb178d30a1ef0b6b571d36961aea39790b66a3f8459",
+      "id": "0c9c0300aaec018312feefb178d30a1e"
+    },
+    {
+      "label": "genesis_kind_5",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000305000100000000000000",
+      "sha256": "66439f3eb0f4489bdda791c051e7ab8b5f77403c6c1abfc5904317bee609a11f",
+      "id": "66439f3eb0f4489bdda791c051e7ab8b"
+    },
+    {
+      "label": "genesis_kind_6",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000306000100000000000000",
+      "sha256": "b18ed9add3032c13c352eeedf0f3d4bbe672cbe8327dc43cda4602b230c4dd02",
+      "id": "b18ed9add3032c13c352eeedf0f3d4bb"
+    },
+    {
+      "label": "genesis_kind_7",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000307000100000000000000",
+      "sha256": "837d776062c99edae04851338f3d68d6ed3b5cad3ca0e26d65381e195178f953",
+      "id": "837d776062c99edae04851338f3d68d6"
+    },
+    {
+      "label": "genesis_kind_8",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000308000100000000000000",
+      "sha256": "41dab984a9fdbd7b76dd1a68a0a7e7b2a20eefac22d711c5678c7957d64bc436",
+      "id": "41dab984a9fdbd7b76dd1a68a0a7e7b2"
+    },
+    {
+      "label": "genesis_kind_9",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000309000100000000000000",
+      "sha256": "e5ae318aff64e905787b4f54e1ca54b53b4c8015b4b96d8a86c2d10c7286c8ba",
+      "id": "e5ae318aff64e905787b4f54e1ca54b5"
+    },
+    {
+      "label": "genesis_kind_10",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030a000100000000000000",
+      "sha256": "f6dfc75af40c0eb9c3ba13bb2f1a39651d10add890da7713aa1b1cfacce8a160",
+      "id": "f6dfc75af40c0eb9c3ba13bb2f1a3965"
+    },
+    {
+      "label": "genesis_kind_11",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030b000100000000000000",
+      "sha256": "3706a705af9142037a5d2609bb50b8c9b504d9e80f0cb97606d537750083d9fa",
+      "id": "3706a705af9142037a5d2609bb50b8c9"
+    },
+    {
+      "label": "genesis_kind_12",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030c000100000000000000",
+      "sha256": "0018cf8fc3d10fd2edc1bfd6cd2a4f1d02c027edc68764b697fbde4a73fcd993",
+      "id": "0018cf8fc3d10fd2edc1bfd6cd2a4f1d"
+    },
+    {
+      "label": "genesis_kind_13",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030d000100000000000000",
+      "sha256": "0ba2852307e713a3e0840e7a1850fe016aa1fc382a8a8ec70bbb5b5bbf29fc5d",
+      "id": "0ba2852307e713a3e0840e7a1850fe01"
+    },
+    {
+      "label": "genesis_kind_14",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030e000100000000000000",
+      "sha256": "7b656e49a13fe361fcb02e05d621cba4d9819ba2f57473fc754b2c01914609b1",
+      "id": "7b656e49a13fe361fcb02e05d621cba4"
+    },
+    {
+      "label": "genesis_kind_15",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f6669787475726501000000030f000100000000000000",
+      "sha256": "69bc829fe6bb1d4f3d988b99f02ca4b9dd515161973b097065ad132f0a70e512",
+      "id": "69bc829fe6bb1d4f3d988b99f02ca4b9"
+    },
+    {
+      "label": "genesis_kind_16",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000310000100000000000000",
+      "sha256": "950ac70e0b1bebf9a8f9ec1deff1f52e5f2f0a63662c0ae19a2cfb81bf6523f9",
+      "id": "950ac70e0b1bebf9a8f9ec1deff1f52e"
+    },
+    {
+      "label": "genesis_kind_17",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000311000100000000000000",
+      "sha256": "773d8eb33cfba40b2328320ee00165a2212944255a50d1fbb3fc94353f232da6",
+      "id": "773d8eb33cfba40b2328320ee00165a2"
+    },
+    {
+      "label": "genesis_kind_18",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f47454e455349535f454e544954590098001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff00000000000000000000000000000000000000000000000000000000000000000c000000776972655f66697874757265010000000312000100000000000000",
+      "sha256": "05ca2206469278e16a8e6f9f277411347c8834970c0411a790605761e096ab9b",
+      "id": "05ca2206469278e16a8e6f9f27741134"
+    },
+    {
+      "label": "creator_stellar_id_pre_revision",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f43524541544f525f454e544954590063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb5520201000000000000000000000012000700",
+      "sha256": "9b63f8e8c37c191015175f4f7f266fdd703ae4ba1e11ef7911ee12fcf66c1dd9",
+      "id": "9b63f8e8c37c191015175f4f7f266fdd"
+    },
+    {
+      "label": "revision_framing_only_unadmitted_empty_batch",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f5245564953494f4e0063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb552000000000000000000010000000000000000600100007b22646f6d61696e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c226272616e6368223a223633646434646438303133393037393238353330323632633664626562353532222c227265766973696f6e223a6e756c6c2c227469636b223a2230222c2273746174655f646967657374223a2264353466373731623232356332316561663330643161633263666436616264316337323135626631383236383236323731393233323965653666623562656164222c227068617365223a312c227065726d69747465645f736e617073686f745f646967657374223a2264353466373731623232356332316561663330643161633263666436616264316337323135626631383236383236323731393233323965653666623562656164227d3e0000007b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b5d2c2272657669657765645f65666665637473223a5b5d7d",
+      "sha256": "8d88d5a1ba5d9c7429007b8b9d2cf2ac00ea47fb9acb9d52b4f785e91a1ff1c3",
+      "canonical_payload_utf8": "{\"capture\":{\"domain\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"branch\":\"63dd4dd8013907928530262c6dbeb552\",\"revision\":null,\"tick\":\"0\",\"state_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\",\"phase\":1,\"permitted_snapshot_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\"},\"command\":{\"type\":\"creator_batch\",\"operations\":[],\"reviewed_effects\":[]}}"
+    },
+    {
+      "label": "fork_nonnull_parent_revision",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f464f524b5f4252414e43480063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb552018d88d5a1ba5d9c7429007b8b9d2cf2ac00ea47fb9acb9d52b4f785e91a1ff1c30000000000000000d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead0100000000000000",
+      "sha256": "9d36d80af9c7bdca941f3168ea83d544c0d83e2d8143c0c63ff2021baba80e1c",
+      "id": "9d36d80af9c7bdca941f3168ea83d544"
+    },
+    {
+      "label": "fork_null_parent_revision",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f464f524b5f4252414e43480063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb552000000000000000000d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead0100000000000000",
+      "sha256": "4d5b9ddea778fce1dd299120ec46ce1ae35f63b3d078794bc62e277fc34970a5",
+      "id": "4d5b9ddea778fce1dd299120ec46ce1a"
+    },
+    {
+      "label": "autonomous_namespace_0_framing_only",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f4155544f5f454e544954590063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb55200000000000000000000000000000000006400000000000000010012000000000002009bb3cdc758a4a468b3f60b9a8086b015d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+      "sha256": "f6a5e9bbaf8430ced4d1f62b8f89b7f7fb074ee02edac9e0e7cfc56192ea6b6c",
+      "id": "f6a5e9bbaf8430ced4d1f62b8f89b7f7"
+    },
+    {
+      "label": "autonomous_namespace_1_framing_only",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f4155544f5f454e544954590063dd4dd8013907928530262c6dbeb55263dd4dd8013907928530262c6dbeb5520133333333333333333333333333333333640000000000000009000a000000000002009bb3cdc758a4a468b3f60b9a8086b015d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead",
+      "sha256": "17e6bb1c89e2fb8e1516a040adf67f495dcf10f2eb0ea1c36915f72cc6e8b9bf",
+      "id": "17e6bb1c89e2fb8e1516a040adf67f49"
+    },
+    {
+      "label": "empty_receipt",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2230222c226170706c6965645f7265766973696f6e73223a5b5d2c226576656e7473223a5b5d2c2273746174655f646967657374223a2264353466373731623232356332316561663330643161633263666436616264316337323135626631383236383236323731393233323965653666623562656164227d",
+      "sha256": "99d0dcb1416bb002752922fe93764b41bf315c2f8a4e7c8d1e9712bb9ae340cf",
+      "canonical_payload_utf8": "{\"tick\":\"0\",\"applied_revisions\":[],\"events\":[],\"state_digest\":\"d54f771b225c21eaf30d1ac2cfd6abd1c7215bf182682627192329ee6fb5bead\"}"
+    },
+    {
+      "label": "event_receipt_bound_framing_only",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f4556454e540099d0dcb1416bb002752922fe93764b41bf315c2f8a4e7c8d1e9712bb9ae340cf0000000000000000010000000000",
+      "sha256": "d0031d23080a4bff288cd9d68ec9bb1893b8b67b553baaa480227d899aec1d47",
+      "id": "d0031d23080a4bff288cd9d68ec9bb18"
+    },
+    {
+      "label": "threat_fact_acyclic",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f5448524541545f4f42534552564154494f4e007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239383030316466336530366430666537663263613362646232623366346331643739366462633063666438303839366663633062643462393132306463616666222c226f726967696e6174696e675f6f62736572766572223a223333333333333333333333333333333333333333333333333333333333333333222c227461726765745f776f726c64223a223535353535353535353535353535353535353535353535353535353535353535222c226f627365727665645f7469636b223a22313030222c22656e656d79223a223434343434343434343434343434343434343434343434343434343434343434222c22776172223a6e756c6c2c22686f7374696c655f6573636f72745f636f756e74223a322c226f636375706174696f6e223a66616c73652c22686f7374696c655f666c65657473223a5b223636363636363636363636363636363636363636363636363636363636363636225d7d",
+      "sha256": "8ab2703ecfd8f0955bbfd2ab1dca61d4a3c1c207c421dead8f4e93f5aa798f5e",
+      "canonical_payload_utf8": "{\"format_version\":3,\"rules_version\":3,\"catalog_hash\":\"98001df3e06d0fe7f2ca3bdb2b3f4c1d796dbc0cfd80896fcc0bd4b9120dcaff\",\"originating_observer\":\"33333333333333333333333333333333\",\"target_world\":\"55555555555555555555555555555555\",\"observed_tick\":\"100\",\"enemy\":\"44444444444444444444444444444444\",\"war\":null,\"hostile_escort_count\":2,\"occupation\":false,\"hostile_fleets\":[\"66666666666666666666666666666666\"]}"
+    },
+    {
+      "label": "immutable_commitment_terms",
+      "input_hex": "4e594f4e5f4c4956494e475f56335f5452454154595f5445524d53007b2274797065223a227265736f757263655f737570706c79222c22736f757263655f776f726c64223a223535353535353535353535353535353535353535353535353535353535353535222c2264657374696e6174696f6e5f776f726c64223a223737373737373737373737373737373737373737373737373737373737373737222c227265736f75726365223a22666f6f64222c226261746368223a342c22636164656e63655f7469636b73223a31302c22736f757263655f72657365727665223a32302c226475726174696f6e5f7469636b73223a313230307d",
+      "sha256": "1b7cbad97df611de211ac57f7b8748926254d957be34faedbcb8c2c9ed31985b",
+      "canonical_payload_utf8": "{\"type\":\"resource_supply\",\"source_world\":\"55555555555555555555555555555555\",\"destination_world\":\"77777777777777777777777777777777\",\"resource\":\"food\",\"batch\":4,\"cadence_ticks\":10,\"source_reserve\":20,\"duration_ticks\":1200}"
+    }
+  ],
+  "gaps": [
+    "Nonempty revisions/anchor reconstruction not validated",
+    "All nonempty entity families and typed events not exhaustively validated",
+    "Record shape cases do not simulate offer/manifest/threat visibility or stellar application",
+    "Revision empty batch and standalone event are framing-only, not admitted history",
+    "Full scoring/diplomacy/forecast/conservation simulations pending review",
+    "Coordinator byte cap absent from frozen source; no invented cap enforced"
+  ]
+}

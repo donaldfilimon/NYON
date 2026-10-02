@@ -1,0 +1,4 @@
+- generic [active] [ref=e1]:
+  - status:
+    - text: WEBGPU
+    - generic: apple / metal-3

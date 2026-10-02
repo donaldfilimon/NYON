@@ -1,0 +1,3 @@
+[     272ms] [INFO] browser GPU initialization scheduled, generation 1 @ http://127.0.0.1:8037/dist/webgl/nyon.js:899
+[    1032ms] [INFO] GPU adapter 'ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)' backend Gl device IntegratedGpu, epoch 1 @ http://127.0.0.1:8037/dist/webgl/nyon.js:899
+[    1099ms] [INFO] first frame presented @ http://127.0.0.1:8037/dist/webgl/nyon.js:899

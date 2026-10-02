@@ -73,6 +73,7 @@ fn facility(offset: u32, definition: &str, next_due: Option<u64>) -> LivingFacil
         next_due: next_due.map(LivingTickV2),
         next_repair: None,
         blocked_reasons: LivingSortedVecV2::default(),
+        disabled: false,
     }
 }
 

@@ -27,7 +27,16 @@ cargo run --release                                         # native app
 
 `tools/` holds the scripted paths: `build-web.sh` (runs both backend builds),
 `check-workshop.sh` (artifact shape, freshness, static contracts, three Rust
-suites), `benchmark-workshop.sh`. `.claude/`, `.remember/` and `.superpowers/` at
+suites), `benchmark-workshop.sh`, `living-v2-vectors.py` (see *Living Galaxy V2*),
+`cross-build-fingerprint.py` (checks the WebGPU and WebGL2 artifacts reproduce the
+RulesV1 digest), and `validate-vertex-layout.py` plus its own Cargo project
+`validate-vertex-layout/` (checks the Rust `Vertex` against the WGSL
+`VertexInput` offsets and 36-byte stride). **All three run in
+`.github/workflows/ci.yml` but are missing from the gate lists in `AGENTS.md`:**
+the native job runs `python3 tools/validate-vertex-layout.py` after Clippy, and
+the wasm job ends with `python3 tools/living-v2-vectors.py verify` and
+`python3 tools/cross-build-fingerprint.py --skip-tests`. Run them too before
+calling a change CI-equivalent. `.claude/`, `.remember/` and `.superpowers/` at
 the root are session tooling, not project files.
 
 ## Layout
@@ -197,16 +206,18 @@ seeds and digest in `AGENTS.md`), `campaign`, `scenario`, `scenario_editor`,
 `presentation`, `renderer_contracts`, `shaders`, `ui_assets`, `advisory`,
 `advisory_gpu` (SKIP-tolerant, not parity evidence), `app`, `identity`,
 `preferences`, `usability`, `player_guide`, `browser_contract`, `workshop_web`,
-`workshop_store_web`, `workshop_library` (added 2026-09-08 with the library
-client), and the `workshop_*` family covering session, store, recovery, client,
-presentation, accessibility, bare `workshop_ui` and the five `workshop_ui_*`
-UI suites (`sdf`, `layout`, `inspector`, `creator`, `library`). Shared fixtures
-are in `tests/common/`.
+`workshop_store_web`, the `workshop_library*` family (`workshop_library`, plus
+`_open`, `_archive_import`, `_transfer`, `_transfer_routes`), and the rest of
+the `workshop_*` family covering session, store, recovery, client,
+presentation, accessibility, bare `workshop_ui` and the six `workshop_ui_*`
+UI suites (`sdf`, `layout`, `inspector`, `creator`, `library`,
+`library_frame`). Shared fixtures are in `tests/common/`. Re-list `tests/`
+rather than trusting this sentence; it has drifted before.
 
 `crates/nyon-workshop-core` has its own `tests/`: `archive`, `creator`,
-`history`, `pack`, `simulation`, `two_system_forge`, and the six Living V2
+`history`, `pack`, `simulation`, `two_system_forge`, and the seven Living V2
 suites `living_wire`, `living_catalog`, `living_model`, `living_genesis`,
-`living_command`, `living_receipt`, with `common/` and `fixtures/living-v2/`.
+`living_command`, `living_receipt`, `living_queue`, with `common/` and `fixtures/living-v2/`.
 The suite list in the comment above the core-crate Clippy step in
 `.github/workflows/ci.yml` names only the first six and predates every Living
 suite; do not read it as complete. `--workspace`

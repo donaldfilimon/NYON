@@ -118,6 +118,7 @@ pub enum ShellUiAction {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlatformUiAction {
+    Sandbox(crate::sandbox_session::SandboxUiAction),
     Shell(ShellUiAction),
     Workshop(SemanticActionId),
     /// Resolved against the Library model, never the Workshop one. A separate
@@ -812,11 +813,49 @@ pub fn install_platform_batches(
     ui: &mut super::UiBatch,
     overlay: &mut PrimitiveBatch,
 ) -> Result<Vec<PlatformDecorationWitness>, super::UiBatchError> {
-    let composed = super::platform_sdf::build_platform_ui_batch(frame, metrics).and_then(|sdf| {
-        let mut primitive = PlatformPrimitiveOverlay::default();
-        frame.append_primitive_overlay(&mut primitive)?;
-        Ok((sdf.batch, primitive))
-    });
+    install_platform_batches_with_editor(frame, metrics, ui, overlay, None)
+}
+
+/// Native caret and selection use the same measured text runs as the field ink.
+/// The editor is a presentation snapshot and cannot publish a creator command.
+pub fn install_platform_batches_with_editor(
+    frame: &PlatformUiFrame,
+    metrics: &super::AtlasMetrics,
+    ui: &mut super::UiBatch,
+    overlay: &mut PrimitiveBatch,
+    editor: Option<(&SemanticActionId, &super::text_edit::TextEdit)>,
+) -> Result<Vec<PlatformDecorationWitness>, super::UiBatchError> {
+    let composed =
+        super::platform_sdf::build_platform_ui_batch(frame, metrics).and_then(|mut sdf| {
+            let viewport = editor
+                .map(|(action, editor)| {
+                    editor_viewport(frame, metrics, &sdf.text_runs, action, editor)
+                })
+                .transpose()?
+                .flatten();
+            let (drawing_frame, drawing_editor) =
+                if let Some((projected, editor)) = viewport.as_ref() {
+                    sdf = super::platform_sdf::build_platform_ui_batch(projected, metrics)?;
+                    (projected, Some(editor))
+                } else {
+                    (frame, editor.map(|(_, editor)| editor))
+                };
+            let mut primitive = PlatformPrimitiveOverlay::default();
+            frame.append_primitive_overlay(&mut primitive)?;
+            if let Some((action, _)) = editor
+                && let Some(editor) = drawing_editor
+            {
+                draw_editor(
+                    drawing_frame,
+                    metrics,
+                    &sdf.text_runs,
+                    &mut primitive.batch,
+                    action,
+                    editor,
+                )?;
+            }
+            Ok((sdf.batch, primitive))
+        });
     match composed {
         Ok((sdf, primitive)) => {
             (*ui, *overlay) = (sdf, primitive.batch);
@@ -845,6 +884,224 @@ pub fn install_platform_batches(
             Err(error)
         }
     }
+}
+
+/// Keep the caret visible without changing the semantic value or input state.
+fn editor_viewport(
+    frame: &PlatformUiFrame,
+    metrics: &super::AtlasMetrics,
+    runs: &[super::platform_sdf::PlatformTextRun],
+    action: &SemanticActionId,
+    editor: &super::text_edit::TextEdit,
+) -> Result<Option<(PlatformUiFrame, super::text_edit::TextEdit)>, super::UiBatchError> {
+    let Some(control) = frame
+        .controls
+        .iter()
+        .find(|control| control.enabled && control.focused && &control.action_id == action)
+    else {
+        return Ok(None);
+    };
+    let Some(prefix) = control.label.strip_suffix(editor.value()) else {
+        return Ok(None);
+    };
+    let Some(run) = runs
+        .iter()
+        .find(|run| run.semantic_id == control.semantic_id)
+    else {
+        return Ok(None);
+    };
+    let measure = |text: &str| {
+        metrics
+            .measure_text(run.style.font_size, run.style.weight, text)
+            .map(|measurement| measurement.advance)
+    };
+    let available = (run.clip.width() - measure(prefix)? - 8.0).max(0.0);
+    if available < 4.0 || measure(editor.value())? <= available {
+        return Ok(None);
+    }
+    let boundaries =
+        metrics.measured_boundaries(run.style.font_size, run.style.weight, editor.value())?;
+    let caret_index = boundaries.partition_point(|(offset, _)| *offset < editor.caret());
+    let caret_advance = boundaries[caret_index].1;
+    let start_index = boundaries[..=caret_index]
+        .partition_point(|(_, advance)| caret_advance - *advance > available);
+    let (start, start_advance) = boundaries[start_index];
+    let end_index = boundaries[caret_index..]
+        .partition_point(|(_, advance)| *advance - start_advance <= available);
+    let end = boundaries[caret_index + end_index.saturating_sub(1)].0;
+    let projected_editor = editor.viewport(start..end);
+    let label = format!("{prefix}{}", projected_editor.value());
+    let mut projected = frame.clone();
+    if let Some(control) = projected
+        .controls
+        .iter_mut()
+        .find(|item| &item.action_id == action)
+    {
+        control.label.clone_from(&label);
+    }
+    for record in projected
+        .visible_nodes
+        .iter_mut()
+        .filter(|record| record.semantic_id == control.semantic_id)
+    {
+        record.display_text.clone_from(&label);
+        record.prewrapped_lines = None;
+    }
+    Ok(Some((projected, projected_editor)))
+}
+
+/// Resolve a native editor pointer in logical pixels to the nearest original
+/// UTF-8 byte boundary using exactly the viewport/style/clip used for drawing.
+/// The caller owns the field contact: positions outside the field are clamped
+/// so dragging beyond either edge extends selection without jumping fields.
+/// No editor or semantic value is mutated by hit testing.
+pub fn platform_editor_caret_at(
+    frame: &PlatformUiFrame,
+    metrics: &super::AtlasMetrics,
+    action: &SemanticActionId,
+    editor: &super::text_edit::TextEdit,
+    point: Vec2,
+) -> Result<Option<usize>, super::UiBatchError> {
+    if !point.is_finite() {
+        return Ok(None);
+    }
+    let initial = super::platform_sdf::build_platform_ui_batch(frame, metrics)?;
+    let viewport = editor_viewport(frame, metrics, &initial.text_runs, action, editor)?;
+    let (drawing_frame, visible_editor, start) = match viewport.as_ref() {
+        Some((projected, visible)) => (projected, visible, editor.caret() - visible.caret()),
+        None => (frame, editor, 0),
+    };
+    let Some(control) = drawing_frame
+        .controls
+        .iter()
+        .find(|control| control.enabled && control.focused && &control.action_id == action)
+    else {
+        return Ok(None);
+    };
+    let Some(prefix) = control.label.strip_suffix(visible_editor.value()) else {
+        return Ok(None);
+    };
+    let output = if viewport.is_some() {
+        super::platform_sdf::build_platform_ui_batch(drawing_frame, metrics)?
+    } else {
+        initial
+    };
+    let mut consumed = 0;
+    let mut chosen = None;
+    for run in output
+        .text_runs
+        .iter()
+        .filter(|run| run.semantic_id == control.semantic_id)
+    {
+        let Some(relative) = control.label[consumed..].find(&run.exact_text) else {
+            continue;
+        };
+        let offset = consumed + relative;
+        consumed = offset + run.exact_text.len();
+        let vertical = if point.y < run.clip.min.y {
+            run.clip.min.y - point.y
+        } else if point.y > run.clip.max.y {
+            point.y - run.clip.max.y
+        } else {
+            0.0
+        };
+        if chosen.as_ref().is_none_or(|(old, _, _)| vertical < *old) {
+            chosen = Some((vertical, offset, run));
+        }
+    }
+    let Some((_, offset, run)) = chosen else {
+        return Ok(None);
+    };
+    let boundaries =
+        metrics.measured_boundaries(run.style.font_size, run.style.weight, &run.exact_text)?;
+    let x = point.x.clamp(run.clip.min.x, run.clip.max.x) - run.bounds.min.x;
+    let next = boundaries
+        .partition_point(|(_, advance)| *advance < x)
+        .min(boundaries.len() - 1);
+    let index = if next > 0 && (x - boundaries[next - 1].1).abs() <= (boundaries[next].1 - x).abs()
+    {
+        next - 1
+    } else {
+        next
+    };
+    let visible = (offset + boundaries[index].0)
+        .saturating_sub(prefix.len())
+        .min(visible_editor.value().len());
+    Ok(Some(start + visible))
+}
+
+fn draw_editor(
+    frame: &PlatformUiFrame,
+    metrics: &super::AtlasMetrics,
+    runs: &[super::platform_sdf::PlatformTextRun],
+    batch: &mut PrimitiveBatch,
+    action: &SemanticActionId,
+    editor: &super::text_edit::TextEdit,
+) -> Result<(), super::UiBatchError> {
+    let Some(control) = frame
+        .controls
+        .iter()
+        .find(|control| control.enabled && control.focused && &control.action_id == action)
+    else {
+        return Ok(());
+    };
+    let Some(prefix) = control.label.strip_suffix(editor.value()) else {
+        return Ok(());
+    };
+    let caret = prefix.len() + editor.caret();
+    let selected = editor.selection();
+    let selected = prefix.len() + selected.start..prefix.len() + selected.end;
+    let mut consumed = 0;
+    for run in runs
+        .iter()
+        .filter(|run| run.semantic_id == control.semantic_id)
+    {
+        let Some(relative) = control.label[consumed..].find(&run.exact_text) else {
+            break;
+        };
+        let start = consumed + relative;
+        let end = start + run.exact_text.len();
+        consumed = end;
+        let x_at = |offset: usize| -> Result<f32, super::UiBatchError> {
+            Ok(run.bounds.min.x
+                + metrics
+                    .measure_text(
+                        run.style.font_size,
+                        run.style.weight,
+                        &run.exact_text[..offset - start],
+                    )?
+                    .advance)
+        };
+        let low = selected.start.max(start);
+        let high = selected.end.min(end);
+        if low < high {
+            let x0 = x_at(low)?.max(run.clip.min.x);
+            let x1 = x_at(high)?.min(run.clip.max.x);
+            let y = (run.bounds.min.y + run.style.font_size).min(run.clip.max.y - 2.0);
+            if x0 < x1 && y >= run.clip.min.y {
+                batch.line(
+                    Vec2::new(x0, y),
+                    Vec2::new(x1, y),
+                    3.0,
+                    [0.35, 0.8, 1.0, 1.0],
+                );
+            }
+        }
+        if caret >= start && caret <= end && run.clip.width() > 2.0 {
+            let x = x_at(caret)?.clamp(run.clip.min.x + 1.0, run.clip.max.x - 1.0);
+            let y0 = run.bounds.min.y.max(run.clip.min.y);
+            let y1 = (run.bounds.min.y + run.style.font_size).min(run.clip.max.y);
+            if y0 < y1 {
+                batch.line(
+                    Vec2::new(x, y0),
+                    Vec2::new(x, y1),
+                    1.5,
+                    [0.96, 0.96, 1.0, 1.0],
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn apply_platform_control_geometry(
@@ -950,6 +1207,7 @@ fn icon_for_shell_action(action: ShellUiAction) -> Option<UiIcon> {
             MainMenuRoute::NewWorkshop
             | MainMenuRoute::Library
             | MainMenuRoute::ClassicSector
+            | MainMenuRoute::GalaxySandbox
             | MainMenuRoute::Credits,
         ) => None,
         #[cfg(not(target_arch = "wasm32"))]
@@ -1011,5 +1269,184 @@ fn safe_viewport(viewport: Vec2) -> Vec2 {
         viewport.max(Vec2::new(640.0, 480.0))
     } else {
         Vec2::new(640.0, 480.0)
+    }
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn native_pointer_caret_uses_measured_logical_positions_and_drag_anchor() {
+        let mut session = crate::sandbox_session::SandboxSession::open().unwrap();
+        session
+            .apply_action(crate::sandbox_session::SandboxUiAction::OpenCreator(
+                crate::living_creator::LivingCreatorTool::System,
+            ))
+            .unwrap();
+        let value = "abcdefghij";
+        session.edit_creator_field("0.name", value).unwrap();
+        let mut frame = session.frame_with_scale(Vec2::new(1280.0, 800.0), 1.3, false);
+        let action = SemanticActionId::new("sandbox.creator.field.0.name");
+        frame.reconcile_focused(Some(&action));
+        let metrics = super::super::AtlasMetrics::embedded().unwrap();
+        let output = super::super::platform_sdf::build_platform_ui_batch(&frame, &metrics).unwrap();
+        let control = frame
+            .controls
+            .iter()
+            .find(|c| c.action_id == action)
+            .unwrap();
+        let prefix = control.label.strip_suffix(value).unwrap();
+        let run = output
+            .text_runs
+            .iter()
+            .find(|r| r.semantic_id == control.semantic_id)
+            .unwrap();
+        let point = |offset: usize| {
+            Vec2::new(
+                run.bounds.min.x
+                    + metrics
+                        .measure_text(
+                            run.style.font_size,
+                            run.style.weight,
+                            &format!("{prefix}{}", &value[..offset]),
+                        )
+                        .unwrap()
+                        .advance,
+                (run.clip.min.y + run.clip.max.y) * 0.5,
+            )
+        };
+        let mut editor = super::super::text_edit::TextEdit::new(value.into());
+        let byte = platform_editor_caret_at(&frame, &metrics, &action, &editor, point(4))
+            .unwrap()
+            .unwrap();
+        assert_eq!(byte, 4);
+        assert!(editor.place_caret(byte, false));
+        let byte = platform_editor_caret_at(&frame, &metrics, &action, &editor, point(8))
+            .unwrap()
+            .unwrap();
+        assert_eq!(byte, 8);
+        assert!(editor.place_caret(byte, true));
+        assert_eq!(editor.selection(), 4..8);
+        assert_eq!(
+            platform_editor_caret_at(&frame, &metrics, &action, &editor, Vec2::splat(f32::NAN))
+                .unwrap(),
+            None
+        );
+        assert_eq!(editor.value(), value);
+    }
+
+    #[test]
+    fn native_pointer_long_viewport_returns_original_offsets_and_clamps_drag_edges() {
+        let mut session = crate::sandbox_session::SandboxSession::open().unwrap();
+        session
+            .apply_action(crate::sandbox_session::SandboxUiAction::OpenCreator(
+                crate::living_creator::LivingCreatorTool::System,
+            ))
+            .unwrap();
+        let value = "W".repeat(4096);
+        session.edit_creator_field("0.name", &value).unwrap();
+        let mut frame = session.frame(Vec2::new(800.0, 480.0), false);
+        let action = SemanticActionId::new("sandbox.creator.field.0.name");
+        frame.reconcile_focused(Some(&action));
+        let metrics = super::super::AtlasMetrics::embedded().unwrap();
+        let editor = super::super::text_edit::TextEdit::new(value.clone());
+        let output = super::super::platform_sdf::build_platform_ui_batch(&frame, &metrics).unwrap();
+        let (_, visible) = editor_viewport(&frame, &metrics, &output.text_runs, &action, &editor)
+            .unwrap()
+            .unwrap();
+        let start = editor.caret() - visible.caret();
+        assert!(start > 0);
+        assert_eq!(
+            platform_editor_caret_at(
+                &frame,
+                &metrics,
+                &action,
+                &editor,
+                Vec2::new(-1000.0, -1000.0)
+            )
+            .unwrap(),
+            Some(start)
+        );
+        assert_eq!(
+            platform_editor_caret_at(
+                &frame,
+                &metrics,
+                &action,
+                &editor,
+                Vec2::new(10000.0, 10000.0)
+            )
+            .unwrap(),
+            Some(value.len())
+        );
+        assert_eq!(editor.value(), value);
+        assert_eq!(editor.caret(), 4096);
+    }
+
+    #[test]
+    fn long_native_field_tracks_both_caret_edges_and_preserves_semantics() {
+        let mut session = crate::sandbox_session::SandboxSession::open().unwrap();
+        session
+            .apply_action(crate::sandbox_session::SandboxUiAction::OpenCreator(
+                crate::living_creator::LivingCreatorTool::System,
+            ))
+            .unwrap();
+        let value = "W".repeat(64);
+        session.edit_creator_field("0.name", &value).unwrap();
+        let mut frame = session.frame(Vec2::new(800.0, 480.0), false);
+        let action = SemanticActionId::new("sandbox.creator.field.0.name");
+        frame.reconcile_focused(Some(&action));
+        let metrics = super::super::AtlasMetrics::embedded().unwrap();
+        let sdf = super::super::platform_sdf::build_platform_ui_batch(&frame, &metrics).unwrap();
+        let mut editor = super::super::text_edit::TextEdit::new(value.clone());
+        editor.select_all();
+        let (projected, visible) =
+            editor_viewport(&frame, &metrics, &sdf.text_runs, &action, &editor)
+                .unwrap()
+                .expect("long field needs a viewport");
+        assert_eq!(visible.caret(), visible.value().len());
+        assert_eq!(visible.selection(), 0..visible.value().len());
+        assert!(visible.value().len() < value.len());
+        assert_eq!(projected.semantics, frame.semantics);
+        assert_eq!(editor.value(), value);
+        editor.move_edge(false, false);
+        let (_, visible) = editor_viewport(&frame, &metrics, &sdf.text_runs, &action, &editor)
+            .unwrap()
+            .unwrap();
+        assert_eq!(visible.caret(), 0);
+        assert!(!visible.value().is_empty());
+        let digest = session.state().digest().unwrap();
+        let mut ui = super::super::UiBatch::default();
+        let mut overlay = PrimitiveBatch::default();
+        install_platform_batches_with_editor(
+            &frame,
+            &metrics,
+            &mut ui,
+            &mut overlay,
+            Some((&action, &editor)),
+        )
+        .unwrap();
+        assert_eq!(session.state().digest().unwrap(), digest);
+        // The same projection supports the maximum draft field size. The
+        // measured boundary table visits each glyph once rather than measuring
+        // every suffix to the caret.
+        let large = "W".repeat(4096);
+        let editor = super::super::text_edit::TextEdit::new(large.clone());
+        let control = frame
+            .controls
+            .iter_mut()
+            .find(|control| control.action_id == action)
+            .unwrap();
+        let prefix = control.label.strip_suffix(&value).unwrap().to_owned();
+        control.label = format!("{prefix}{large}");
+        let (_, visible) = editor_viewport(&frame, &metrics, &sdf.text_runs, &action, &editor)
+            .unwrap()
+            .unwrap();
+        assert_eq!(visible.caret(), visible.value().len());
+        assert!(visible.value().len() < 64);
+        let boundaries = metrics
+            .measured_boundaries(13.0, super::super::FontWeight::SemiBold, &large)
+            .unwrap();
+        assert_eq!(boundaries.len(), 4097);
     }
 }

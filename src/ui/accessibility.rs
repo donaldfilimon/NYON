@@ -44,6 +44,47 @@ impl std::fmt::Display for SemanticActionId {
     }
 }
 
+/// Identity of the presentation that created an input event. Values and focus
+/// may change within a draft; replacing the resident or draft invalidates it.
+#[derive(Clone, Debug)]
+pub struct SemanticInputOwner {
+    pub resident: std::rc::Rc<()>,
+    pub hold: Option<u64>,
+    pub context: String,
+    pub draft: Option<std::rc::Rc<()>>,
+}
+
+impl SemanticInputOwner {
+    pub fn matches(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.resident, &other.resident)
+            && self.hold == other.hold
+            && self.context == other.context
+            && match (&self.draft, &other.draft) {
+                (Some(left), Some(right)) => std::rc::Rc::ptr_eq(left, right),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl PartialEq for SemanticInputOwner {
+    fn eq(&self, other: &Self) -> bool {
+        self.matches(other)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PlatformSemanticEvent {
+    Action(SemanticActionId),
+    Edit(SemanticActionId, String),
+}
+
+#[derive(Clone, Debug)]
+pub struct OwnedPlatformSemanticEvent {
+    pub owner: SemanticInputOwner,
+    pub event: PlatformSemanticEvent,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticRole {
     Application,
@@ -83,6 +124,8 @@ pub struct SemanticNode {
     pub selected: bool,
     pub focusable: bool,
     pub hierarchy_level: Option<u32>,
+    /// Actual expandable hierarchy state, absent for leaf nodes.
+    pub expanded: Option<bool>,
     pub action_id: Option<SemanticActionId>,
     pub bounds: Option<SemanticRect>,
     pub visible: bool,
@@ -90,6 +133,21 @@ pub struct SemanticNode {
 }
 
 impl SemanticNode {
+    /// Role-correct state for the browser's semantic mirror.
+    pub fn selection_aria_state(&self) -> Option<(&'static str, bool)> {
+        match self.role {
+            SemanticRole::Checkbox => Some(("aria-checked", self.selected)),
+            SemanticRole::TreeItem | SemanticRole::Option => Some(("aria-selected", self.selected)),
+            _ if self.selected => Some(("aria-current", true)),
+            _ => None,
+        }
+    }
+
+    pub fn with_expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
+    }
+
     pub fn container(
         id: impl Into<String>,
         role: SemanticRole,
@@ -106,6 +164,7 @@ impl SemanticNode {
             selected: false,
             focusable: false,
             hierarchy_level: None,
+            expanded: None,
             action_id: None,
             bounds: None,
             visible: true,
@@ -129,6 +188,7 @@ impl SemanticNode {
             selected: false,
             focusable: false,
             hierarchy_level: None,
+            expanded: None,
             action_id: None,
             bounds: None,
             visible: true,
@@ -155,6 +215,7 @@ impl SemanticNode {
             selected,
             focusable: true,
             hierarchy_level: None,
+            expanded: None,
             action_id: Some(action_id),
             bounds: None,
             visible: true,
@@ -406,4 +467,30 @@ fn stable_unique(items: impl IntoIterator<Item = SemanticActionId>) -> Vec<Seman
         .into_iter()
         .filter(|item| seen.insert(item.clone()))
         .collect()
+}
+
+#[cfg(test)]
+mod selection_state_tests {
+    use super::*;
+
+    #[test]
+    fn current_buttons_checked_controls_and_selectable_items_have_distinct_states() {
+        for role in [
+            SemanticRole::Button,
+            SemanticRole::Checkbox,
+            SemanticRole::TreeItem,
+            SemanticRole::Option,
+        ] {
+            let mut node = SemanticNode::container("selection", role, "Selection", Vec::new());
+            for selected in [false, true] {
+                node.selected = selected;
+                let expected = match role {
+                    SemanticRole::Button => selected.then_some(("aria-current", true)),
+                    SemanticRole::Checkbox => Some(("aria-checked", selected)),
+                    _ => Some(("aria-selected", selected)),
+                };
+                assert_eq!(node.selection_aria_state(), expected);
+            }
+        }
+    }
 }

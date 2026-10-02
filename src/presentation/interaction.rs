@@ -131,13 +131,18 @@ impl InteractionController {
         if owner == GestureOwner::Pinch {
             let distance = self.touch_distance()?;
             let previous = self.pinch_distance.replace(distance)?;
-            let ratio = if previous > f32::EPSILON {
-                distance / previous
-            } else {
-                1.0
-            };
+            // Coincident fingers have no usable scale. Keep the new baseline
+            // so separating them again resumes without a jump.
+            if !distance.is_finite()
+                || !previous.is_finite()
+                || distance <= f32::EPSILON
+                || previous <= f32::EPSILON
+            {
+                return None;
+            }
             return Some(GestureAction::Zoom {
-                logical_delta: -ratio.ln() * 600.0,
+                // Camera zoom uses positive deltas to move closer.
+                logical_delta: (distance.ln() - previous.ln()) * 600.0,
             });
         }
         if owner == GestureOwner::OrbitOrTap && contact.moved {
@@ -238,6 +243,61 @@ impl InteractionController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spreading_fingers_zooms_in_and_pinching_zooms_out() {
+        let mut controller = InteractionController::default();
+        let mut camera = crate::presentation::camera::CameraState::new(Vec2::new(800.0, 600.0));
+        for (id, position) in [(1, Vec2::ZERO), (2, Vec2::new(100.0, 0.0))] {
+            controller.begin(
+                id,
+                position,
+                PointerSource::Touch,
+                PointerButton::Primary,
+                InteractionHit::EmptyScene,
+            );
+        }
+        let initial_distance = camera.target_distance;
+        let Some(GestureAction::Zoom { logical_delta }) =
+            controller.update(2, Vec2::new(200.0, 0.0))
+        else {
+            panic!("spreading fingers must zoom");
+        };
+        camera.zoom(logical_delta);
+        assert!(camera.target_distance < initial_distance);
+        let Some(GestureAction::Zoom { logical_delta }) =
+            controller.update(2, Vec2::new(100.0, 0.0))
+        else {
+            panic!("pinching fingers must zoom");
+        };
+        camera.zoom(logical_delta);
+        assert!((camera.target_distance - initial_distance).abs() < 0.0001);
+        assert!(camera.target_matrices.is_finite());
+    }
+
+    #[test]
+    fn coincident_fingers_resume_from_a_finite_baseline() {
+        let mut controller = InteractionController::default();
+        for (id, position) in [(1, Vec2::ZERO), (2, Vec2::new(100.0, 0.0))] {
+            controller.begin(
+                id,
+                position,
+                PointerSource::Touch,
+                PointerButton::Primary,
+                InteractionHit::EmptyScene,
+            );
+        }
+        assert_eq!(controller.update(2, Vec2::ZERO), None);
+        assert_eq!(controller.update(2, Vec2::new(100.0, 0.0)), None);
+        let Some(GestureAction::Zoom { logical_delta }) =
+            controller.update(2, Vec2::new(120.0, 0.0))
+        else {
+            panic!("zoom must resume after fingers separate");
+        };
+        assert!(logical_delta.is_finite() && logical_delta > 0.0);
+        assert_eq!(controller.end(2, Vec2::new(120.0, 0.0), None), None);
+        assert_eq!(controller.end(1, Vec2::ZERO, None), None);
+    }
 
     #[test]
     fn hud_owns_the_gesture_and_drag_never_activates_it() {

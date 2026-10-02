@@ -214,6 +214,20 @@ where
         Ok(Self(items))
     }
 
+    /// Append one already-ordered record without rescanning the prefix.
+    /// Used by resumable authority phases; the preceding key remains checked.
+    pub(crate) fn push_sorted(&mut self, item: T) -> Result<(), LivingWireErrorV2> {
+        if self
+            .0
+            .last()
+            .is_some_and(|last| last.living_key() >= item.living_key())
+        {
+            return Err(LivingWireErrorV2::KeyedOrder);
+        }
+        self.0.push(item);
+        Ok(())
+    }
+
     /// The records in stable identifier order.
     pub fn as_slice(&self) -> &[T] {
         &self.0
@@ -222,6 +236,12 @@ where
     /// Consume the collection, yielding the records in stable order.
     pub fn into_vec(self) -> Vec<T> {
         self.0
+    }
+
+    /// Edit a record at an already-visited index without searching its prefix.
+    /// Authority cursors preserve the identity field, as with `find_mut`.
+    pub(crate) fn record_at_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.0.get_mut(index)
     }
 
     /// The record with this key, for an in-place edit.

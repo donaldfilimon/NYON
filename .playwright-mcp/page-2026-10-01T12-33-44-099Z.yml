@@ -1,0 +1,4 @@
+- generic [active] [ref=e1]:
+  - status:
+    - text: WEBGL2 LOW
+    - generic: forced by ?backend=webgl2

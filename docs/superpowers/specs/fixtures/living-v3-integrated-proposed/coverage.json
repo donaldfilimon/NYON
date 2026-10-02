@@ -1,0 +1,139 @@
+{
+  "status": "PARTIAL_GAP6_PACKAGE_A",
+  "source_freeze": {
+    "2026-10-01-living-expansion-architecture.md": "539009046173d4e6ffced1c7c3b79f1eaf977860d3bdfcd2e171fad76d630615",
+    "2026-10-01-living-societies-rules.md": "aa221fd432f193db4eedade9b690f4156bee264525ac58b5595a679ce9a02e71",
+    "2026-10-01-living-ecology-rules.md": "003659ee5eacd9b952344066eb6024964b630273505f598a86a6b3dfd3287fc1",
+    "2026-10-01-living-diplomacy-expansion.md": "045ebab7aed37ab81848dfc4e9225cfb43434f4518926b305397b468e7395747",
+    "2026-10-01-living-expansion-wire.md": "1a8ff87d275e4f5e4a7e620179237f41339e64541c9942af3100374dfac70904",
+    "2026-10-01-living-expansion-experience.md": "66cf1a76ae3111a7d7007892b180f9267f94d4fc5adcffd69b77e78ed9ab7cc4",
+    "2026-10-01-living-v3-complete-schema.md": "9a05423608640515a6797fc3e73167a7213266d2e790f4d47ee73e0589996d73",
+    "2026-10-02-living-v3-scoring.md": "c8bd14e773cc59fc8c9f7eb78b1eea6b5a32f648c6955b00ffe757f34c34976d"
+  },
+  "independent_review": "pending",
+  "rows": [
+    {
+      "section": "complete-schema Integrated correction I6 / Coordinator",
+      "fixture_ids": [
+        "maximum_nonnull",
+        "maximum_null",
+        "ordinary_null",
+        "505_whitespace",
+        "505_malformed_utf8_first",
+        "505_malformed_json",
+        "505_unsupported_kind",
+        "505_unsupported_format",
+        "505_unsupported_rules",
+        "505_unknown_field",
+        "unknown_field",
+        "wrong_kind",
+        "wrong_format",
+        "wrong_rules",
+        "forged_integrity",
+        "504_malformed_utf8_first",
+        "504_malformed_json"
+      ],
+      "derivation": "derive.py coordinator_cases/check_coordinator",
+      "covered": [
+        "504/442 canonical envelope widths",
+        "all Coordinator field order",
+        "COORDINATOR domain/integrity framing",
+        "505 preparse byte_capacity before malformed UTF8/JSON/kind/version",
+        "single-defect unknown_field/kind/format/rules/integrity",
+        "504 malformed rejection-only"
+      ],
+      "missing": [
+        "full external slot/catalog/archive/view admission",
+        "duplicate keys/unknown nested view fields",
+        "u64/hex/canonical/depth negatives",
+        "<=504 multi-failure precedence not specified by frozen source"
+      ],
+      "validation_strength": "partial envelope validator, not full Coordinator admission"
+    },
+    {
+      "section": "complete-schema SnapshotReference actor payload / Integrated correction I2",
+      "fixture_ids": [
+        "populated_actor_hash_shape"
+      ],
+      "derivation": "derive.py populated_hash_shape",
+      "covered": [
+        "all 28 actor payload fields in exact order",
+        "populated own World/Colony/Research/Observation/StellarScope/positive fact with referenced topology",
+        "full OBSERVATION canonical bytes and domain digest",
+        "full ActorInputContext",
+        "full SnapshotReference binding exact wrapped State digest",
+        "empty trace exact context/actor/lane framing",
+        "hidden-root stock mutation changes outer State digest without changing permitted/context/trace bytes"
+      ],
+      "missing": [
+        "remote world geometry absent from frozen actor payload",
+        "owned per-ID deposits absent",
+        "claim/occupation source rows and seed-dependent future arbitration unbound",
+        "foreign recipient storage/disposition and standing-route capacity outcomes unbound",
+        "full authenticated capture/history/revision validation",
+        "nonempty eligible CandidateTrace",
+        "Receipt/Event authentication of audit",
+        "exact per-array source selection for relations and defense_requests",
+        "complete State/Genesis validator",
+        "full admitted hidden creator revision"
+      ],
+      "validation_strength": "complete-field hash shape only; no admitted actor trace or authority history"
+    },
+    {
+      "section": "complete-schema Catalog and identity/state/genesis/root framing",
+      "fixture_ids": [
+        "populated_actor_hash_shape"
+      ],
+      "derivation": "derive.py populated_hash_shape plus frozen historical written-formula helper",
+      "covered": [
+        "current full catalog canonical bytes and hash",
+        "subset catalog validation",
+        "genesis entity IDs/kind/ordinal frame",
+        "complete populated State wrapper bytes/hash",
+        "Genesis and root-branch framing"
+      ],
+      "missing": [
+        "every catalog predicate and rejection",
+        "all18 issuance kinds",
+        "full allocation/collision-history validation",
+        "all nonempty State families",
+        "valid chronology and complete Genesis/Archive admission"
+      ],
+      "validation_strength": "explicit framing inputs, no complete document acceptance"
+    },
+    {
+      "section": "complete-schema Integrated correction I1 environmental roster/capacity",
+      "fixture_ids": [],
+      "derivation": "not implemented in this package",
+      "covered": [],
+      "missing": [
+        "admitted moved/shortened expiry",
+        "same-scope cross-world empty coverage",
+        "ties/conflicting provenance",
+        "128/129 positive roster boundary",
+        "full actor hash/replay for each environmental case"
+      ],
+      "validation_strength": "blocked full admission family pending exact source predicates; separate12fragment corpus remains scoped historical/current-source subset"
+    }
+  ],
+  "original_gap_status": {
+    "1": "Partial or open; no closure from this package",
+    "2": "Partial or open; no closure from this package",
+    "3": "Partial or open; no closure from this package",
+    "4": "Partial or open; no closure from this package",
+    "5": "Partial or open; no closure from this package",
+    "6": "Partial or open; no closure from this package"
+  },
+  "all_other_missing": [
+    "complete command/Event/Facts/Reason/Record/TypedKey/metric variant registries",
+    "200-boundary scoring and all utility policy tables",
+    "complete diplomatic/conservation trajectories",
+    "nonempty archives/notebooks/transfers/anchors/checkpoints",
+    "bounded collision/cancellation/work/CAS behavior",
+    "all platform/runtime/resource qualification"
+  ],
+  "unresolved_exact_error_boundaries": [
+    "<=504 malformed UTF8/JSON tags absent from closed enum; rejection-only",
+    "<=504 multiple schema/version/kind/integrity defects order unbound; only cap-first normative"
+  ]
+}

@@ -33,6 +33,8 @@ pub const LIVING_AUTO_ENTITY_DOMAIN_V2: &[u8] = b"NYON-LIVING-AUTO-ENTITY-V2\0";
 pub const LIVING_ROOT_BRANCH_DOMAIN_V2: &[u8] = b"NYON-LIVING-ROOT-BRANCH-V2\0";
 /// Domain of a forked history branch.
 pub const LIVING_FORK_BRANCH_DOMAIN_V2: &[u8] = b"NYON-LIVING-FORK-BRANCH-V2\0";
+/// Domain of a child branch whose creator cursor is genesis.
+pub const LIVING_GENESIS_FORK_DOMAIN_V2: &[u8] = b"NYON-LIVING-GENESIS-FORK-V2\0";
 /// Domain of one ordered event inside a tick receipt.
 pub const LIVING_EVENT_DOMAIN_V2: &[u8] = b"NYON-LIVING-EVENT-V2\0";
 /// Domain of the settlement claim rank.
@@ -50,6 +52,14 @@ pub const LIVING_OPTIONAL_PRESENT_V2: u8 = 0x01;
 )]
 #[serde(transparent)]
 pub struct LivingTickV2(pub u64);
+
+/// Original fixed-width Living genesis seed.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LivingGenesisSeedV2(pub [u8; 32]);
+
+/// Canonical integrity hash of a portable Living archive payload.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LivingArchiveIntegrityV2(pub [u8; 32]);
 
 /// Identity of one immutable creator revision.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -126,6 +136,8 @@ macro_rules! living_fixed_hex_v2 {
     };
 }
 
+living_fixed_hex_v2!(LivingGenesisSeedV2, 32);
+living_fixed_hex_v2!(LivingArchiveIntegrityV2, 32);
 living_fixed_hex_v2!(LivingRevisionIdV2, 32);
 living_fixed_hex_v2!(LivingCatalogHashV2, 32);
 living_fixed_hex_v2!(LivingStateDigestV2, 32);
@@ -587,6 +599,40 @@ pub fn fork_branch_id_v2(
     LivingBranchIdV2(living_first_sixteen_v2(fork_branch_digest_v2(
         parent_branch,
         fork_revision,
+        fork_tick,
+        branch_ordinal,
+    )))
+}
+
+/// Separate framing for a fork with no creator revision. Existing revision-based
+/// fork identities retain their frozen framing.
+pub fn genesis_fork_branch_digest_v2(
+    parent_branch: LivingBranchIdV2,
+    genesis_digest: LivingStateDigestV2,
+    fork_tick: LivingTickV2,
+    branch_ordinal: u64,
+) -> [u8; 32] {
+    living_digest_v2(
+        LIVING_GENESIS_FORK_DOMAIN_V2,
+        &[
+            &parent_branch.0,
+            &genesis_digest.0,
+            &fork_tick.0.to_le_bytes(),
+            &branch_ordinal.to_le_bytes(),
+        ],
+    )
+}
+
+/// The first sixteen bytes of [`genesis_fork_branch_digest_v2`].
+pub fn genesis_fork_branch_id_v2(
+    parent_branch: LivingBranchIdV2,
+    genesis_digest: LivingStateDigestV2,
+    fork_tick: LivingTickV2,
+    branch_ordinal: u64,
+) -> LivingBranchIdV2 {
+    LivingBranchIdV2(living_first_sixteen_v2(genesis_fork_branch_digest_v2(
+        parent_branch,
+        genesis_digest,
         fork_tick,
         branch_ordinal,
     )))

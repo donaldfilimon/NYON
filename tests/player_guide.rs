@@ -153,6 +153,7 @@ fn guide_opens_on_the_active_modes_first_success() {
     for (screen, heading) in [
         (ClientScreen::ClassicSector, "Classic"),
         (ClientScreen::GalaxyWorkshop, "Workshop"),
+        (ClientScreen::GalaxySandbox, "Living Galaxy"),
     ] {
         let guide = build_guide_frame(
             GuideLocation::for_screen(screen),
@@ -326,4 +327,48 @@ fn workshop_manual_defaults_produce_visible_energy_then_alloy() {
             .iter()
             .any(|(resource, units)| resource.as_str() == "alloy" && *units >= 1)
     );
+}
+
+#[test]
+fn living_walkthrough_stepping_and_running_reach_the_same_boundary() {
+    use nyon::sandbox_session::{SandboxSession, SandboxUiAction};
+    use std::time::Duration;
+
+    let mut stepped = SandboxSession::open().unwrap();
+    let mut running = SandboxSession::open().unwrap();
+    let initial = stepped.state().digest().unwrap();
+    let world = stepped.state().worlds.as_slice().last().unwrap().id;
+    stepped
+        .apply_action(SandboxUiAction::SelectWorld(world))
+        .unwrap();
+    assert_eq!(stepped.state().digest().unwrap(), initial);
+    assert_eq!(stepped.update(Duration::from_secs(1)).unwrap(), 0);
+    for _ in 0..10 {
+        stepped.step_once().unwrap();
+    }
+    running.apply_action(SandboxUiAction::TogglePause).unwrap();
+    let mut committed = running.update(Duration::from_secs(1)).unwrap();
+    for _ in 0..10000 {
+        if !running.processing() {
+            break;
+        }
+        committed += running.update(Duration::ZERO).unwrap();
+    }
+    assert_eq!(committed, 10);
+    running.apply_action(SandboxUiAction::TogglePause).unwrap();
+
+    assert_eq!(stepped.tick(), 10);
+    assert!(stepped.paused() && running.paused());
+    assert_ne!(stepped.state().digest().unwrap(), initial);
+    assert_eq!(
+        stepped.state().digest().unwrap(),
+        running.state().digest().unwrap()
+    );
+    assert_eq!(stepped.selected_world(), Some(world));
+    for session in [&stepped, &running] {
+        let receipt = session.receipts().back().unwrap();
+        receipt.verify().unwrap();
+        assert_eq!(receipt.tick.0, 10);
+        assert_eq!(receipt.state_digest, session.state().digest().unwrap());
+    }
 }

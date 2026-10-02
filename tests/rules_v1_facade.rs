@@ -28,10 +28,9 @@ fn classic_facade_preserves_the_frozen_rules_v1_oracles() {
 
     let scenario = ScenarioDraft::factory_default().validated().unwrap();
     assert_eq!(scenario.worlds().len(), 7);
-    assert_eq!(
-        Simulation::from_scenario(&scenario).canonical_fingerprint(),
-        0x67D9_6E98_3D6C_9330
-    );
+    let fingerprint = Simulation::from_scenario(&scenario).canonical_fingerprint();
+    assert_eq!(fingerprint, 0x67D9_6E98_3D6C_9330);
+    eprintln!("frozen RulesV1 digest 0x67D9_6E98_3D6C_9330");
 
     let canonical = encode(&scenario).unwrap();
     assert_eq!(canonical, encode(&scenario).unwrap());

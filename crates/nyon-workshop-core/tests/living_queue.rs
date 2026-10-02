@@ -570,14 +570,17 @@ fn two_authorities_fed_the_same_history_agree_byte_for_byte() {
 }
 
 #[test]
-fn operations_this_slice_does_not_apply_are_refused_rather_than_skipped() {
+fn removal_of_a_missing_colony_is_refused_without_spending_sequence() {
     let mut authority = authority();
     let unsupported = batch(vec![LivingCreatorOperationV2::RemoveColony {
         world: existing(LivingEntityIdV2([0x45; 16])),
     }]);
     assert!(matches!(
         authority.submit(running(&authority, unsupported)),
-        Err(LivingCommandRejectionV2::UnsupportedOperation { operation: 0 })
+        Err(LivingCommandRejectionV2::MissingTarget {
+            operation: 0,
+            reference: "colony"
+        })
     ));
     assert_eq!(authority.accepted_sequence_high_water(), 0);
 }

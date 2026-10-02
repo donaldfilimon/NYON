@@ -7,6 +7,9 @@
 use std::{collections::VecDeque, time::Duration};
 
 pub mod library;
+pub mod living;
+mod living_notebook_jobs;
+use living_notebook_jobs::{ExportFileStatus, LivingNotebookJob, PreparedLivingExport};
 
 use crate::{
     app::{
@@ -58,6 +61,9 @@ pub enum ClientScreen {
     /// actions and its recovery obligations untouched. Gating happens per
     /// action inside the Library, not at the door.
     Library,
+    /// A paused galaxy the player steps from the shell. It is not Classic
+    /// Sector and it is not Galaxy Workshop.
+    GalaxySandbox,
     Loading,
     RecoverableError,
 }
@@ -83,6 +89,8 @@ pub enum MainMenuRoute {
     /// New Workshop and Classic Sector does not apply to it.
     Library,
     ClassicSector,
+    /// Open the built-in galaxy sandbox.
+    GalaxySandbox,
     Settings,
     Credits,
     #[cfg(not(target_arch = "wasm32"))]
@@ -419,6 +427,8 @@ pub enum ClientRuntimeError {
     Store(WorkshopStoreError),
     #[error("Workshop action mailbox rejected the request: {0}")]
     WorkshopAction(WorkshopSessionError),
+    #[error("the galaxy sandbox is not available")]
+    SandboxUnavailable,
 }
 
 /// Retained retry material for one catalog import. Bounded by the store's
@@ -721,6 +731,35 @@ where
     diagnostics: VecDeque<ClientDiagnostic>,
     recovery: Option<ClientDiagnostic>,
     credits_visible: bool,
+    sandbox: Option<crate::sandbox_session::SandboxSession>,
+    living_client: Option<living::LivingClient>,
+    living_slots: Vec<crate::living_store::LivingSlotDescriptorV2>,
+    living_packs: Vec<crate::living_store::LivingPackDescriptorV2>,
+    living_packs_known: bool,
+    living_pack_refresh_due: bool,
+    living_pack_refresh_in_flight: bool,
+    living_pack_references: std::collections::BTreeMap<
+        nyon_workshop_core::living::LivingCatalogHashV2,
+        Vec<crate::living_store::LivingPackReferenceV2>,
+    >,
+    living_storage_status: String,
+    neutral_migration: bool,
+    neutral_sync: bool,
+    neutral_workshop_save_requested: bool,
+    neutral_continue_install: bool,
+    expected_workshop_selection: Option<crate::library_selection::SelectionTarget>,
+    neutral_workshop_load: Option<StoreJobId>,
+    living_transfer: Option<Box<dyn crate::living_transfer::LivingTransfer>>,
+    living_transfer_hold: Option<crate::sandbox_session::SandboxHold>,
+    living_import_replay: Option<nyon_workshop_core::living::LivingArchiveReplayV2>,
+    living_import_candidate: Option<Box<nyon_workshop_core::living::LivingGalaxyAuthorityV2>>,
+    living_waiting_archive: Option<Vec<u8>>,
+    living_saving_notebook_generation: Option<u64>,
+    living_notebook_job: Option<LivingNotebookJob>,
+    living_export_bundle: Option<PreparedLivingExport>,
+    living_export_in_flight: Option<crate::living_transfer::LivingTransferKind>,
+    living_platform_transfer_active: bool,
+    living_transfer_cancelling: bool,
 }
 
 impl<S, P, W> ClientRuntime<S, P, W>
@@ -751,6 +790,32 @@ where
             diagnostics: VecDeque::new(),
             recovery: None,
             credits_visible: false,
+            sandbox: None,
+            living_client: None,
+            living_slots: Vec::new(),
+            living_packs: Vec::new(),
+            living_packs_known: false,
+            living_pack_refresh_due: false,
+            living_pack_refresh_in_flight: false,
+            living_pack_references: std::collections::BTreeMap::new(),
+            living_storage_status: String::new(),
+            neutral_migration: false,
+            neutral_sync: false,
+            neutral_workshop_save_requested: false,
+            neutral_continue_install: false,
+            expected_workshop_selection: None,
+            neutral_workshop_load: None,
+            living_transfer: None,
+            living_transfer_hold: None,
+            living_import_replay: None,
+            living_import_candidate: None,
+            living_waiting_archive: None,
+            living_saving_notebook_generation: None,
+            living_notebook_job: None,
+            living_export_bundle: None,
+            living_export_in_flight: None,
+            living_platform_transfer_active: false,
+            living_transfer_cancelling: false,
         }
     }
 
@@ -762,12 +827,1097 @@ where
         &self.active_session
     }
 
+    pub fn install_living_storage(
+        &mut self,
+        store: Box<dyn crate::living_store::LivingStoreV2>,
+        coordinator: Box<dyn crate::library_selection::LibrarySelectionCoordinator>,
+    ) {
+        self.living_client = Some(living::LivingClient::new(store, coordinator));
+    }
+
+    pub fn install_living_transfer(
+        &mut self,
+        adapter: Box<dyn crate::living_transfer::LivingTransfer>,
+    ) {
+        self.living_transfer = Some(adapter);
+    }
+
+    fn start_living_transfer(
+        &mut self,
+        kind: crate::living_transfer::LivingTransferKind,
+        export: bool,
+    ) -> Result<(), String> {
+        use crate::living_transfer::LivingTransferRequest;
+        if self.living_import_replay.is_some()
+            || self.living_import_candidate.is_some()
+            || self.living_transfer_hold.is_some()
+        {
+            return Err("A Living file operation is already active".into());
+        }
+        let session = self.sandbox.as_ref().ok_or("No resident Living galaxy")?;
+        if !export && session.dirty() {
+            return Err("Save the resident galaxy before importing another".into());
+        }
+        let request = if export {
+            let bytes = self.prepared_export_bytes(kind)?;
+            LivingTransferRequest::Export {
+                kind,
+                suggested_name: format!("Galaxy{}", kind.suffix()),
+                bytes,
+            }
+        } else {
+            LivingTransferRequest::Import(kind)
+        };
+        let session = self.sandbox.as_mut().ok_or("No resident Living galaxy")?;
+        let adapter = self
+            .living_transfer
+            .as_mut()
+            .ok_or("Living file picker unavailable")?;
+        let hold = session.begin_hold()?;
+        if let Err(error) = adapter.begin(request) {
+            session.end_hold(hold);
+            return Err(error.to_string());
+        }
+        self.living_transfer_hold = Some(hold);
+        self.living_export_in_flight = export.then_some(kind);
+        self.living_platform_transfer_active = true;
+        self.living_storage_status = if export {
+            "Choose an export destination".into()
+        } else {
+            "Choose a Living file".into()
+        };
+        Ok(())
+    }
+
+    fn release_living_transfer_hold(&mut self) {
+        if self.living_transfer_cancelling
+            && (self.living_platform_transfer_active
+                || self
+                    .living_client
+                    .as_ref()
+                    .is_some_and(|client| client.busy()))
+        {
+            return;
+        }
+        if let Some(hold) = self.living_transfer_hold.take()
+            && let Some(session) = self.sandbox.as_mut()
+        {
+            session.end_hold(hold);
+        }
+    }
+
+    fn begin_living_import_replay(&mut self, bytes: &[u8], catalog: &[u8]) -> Result<(), String> {
+        let catalog = nyon_workshop_core::living::decode_living_catalog_pack_v2(catalog)
+            .map_err(|error| error.to_string())?;
+        self.living_import_replay = Some(
+            nyon_workshop_core::living::begin_decode_living_archive_v2(bytes, &catalog)
+                .map_err(|error| error.to_string())?,
+        );
+        self.living_storage_status =
+            "Validating imported history; no resident state replaced".into();
+        Ok(())
+    }
+
+    fn finish_living_cancellation(&mut self) {
+        if self.living_transfer_cancelling
+            && !self.living_platform_transfer_active
+            && self
+                .living_client
+                .as_ref()
+                .is_none_or(|client| !client.busy())
+        {
+            self.living_transfer_cancelling = false;
+            self.release_living_transfer_hold();
+        }
+    }
+
+    fn request_import_catalog(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        if bytes.len() > nyon_workshop_core::living::LIVING_MAX_ARCHIVE_BYTES_V2 {
+            return Err("Living archive exceeds its byte limit".into());
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| "Invalid Living archive JSON")?;
+        if value.get("kind").and_then(serde_json::Value::as_str)
+            != Some(nyon_workshop_core::living::LIVING_ARCHIVE_KIND_V2)
+        {
+            return Err("File is not a Living archive; use its matching Library authority".into());
+        }
+        let hash = serde_json::from_value(
+            value
+                .get("catalog_hash")
+                .cloned()
+                .ok_or("Archive catalog hash absent")?,
+        )
+        .map_err(|_| "Invalid archive catalog hash")?;
+        self.living_client
+            .as_mut()
+            .ok_or("Living store unavailable")?
+            .catalog_for_import(bytes, hash)
+    }
+
+    fn poll_living_transfer(&mut self) {
+        self.poll_living_notebook_job();
+        use crate::living_transfer::{
+            LivingExportOutcome, LivingTransferKind, LivingTransferOutcome, LivingTransferStatus,
+        };
+        if let Some(adapter) = self.living_transfer.as_mut() {
+            let result = adapter.poll();
+            if matches!(result, LivingTransferStatus::Ready(_))
+                || (self.living_transfer_cancelling && matches!(result, LivingTransferStatus::Idle))
+            {
+                self.living_platform_transfer_active = false;
+            }
+            match result {
+                LivingTransferStatus::Idle | LivingTransferStatus::Pending => {}
+                LivingTransferStatus::Ready(Ok(LivingTransferOutcome::Cancelled)) => {
+                    self.living_storage_status = "File choice cancelled".into();
+                    self.release_living_transfer_hold();
+                }
+                LivingTransferStatus::Ready(Err(error)) => {
+                    self.living_storage_status = error.to_string();
+                    self.release_living_transfer_hold();
+                }
+                LivingTransferStatus::Ready(Ok(LivingTransferOutcome::Exported(outcome))) => {
+                    if let Some(kind) = self.living_export_in_flight.take()
+                        && let Some(bundle) = self.living_export_bundle.as_mut()
+                    {
+                        let index = match kind {
+                            LivingTransferKind::Archive => 0,
+                            LivingTransferKind::Catalog => 1,
+                            LivingTransferKind::Notebook => 2,
+                        };
+                        bundle.status[index] = match outcome {
+                            LivingExportOutcome::DurablySaved => ExportFileStatus::Confirmed,
+                            LivingExportOutcome::DownloadStarted => {
+                                ExportFileStatus::DownloadStarted
+                            }
+                        };
+                    }
+                    self.living_storage_status = match outcome {
+                        LivingExportOutcome::DurablySaved => "Galaxy copy saved".into(),
+                        LivingExportOutcome::DownloadStarted => {
+                            "Download started; disk completion is controlled by the browser".into()
+                        }
+                    };
+                    self.release_living_transfer_hold();
+                }
+                LivingTransferStatus::Ready(Ok(LivingTransferOutcome::Imported {
+                    kind,
+                    bytes,
+                })) => {
+                    if self.living_transfer_cancelling {
+                        self.finish_living_cancellation();
+                        return;
+                    }
+                    let result = match kind {
+                        LivingTransferKind::Catalog => self
+                            .living_client
+                            .as_mut()
+                            .ok_or("Living store unavailable".into())
+                            .and_then(|client| {
+                                client.mutate(crate::living_store::LivingStoreRequestV2::PutPack {
+                                    canonical_bytes: bytes,
+                                })
+                            }),
+                        LivingTransferKind::Archive => self.request_import_catalog(bytes),
+                        LivingTransferKind::Notebook => self.begin_living_notebook_job(Some(bytes)),
+                    };
+                    if let Err(error) = result {
+                        self.living_storage_status = error;
+                        self.release_living_transfer_hold();
+                    }
+                }
+            }
+        }
+        if let Some(replay) = self.living_import_replay.as_mut() {
+            match replay.poll(128) {
+                Ok(nyon_workshop_core::living::LivingArchiveReplayStatusV2::Pending) => {}
+                Ok(nyon_workshop_core::living::LivingArchiveReplayStatusV2::Ready) => {
+                    let replay = self
+                        .living_import_replay
+                        .take()
+                        .expect("ready replay present");
+                    match replay.finish() {
+                        Ok(validated) => {
+                            let authority = validated.into_authority();
+                            self.living_storage_status = format!(
+                                "Import preview: {} systems, {} worlds, {} civilizations, tick {}; Apply creates a new save",
+                                authority.state().systems.as_slice().len(),
+                                authority.state().worlds.as_slice().len(),
+                                authority.state().civilizations.as_slice().len(),
+                                authority.state().tick.0
+                            );
+                            self.living_import_candidate = Some(Box::new(authority));
+                        }
+                        Err(error) => {
+                            self.living_storage_status = error.to_string();
+                            self.release_living_transfer_hold();
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.living_import_replay = None;
+                    self.living_storage_status = error.to_string();
+                    self.release_living_transfer_hold();
+                }
+            }
+        }
+    }
+
+    fn apply_living_import(&mut self) -> Result<(), String> {
+        let candidate = self
+            .living_import_candidate
+            .take()
+            .ok_or("No validated Living import preview")?;
+        if let Err(error) = self
+            .living_client
+            .as_mut()
+            .ok_or("Living store unavailable")?
+            .import_candidate(candidate.clone())
+        {
+            self.living_import_candidate = Some(candidate);
+            return Err(error);
+        }
+        self.living_storage_status = "Committing imported galaxy to a new save and Continue".into();
+        Ok(())
+    }
+
+    fn cancel_living_import(&mut self) {
+        self.living_transfer_cancelling = true;
+        self.living_notebook_job = None;
+        if let Some(client) = self.living_client.as_mut() {
+            client.cancel();
+        }
+        if let Some(adapter) = self.living_transfer.as_mut() {
+            adapter.cancel();
+        }
+        if let Some(replay) = self.living_import_replay.as_mut() {
+            replay.cancel();
+        }
+        self.living_import_replay = None;
+        self.living_import_candidate = None;
+        self.living_waiting_archive = None;
+        self.release_living_transfer_hold();
+        self.living_storage_status =
+            "Cancelling import; committed storage changes may remain in the Library".into();
+        self.finish_living_cancellation();
+    }
+
+    pub fn living_slots(&self) -> &[crate::living_store::LivingSlotDescriptorV2] {
+        &self.living_slots
+    }
+    pub fn living_packs(&self) -> &[crate::living_store::LivingPackDescriptorV2] {
+        &self.living_packs
+    }
+
+    pub fn living_pack_references(
+        &self,
+        hash: nyon_workshop_core::living::LivingCatalogHashV2,
+    ) -> Option<&[crate::living_store::LivingPackReferenceV2]> {
+        self.living_pack_references.get(&hash).map(Vec::as_slice)
+    }
+
+    pub fn list_living_pack_references(
+        &mut self,
+        hash: nyon_workshop_core::living::LivingCatalogHashV2,
+    ) -> Result<(), String> {
+        self.living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?
+            .list_pack_references(hash)?;
+        self.living_storage_status = "Checking all retained galaxy catalog references".into();
+        Ok(())
+    }
+
+    pub fn list_living_packs(&mut self) -> Result<(), String> {
+        self.living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?
+            .list_packs()?;
+        self.living_storage_status = "Listing Living catalog packs".into();
+        Ok(())
+    }
+
+    pub fn mutate_living_pack(
+        &mut self,
+        descriptor: &crate::living_store::LivingPackDescriptorV2,
+        mutation: living::LivingPackMutation,
+    ) -> Result<(), String> {
+        if !self
+            .living_packs
+            .iter()
+            .any(|current| current == descriptor)
+        {
+            return Err("Catalog pack review is stale; refresh the Library".into());
+        }
+        let resident_catalog = self
+            .sandbox
+            .as_ref()
+            .map(|session| session.authority().catalog().catalog_hash());
+        self.living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?
+            .mutate_pack(descriptor, mutation, resident_catalog)?;
+        self.living_pack_refresh_due = true;
+        self.living_storage_status = "Committing Living catalog pack change".into();
+        Ok(())
+    }
+
+    pub fn living_storage_status(&self) -> &str {
+        &self.living_storage_status
+    }
+
+    pub fn living_dirty(&self) -> bool {
+        self.sandbox.as_ref().is_some_and(|session| session.dirty())
+    }
+
+    pub fn save_living(&mut self, leave: bool) -> Result<(), String> {
+        let session = self.sandbox.as_mut().ok_or("No resident Living galaxy")?;
+        if leave {
+            session.set_paused(true);
+        }
+        let client = self
+            .living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?;
+        let generation = session.notebook_generation();
+        let (bookmarks, experiments) = session.notebook_snapshot();
+        client.save_with_notebook_evidence(
+            session.authority(),
+            bookmarks,
+            experiments,
+            session.notebook_evidence_snapshot(),
+            leave,
+        )?;
+        self.living_saving_notebook_generation = Some(generation);
+        self.living_storage_status = "Saving galaxy and Continue selection".into();
+        Ok(())
+    }
+
+    pub fn list_living_saves(&mut self) -> Result<(), String> {
+        self.living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?
+            .list()?;
+        self.living_storage_status = "Listing Living saves".into();
+        Ok(())
+    }
+
+    pub fn open_living_save(&mut self, id: u64) -> Result<(), String> {
+        if self.sandbox.as_ref().is_some_and(|session| session.dirty()) {
+            return Err("Save the resident Living galaxy before opening another".into());
+        }
+        if self.resident_workshop_blocks_replacement() {
+            return Err("Save the resident Workshop before opening another galaxy".into());
+        }
+        let descriptor = self
+            .living_slots
+            .iter()
+            .find(|slot| slot.id.0 == id)
+            .ok_or("Living save row is unavailable")?
+            .clone();
+        self.living_client
+            .as_mut()
+            .ok_or("Living storage adapter unavailable")?
+            .open(&descriptor)?;
+        if let Some(session) = self.sandbox.as_mut() {
+            self.living_transfer_hold = Some(session.begin_hold()?);
+        }
+        self.living_storage_status = "Validating galaxy and selecting Continue".into();
+        Ok(())
+    }
+
+    fn poll_living_client(&mut self) {
+        let Some(client) = self.living_client.as_mut() else {
+            return;
+        };
+        let event = client.poll();
+        match event {
+            living::LivingClientEvent::Pending => {}
+            living::LivingClientEvent::Cancelled => {
+                self.living_pack_refresh_in_flight = false;
+                self.living_saving_notebook_generation = None;
+                self.release_living_transfer_hold();
+                self.living_storage_status = "Operation cancelled; resident preserved. Refresh the Library for committed changes".into();
+            }
+            living::LivingClientEvent::NoSelection => {
+                self.screen = self.bootstrap_return;
+            }
+            living::LivingClientEvent::AbsentSelection => {
+                self.neutral_migration = true;
+                if let Err(error) = self
+                    .library
+                    .begin(&mut self.workshop_store, LibraryOpen::SelectedContinue)
+                {
+                    self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
+                }
+            }
+            living::LivingClientEvent::WorkshopSelection(reference) => {
+                self.expected_workshop_selection = Some(reference.clone());
+                let request = WorkshopStoreRequest::LoadSlot {
+                    slot: SlotId(reference.slot),
+                };
+                // The neutral reference chooses the exact slot; local recency cannot substitute.
+                match self.workshop_store.start(request) {
+                    Ok(job) => {
+                        self.neutral_workshop_load = Some(job);
+                    }
+                    Err(error) => {
+                        self.enter_recovery(ClientDiagnosticCode::Store, error.to_string())
+                    }
+                }
+            }
+            living::LivingClientEvent::SelectionCommitted => {
+                self.neutral_migration = false;
+                if self.neutral_sync {
+                    self.neutral_sync = false;
+                } else {
+                    self.screen = self.bootstrap_return;
+                }
+            }
+            living::LivingClientEvent::Ready(authority) => {
+                self.install_living_candidate(*authority, None);
+            }
+            living::LivingClientEvent::ReadyWithNotebook {
+                authority,
+                notebook,
+            } => {
+                self.install_living_candidate(*authority, Some(*notebook));
+            }
+            living::LivingClientEvent::Saved { bookmark, leave } => {
+                let notebook_generation = self.living_saving_notebook_generation.take();
+                let clean = self.sandbox.as_mut().is_some_and(|session| {
+                    let authority_clean = session.mark_saved(bookmark);
+                    let notebook_clean = notebook_generation
+                        .is_none_or(|generation| session.mark_notebook_saved(generation));
+                    authority_clean && notebook_clean && !session.dirty()
+                });
+                self.living_storage_status = if clean {
+                    "Galaxy and Continue selection saved".into()
+                } else {
+                    "Snapshot saved; newer resident changes remain unsaved".into()
+                };
+                if leave && clean {
+                    self.close_sandbox();
+                }
+            }
+            living::LivingClientEvent::Listed(slots) => {
+                self.living_slots = slots;
+                self.living_storage_status = "Living saves listed".into();
+            }
+            living::LivingClientEvent::PacksListed(packs) => {
+                let refreshed_mutation =
+                    std::mem::replace(&mut self.living_pack_refresh_in_flight, false);
+                self.living_pack_refresh_due = false;
+                self.living_pack_references.clear();
+                self.living_packs = packs;
+                self.living_packs_known = true;
+                if !refreshed_mutation {
+                    self.living_storage_status = "Living catalog packs listed".into();
+                }
+            }
+            living::LivingClientEvent::PackReferencesListed { hash, references } => {
+                self.living_pack_references.insert(hash, references);
+                self.living_storage_status = "Retained galaxy catalog references listed".into();
+            }
+            living::LivingClientEvent::PackMutated => {
+                self.living_pack_references.clear();
+                self.living_pack_refresh_due = true;
+                self.living_storage_status = "Living catalog pack change committed".into();
+            }
+            living::LivingClientEvent::Mutated => {
+                self.living_storage_status = "Living Library change committed".into();
+                if let Some(archive) = self.living_waiting_archive.take() {
+                    if let Err(error) = self.request_import_catalog(archive.clone()) {
+                        self.living_waiting_archive = Some(archive);
+                        self.living_storage_status = error;
+                        self.release_living_transfer_hold();
+                    }
+                } else {
+                    self.release_living_transfer_hold();
+                    if let Some(session) = self.sandbox.as_mut()
+                        && session.creator_field_value("save_name").is_some()
+                        && let Err(error) = session.open_library()
+                    {
+                        self.push_diagnostic(ClientDiagnosticCode::Store, error);
+                    }
+                    if let Err(error) = self.list_living_saves() {
+                        self.push_diagnostic(ClientDiagnosticCode::Store, error);
+                    }
+                }
+            }
+            living::LivingClientEvent::CatalogUnavailable { archive, error } => {
+                self.living_waiting_archive = Some(archive);
+                self.release_living_transfer_hold();
+                self.living_storage_status = format!(
+                    "Archive retained: matching catalog unavailable ({error}). Import its exact catalog pack to resume, or cancel the import"
+                );
+            }
+            living::LivingClientEvent::ArchiveCatalog { archive, catalog } => {
+                if self.living_transfer_hold.is_none() {
+                    return;
+                }
+                if let Err(error) = self.begin_living_import_replay(&archive, &catalog) {
+                    self.living_storage_status = error;
+                    self.release_living_transfer_hold();
+                }
+            }
+            living::LivingClientEvent::Failed(error) => {
+                self.living_pack_refresh_in_flight = false;
+                self.living_saving_notebook_generation = None;
+                self.release_living_transfer_hold();
+                self.living_storage_status = format!("Living operation failed: {error}");
+                self.enter_recovery(ClientDiagnosticCode::Store, error);
+            }
+        }
+    }
+
+    fn poll_neutral_workshop_load(&mut self) {
+        let Some(job) = self.neutral_workshop_load else {
+            return;
+        };
+        match self.workshop_store.poll(job) {
+            StoreJobState::Pending => {}
+            StoreJobState::Complete(Ok(WorkshopStoreResult::SlotLoaded(loaded))) => {
+                self.neutral_workshop_load = None;
+                if loaded.archived {
+                    self.enter_recovery(
+                        ClientDiagnosticCode::Archive,
+                        "Recorded Workshop Continue slot is archived",
+                    );
+                    return;
+                }
+                if let Err(error) = self.library.begin(
+                    &mut self.workshop_store,
+                    LibraryOpen::Slot {
+                        slot: loaded.slot,
+                        expected_generation: loaded.head_generation,
+                        intent: SlotIntent::Open,
+                    },
+                ) {
+                    self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
+                }
+            }
+            StoreJobState::Complete(Err(error)) => {
+                self.neutral_workshop_load = None;
+                self.enter_recovery(ClientDiagnosticCode::Store, error.to_string());
+            }
+            _ => {
+                self.neutral_workshop_load = None;
+                self.enter_recovery(
+                    ClientDiagnosticCode::StoreProtocol,
+                    "Workshop exact-reference load protocol mismatch",
+                );
+            }
+        }
+    }
+
     pub fn classic(&self) -> &AppCore<S, P> {
         &self.classic
     }
 
     pub fn classic_mut(&mut self) -> &mut AppCore<S, P> {
         &mut self.classic
+    }
+
+    /// Advance the galaxy sandbox by `count` boundaries.
+    pub fn step_sandbox(&mut self, count: u64) -> Result<(), ClientRuntimeError> {
+        if count > 20 {
+            return Err(ClientRuntimeError::SandboxUnavailable);
+        }
+        let session = self
+            .sandbox
+            .as_mut()
+            .ok_or(ClientRuntimeError::SandboxUnavailable)?;
+        for _ in 0..count {
+            session
+                .apply_action(crate::sandbox_session::SandboxUiAction::Step)
+                .map_err(|_| ClientRuntimeError::SandboxUnavailable)?;
+            session
+                .step_once()
+                .map_err(|_| ClientRuntimeError::SandboxUnavailable)?;
+        }
+        Ok(())
+    }
+
+    /// Pause or resume manual stepping. A paused sandbox stays on its boundary
+    /// until [`Self::step_sandbox`] or an unpaused update.
+    pub fn toggle_sandbox_pause(&mut self) {
+        if let Some(session) = self.sandbox.as_mut() {
+            session.toggle_pause();
+        }
+    }
+
+    /// Dispatch the same typed transport action used by pointer and semantics.
+    pub fn apply_sandbox_action(&mut self, action: crate::sandbox_session::SandboxUiAction) {
+        use crate::sandbox_session::SandboxUiAction;
+        if action == SandboxUiAction::CreatorCancel
+            && (self.living_import_candidate.is_some()
+                || self.living_import_replay.is_some()
+                || self.living_notebook_job.is_some()
+                || self.living_waiting_archive.is_some())
+        {
+            self.cancel_living_import();
+            return;
+        }
+        if action == SandboxUiAction::CreatorCancel
+            && self
+                .sandbox
+                .as_ref()
+                .is_some_and(|session| session.pack_library_open())
+            && let Some(client) = self.living_client.as_mut()
+            && client.pack_operation_pending()
+        {
+            client.cancel();
+        }
+        if action == SandboxUiAction::CreatorApply
+            && (self.living_notebook_job.is_some()
+                || self.living_transfer_hold.is_some()
+                || self
+                    .living_client
+                    .as_ref()
+                    .is_some_and(|client| client.busy()))
+        {
+            self.living_storage_status =
+                "Wait for the active storage operation before applying an intervention".into();
+            return;
+        }
+        let result = match action {
+            SandboxUiAction::Save => Some(self.save_living(false)),
+            SandboxUiAction::SaveAndLeave => Some(self.save_living(true)),
+            SandboxUiAction::ListSaves => Some((|| {
+                if let Some(session) = self.sandbox.as_mut() {
+                    session.open_library()?;
+                }
+                self.list_living_saves()
+            })()),
+            SandboxUiAction::ListPacks => Some((|| {
+                if let Some(session) = self.sandbox.as_mut()
+                    && !session.pack_library_open()
+                {
+                    session.apply_action(SandboxUiAction::OpenPackLibrary)?;
+                }
+                self.list_living_packs()
+            })()),
+            SandboxUiAction::SelectPack(hash) => Some((|| {
+                self.sandbox
+                    .as_mut()
+                    .ok_or("No resident Living galaxy")?
+                    .apply_action(action)?;
+                self.list_living_pack_references(hash)
+            })()),
+            SandboxUiAction::SetPackArchived {
+                hash,
+                generation,
+                archived,
+            } => Some((|| {
+                let descriptor = self
+                    .living_packs
+                    .iter()
+                    .find(|row| row.hash == hash && row.generation == generation)
+                    .cloned()
+                    .ok_or("Catalog pack review is stale; refresh the Library")?;
+                self.mutate_living_pack(
+                    &descriptor,
+                    living::LivingPackMutation::SetArchived(archived),
+                )
+            })()),
+            SandboxUiAction::ConfirmDeletePack { hash, generation } => Some((|| {
+                let descriptor = self
+                    .living_packs
+                    .iter()
+                    .find(|row| row.hash == hash && row.generation == generation && row.archived)
+                    .cloned()
+                    .ok_or("Archived catalog pack review is stale; refresh the Library")?;
+                if !self.sandbox.as_ref().is_some_and(|session| {
+                    session.pack_delete_confirmation_matches(hash, generation)
+                }) {
+                    return Err("Review the unreferenced archived catalog and type its exact hash before permanent deletion".into());
+                }
+                self.mutate_living_pack(&descriptor, living::LivingPackMutation::Delete)?;
+                if let Some(session) = self.sandbox.as_mut() {
+                    session.dismiss_pack_delete_confirmation();
+                }
+                Ok(())
+            })()),
+            SandboxUiAction::OpenSave(id) => Some(self.open_living_save(id)),
+            SandboxUiAction::ArchiveSave(id) => Some(self.mutate_living_slot(id, 0)),
+            SandboxUiAction::RestoreSave(id) => Some(self.mutate_living_slot(id, 1)),
+            SandboxUiAction::ConfirmDeleteSave(id) => Some(self.mutate_living_slot(id, 2)),
+            SandboxUiAction::ConfirmRenameSave(id) => Some(self.mutate_living_slot(id, 3)),
+            SandboxUiAction::OpenContent(content) => Some(self.create_living_content(content)),
+            SandboxUiAction::VerifyNotebookEvidence => Some(self.verify_living_notebook()),
+            SandboxUiAction::PrepareExport => Some(self.prepare_living_export()),
+            SandboxUiAction::ExportNotebook => {
+                Some(self.start_living_transfer(
+                    crate::living_transfer::LivingTransferKind::Notebook,
+                    true,
+                ))
+            }
+            SandboxUiAction::ImportNotebook => Some(self.start_living_transfer(
+                crate::living_transfer::LivingTransferKind::Notebook,
+                false,
+            )),
+            SandboxUiAction::ConfirmExport(index) => Some(self.confirm_living_export(index)),
+            SandboxUiAction::ExportGalaxy => {
+                Some(self.start_living_transfer(
+                    crate::living_transfer::LivingTransferKind::Archive,
+                    true,
+                ))
+            }
+            SandboxUiAction::ExportCatalog => {
+                Some(self.start_living_transfer(
+                    crate::living_transfer::LivingTransferKind::Catalog,
+                    true,
+                ))
+            }
+            SandboxUiAction::ImportGalaxy => {
+                Some(self.start_living_transfer(
+                    crate::living_transfer::LivingTransferKind::Archive,
+                    false,
+                ))
+            }
+            SandboxUiAction::ImportCatalog => {
+                Some(self.start_living_transfer(
+                    crate::living_transfer::LivingTransferKind::Catalog,
+                    false,
+                ))
+            }
+            SandboxUiAction::ApplyImport => Some(self.apply_living_import()),
+            SandboxUiAction::CancelImport => {
+                self.cancel_living_import();
+                Some(Ok(()))
+            }
+            _ => None,
+        };
+        if let Some(result) = result {
+            if let Err(error) = result {
+                self.living_storage_status = error.clone();
+                self.push_diagnostic(ClientDiagnosticCode::Store, error);
+            }
+            return;
+        }
+        if self.screen == ClientScreen::GalaxySandbox
+            && let Some(session) = self.sandbox.as_mut()
+            && let Err(error) = session.apply_action(action)
+        {
+            self.push_diagnostic(ClientDiagnosticCode::Archive, error);
+        }
+    }
+
+    fn create_living_content(
+        &mut self,
+        content: crate::living_content::LivingContent,
+    ) -> Result<(), String> {
+        if self.sandbox.as_ref().is_some_and(|session| session.dirty()) {
+            return Err("Save the resident Living galaxy before creating another".into());
+        }
+        if self.resident_workshop_blocks_replacement() {
+            return Err("Save the resident Workshop before creating a Living galaxy".into());
+        }
+        let authority = content.open()?;
+        if let Some(client) = self.living_client.as_mut() {
+            client.new_resident()?;
+        }
+        self.sandbox = Some(crate::sandbox_session::SandboxSession::from_authority(
+            authority,
+        ));
+        self.screen = ClientScreen::GalaxySandbox;
+        self.living_storage_status = "New galaxy; not saved".into();
+        Ok(())
+    }
+
+    fn install_living_candidate(
+        &mut self,
+        authority: nyon_workshop_core::living::LivingGalaxyAuthorityV2,
+        notebook: Option<nyon_workshop_core::living::ValidatedLivingNotebookV2>,
+    ) {
+        self.release_living_transfer_hold();
+        if self.living_dirty() || self.resident_workshop_blocks_replacement() {
+            self.enter_recovery(ClientDiagnosticCode::Store,
+                "Validated galaxy remains in the Library because the resident changed during its open");
+            return;
+        }
+        let mut session = crate::sandbox_session::SandboxSession::from_authority(authority);
+        if let Some(notebook) = notebook
+            && let Err(error) = session.install_notebook(notebook)
+        {
+            self.enter_recovery(ClientDiagnosticCode::Store, error);
+            return;
+        }
+        if let Some(bookmark) = self.living_client.as_ref().and_then(|client| client.saved) {
+            session.mark_saved(bookmark);
+        }
+        self.sandbox = Some(session);
+        self.screen = ClientScreen::GalaxySandbox;
+        self.recovery = None;
+        self.living_storage_status = "Opened exact saved Living galaxy and notebook".into();
+    }
+
+    fn mutate_living_slot(&mut self, id: u64, operation: u8) -> Result<(), String> {
+        use crate::living_store::LivingStoreRequestV2;
+        let descriptor = self
+            .living_slots
+            .iter()
+            .find(|slot| slot.id.0 == id)
+            .ok_or("Living Library row unavailable; refresh the list")?;
+        if operation == 2
+            && (!descriptor.archived
+                || !self.sandbox.as_ref().is_some_and(|session| {
+                    session.delete_confirmation_matches(id, descriptor.generation, &descriptor.name)
+                }))
+        {
+            return Err(
+                "Review the archived save and type its exact name before permanent deletion".into(),
+            );
+        }
+        let request = match operation {
+            0 | 1 => LivingStoreRequestV2::SetArchived {
+                id: descriptor.id,
+                expected_generation: descriptor.generation,
+                archived: operation == 0,
+            },
+            2 => LivingStoreRequestV2::DeleteArchivedSlot {
+                id: descriptor.id,
+                expected_generation: descriptor.generation,
+            },
+            3 => LivingStoreRequestV2::RenameSlot {
+                id: descriptor.id,
+                expected_generation: descriptor.generation,
+                name: self
+                    .sandbox
+                    .as_ref()
+                    .and_then(|session| session.creator_field_value("save_name"))
+                    .ok_or("Rename editor is not open")?
+                    .to_owned(),
+            },
+            _ => return Err("Unknown Library operation".into()),
+        };
+        self.living_client
+            .as_mut()
+            .ok_or("Living store unavailable")?
+            .mutate(request)?;
+        if operation == 2
+            && let Some(session) = self.sandbox.as_mut()
+        {
+            session.dismiss_delete_confirmation();
+        }
+        self.living_storage_status = "Applying Library change to the listed generation".into();
+        Ok(())
+    }
+
+    pub fn living_audio_events(
+        &self,
+        previous: Option<(nyon_workshop_core::living::LivingBranchIdV2, u64)>,
+    ) -> (
+        Option<(nyon_workshop_core::living::LivingBranchIdV2, u64)>,
+        Vec<crate::living_audio::AudioCue>,
+    ) {
+        use crate::living_audio::AudioCue;
+        use nyon_workshop_core::living::LivingEventKindV2;
+        let Some(session) = &self.sandbox else {
+            return (None, Vec::new());
+        };
+        let boundary = (session.authority().branch(), session.tick());
+        let Some((branch, tick)) = previous else {
+            return (Some(boundary), Vec::new());
+        };
+        if branch != boundary.0 || tick >= boundary.1 || self.screen != ClientScreen::GalaxySandbox
+        {
+            return (Some(boundary), Vec::new());
+        }
+        let mut cues = std::collections::BTreeSet::new();
+        for receipt in session
+            .receipts()
+            .iter()
+            .filter(|receipt| receipt.tick.0 > tick)
+        {
+            for event in &receipt.events {
+                let cue = match event.kind {
+                    LivingEventKindV2::ConstructionCompleted | LivingEventKindV2::HullCompleted => {
+                        Some(AudioCue::Construction)
+                    }
+                    LivingEventKindV2::HazardStarted => Some(AudioCue::Hazard),
+                    LivingEventKindV2::CombatRound | LivingEventKindV2::WarDeclared => {
+                        Some(AudioCue::Conflict)
+                    }
+                    _ => None,
+                };
+                if let Some(cue) = cue {
+                    cues.insert(cue);
+                }
+            }
+        }
+        (Some(boundary), cues.into_iter().collect())
+    }
+
+    pub fn sandbox_creator_scene_open(&self) -> bool {
+        self.sandbox
+            .as_ref()
+            .is_some_and(|session| session.creator_scene_open())
+    }
+
+    pub fn sandbox_creator_open(&self) -> bool {
+        // Every editor/preview owns time and typing-safe transport shortcuts.
+        self.sandbox
+            .as_ref()
+            .is_some_and(|session| session.creator_modal_open())
+    }
+
+    pub fn take_sandbox_requested_focus(
+        &mut self,
+    ) -> Option<crate::ui::accessibility::SemanticActionId> {
+        self.sandbox.as_mut()?.take_requested_focus()
+    }
+
+    pub fn sandbox_camera_tool(&self) -> bool {
+        self.sandbox
+            .as_ref()
+            .is_some_and(|session| session.camera_tool())
+    }
+
+    pub fn pan_sandbox_camera(&mut self, delta: glam::Vec2, orbit: bool) {
+        if let Some(session) = self.sandbox.as_mut() {
+            if orbit {
+                session.camera_orbit(delta * 0.2);
+            } else {
+                session.camera_pan(delta);
+            }
+        }
+    }
+
+    pub fn zoom_sandbox_camera(
+        &mut self,
+        factor: f32,
+        anchor: glam::Vec2,
+        bounds: crate::ui::platform::PlatformRect,
+    ) {
+        if let Some(session) = self.sandbox.as_mut() {
+            session.camera_zoom(factor, anchor, bounds);
+        }
+    }
+
+    pub fn set_living_audio_projection(
+        &mut self,
+        settings: crate::living_audio::LivingAudioSettings,
+    ) {
+        if let Some(session) = self.sandbox.as_mut() {
+            session.set_audio_projection(settings);
+        }
+    }
+
+    pub fn report_living_presentation_failure(&mut self, error: String) {
+        self.living_storage_status = error.clone();
+        self.push_diagnostic(ClientDiagnosticCode::Store, error);
+    }
+
+    pub(crate) fn present_sandbox_intro(&mut self) {
+        if let Some(session) = self.sandbox.as_mut()
+            && let Err(error) = session.present_intro()
+        {
+            self.report_living_presentation_failure(error.to_string());
+        }
+    }
+
+    pub fn sandbox_creator_field(&self, key: &str) -> Option<&str> {
+        self.sandbox
+            .as_ref()
+            .and_then(|session| session.creator_field_value(key))
+    }
+
+    pub fn edit_sandbox_creator_field(&mut self, key: &str, value: &str) -> bool {
+        self.screen == ClientScreen::GalaxySandbox
+            && self
+                .sandbox
+                .as_mut()
+                .is_some_and(|session| session.edit_creator_field(key, value).is_ok())
+    }
+
+    /// A modal or suspended window holds time without accumulating catch-up.
+    pub fn set_sandbox_suspended(&mut self, suspended: bool) {
+        if let Some(session) = self.sandbox.as_mut() {
+            session.set_suspended(suspended);
+        }
+    }
+
+    pub fn sandbox_scene(
+        &self,
+        bounds: crate::ui::platform::PlatformRect,
+    ) -> Option<crate::presentation::living::LivingSceneFrame> {
+        self.sandbox
+            .as_ref()
+            .map(|session| session.scene_frame(bounds))
+    }
+
+    pub fn sandbox_tick(&self) -> Option<u64> {
+        self.sandbox
+            .as_ref()
+            .map(crate::sandbox_session::SandboxSession::tick)
+    }
+
+    pub(crate) fn living_presentation_input_owner(
+        &self,
+    ) -> Option<crate::ui::accessibility::SemanticInputOwner> {
+        if self.screen != ClientScreen::GalaxySandbox {
+            return None;
+        }
+        self.sandbox.as_ref().map(|session| {
+            let (resident, hold, draft) = session.presentation_input_owner();
+            crate::ui::accessibility::SemanticInputOwner {
+                resident,
+                hold,
+                context: format!(
+                    "{}|{:?}|{}|{:?}",
+                    session.presentation_input_context(),
+                    self.living_transfer_hold
+                        .as_ref()
+                        .map(crate::sandbox_session::SandboxHold::input_serial),
+                    self.living_transfer_cancelling,
+                    self.living_export_in_flight
+                ),
+                draft,
+            }
+        })
+    }
+
+    pub(crate) fn living_presentation_scope(&self) -> Option<std::rc::Rc<()>> {
+        self.sandbox
+            .as_ref()
+            .map(|session| session.presentation_scope())
+    }
+
+    pub fn sandbox_paused(&self) -> Option<bool> {
+        self.sandbox
+            .as_ref()
+            .map(crate::sandbox_session::SandboxSession::paused)
+    }
+
+    /// The shell read model for the galaxy sandbox.
+    pub fn sandbox_frame(
+        &self,
+        viewport: glam::Vec2,
+        high_contrast: bool,
+    ) -> Option<crate::ui::platform::PlatformUiFrame> {
+        self.sandbox.as_ref().map(|session| {
+            session.frame_with_scale(
+                viewport,
+                self.classic.preferences().ui_scale.factor(),
+                high_contrast,
+            )
+        })
+    }
+
+    pub fn close_sandbox(&mut self) {
+        if self.living_notebook_job.is_some() || self.living_transfer_hold.is_some() {
+            self.cancel_living_import();
+        }
+        if let Some(session) = self.sandbox.as_mut() {
+            session.set_paused(true);
+        }
+        if self.screen == ClientScreen::GalaxySandbox {
+            self.screen = ClientScreen::MainMenu;
+            self.active_session = ActiveSession::None;
+        }
     }
 
     pub fn workshop_snapshot(&self) -> Option<&WorkshopSessionSnapshot> {
@@ -794,6 +1944,15 @@ where
     }
 
     pub fn continue_available(&self) -> bool {
+        if let Some(client) = self.living_client.as_ref() {
+            return !client.busy()
+                && client
+                    .selection
+                    .as_ref()
+                    .is_some_and(|record| record.authority.is_some())
+                && !self.resident_workshop_blocks_replacement()
+                && !self.living_dirty();
+        }
         if matches!(self.active_session, ActiveSession::Workshop(_)) {
             self.resident_workshop_continue_ready()
                 || (!self.resident_workshop_blocks_replacement()
@@ -803,8 +1962,13 @@ where
         }
     }
 
-    pub const fn continue_bootstrap_active(&self) -> bool {
+    pub fn continue_bootstrap_active(&self) -> bool {
         self.library.is_active()
+            || self.neutral_workshop_load.is_some()
+            || self
+                .living_client
+                .as_ref()
+                .is_some_and(|client| client.busy())
     }
 
     /// True only while a `PutPack` job is in flight.
@@ -873,6 +2037,10 @@ where
                 enabled: !replacement_blocked,
             },
             MainMenuCapability {
+                route: MainMenuRoute::GalaxySandbox,
+                enabled: !replacement_blocked,
+            },
+            MainMenuCapability {
                 route: MainMenuRoute::Settings,
                 enabled: true,
             },
@@ -909,6 +2077,27 @@ where
             }
             screen => screen,
         };
+        if let Some(client) = self.living_client.as_mut() {
+            if self.sandbox.as_ref().is_some_and(|session| session.dirty()) {
+                return Err(ClientRuntimeError::RouteUnavailable);
+            }
+            if let Err(error) = client.read_selection() {
+                self.enter_recovery(ClientDiagnosticCode::Store, error);
+                return Err(ClientRuntimeError::RouteUnavailable);
+            }
+            if let Some(session) = self.sandbox.as_mut() {
+                match session.begin_hold() {
+                    Ok(hold) => self.living_transfer_hold = Some(hold),
+                    Err(error) => {
+                        client.cancel();
+                        self.enter_recovery(ClientDiagnosticCode::Store, error);
+                        return Err(ClientRuntimeError::RouteUnavailable);
+                    }
+                }
+            }
+            self.screen = ClientScreen::Loading;
+            return Ok(());
+        }
         // The active check above already refused this case, so `Active` is
         // unreachable here; it is mapped rather than unwrapped because the
         // client enforces its own precondition and this route must not
@@ -929,6 +2118,79 @@ where
     /// Polls product-level jobs, then gives the active Workshop its one typed
     /// action drain / bounded-step / persistence update.
     pub fn update(&mut self, frame_delta: Duration) -> WorkshopUpdate {
+        self.poll_living_client();
+        self.poll_living_transfer();
+        self.finish_living_cancellation();
+        let (prepared, export_status, confirmable) = self.export_projection();
+        if self.living_pack_refresh_due
+            && self
+                .living_client
+                .as_ref()
+                .is_some_and(|client| !client.busy())
+        {
+            let status = self.living_storage_status.clone();
+            match self.list_living_packs() {
+                Ok(()) => {
+                    self.living_pack_refresh_due = false;
+                    self.living_pack_refresh_in_flight = true;
+                    self.living_storage_status = status;
+                }
+                Err(error) => {
+                    self.living_pack_refresh_due = false;
+                    self.push_diagnostic(ClientDiagnosticCode::Store, error);
+                }
+            }
+        }
+        let continue_slot = self
+            .living_client
+            .as_ref()
+            .and_then(|client| client.selection.as_ref())
+            .map(|selection| {
+                if selection.authority
+                    == Some(crate::library_selection::SelectedAuthority::LivingV2)
+                {
+                    selection.slot
+                } else {
+                    None
+                }
+            });
+        if let Some(session) = self.sandbox.as_mut() {
+            if let Some(slot) = continue_slot {
+                session.set_living_continue_projection(slot);
+            }
+            let pack_busy = self
+                .living_client
+                .as_ref()
+                .is_some_and(|client| client.busy());
+            if self.living_packs_known {
+                session.set_pack_projection(
+                    &self.living_packs,
+                    &self.living_pack_references,
+                    pack_busy,
+                );
+            } else {
+                session.set_pack_pending(pack_busy);
+            }
+            session.set_storage_projection(
+                &self.living_storage_status,
+                &self.living_slots,
+                self.living_notebook_job.is_some()
+                    || self.living_transfer_hold.is_some()
+                    || self
+                        .living_client
+                        .as_ref()
+                        .is_some_and(|client| client.busy()),
+            );
+            let transfer = self.living_transfer.is_some();
+            session.set_transfer_capabilities(transfer, transfer, transfer);
+            session.set_export_projection(prepared, &export_status, confirmable);
+            session.set_import_preview(
+                self.living_import_candidate
+                    .as_ref()
+                    .map(|_| self.living_storage_status.as_str()),
+            );
+        }
+        self.poll_neutral_workshop_load();
         self.poll_continue_bootstrap();
         self.poll_catalog_import();
         // Deliberately not gated on the Library being the current screen. A
@@ -946,10 +2208,66 @@ where
             }
             ActiveSession::None | ActiveSession::Classic => WorkshopUpdate::default(),
         };
+        self.sync_workshop_selection();
         // After the session's update, not before: that update is the one that
         // drains the queued `RequestExport`.
         self.poll_active_export();
+        if self.screen == ClientScreen::GalaxySandbox
+            && let Some(session) = self.sandbox.as_mut()
+            && let Err(error) = session.update(frame_delta)
+        {
+            self.push_diagnostic(ClientDiagnosticCode::Archive, error);
+        }
         update
+    }
+
+    fn sync_workshop_selection(&mut self) {
+        if self.screen != ClientScreen::GalaxyWorkshop && !self.neutral_workshop_save_requested {
+            return;
+        }
+        let ActiveSession::Workshop(session) = &self.active_session else {
+            return;
+        };
+        if !session.continue_ready() {
+            return;
+        }
+        let snapshot = session.snapshot();
+        let Some(slot) = snapshot.store.slot else {
+            return;
+        };
+        fn encode<T: serde::Serialize>(value: &T) -> String {
+            serde_json::to_string(value)
+                .expect("fixed identity serializes")
+                .trim_matches('"')
+                .to_owned()
+        }
+        let target = crate::library_selection::SelectionTarget {
+            authority: crate::library_selection::SelectedAuthority::WorkshopV1,
+            slot: slot.0,
+            branch: encode(&snapshot.active_view.selected_branch),
+            revision: snapshot.active_view.view_cursor.as_ref().map(encode),
+            tick: snapshot.active_view.tick.0,
+            digest: encode(&snapshot.state_digest),
+        };
+        let Some(client) = self.living_client.as_mut() else {
+            return;
+        };
+        if client.busy() {
+            return;
+        }
+        let selected = client
+            .selection
+            .as_ref()
+            .and_then(|record| record.target().ok())
+            .flatten();
+        if selected.as_ref() == Some(&target) {
+            self.neutral_workshop_save_requested = false;
+            return;
+        }
+        match client.select_neutral(Some(target)) {
+            Ok(()) => self.neutral_sync = true,
+            Err(error) => self.push_diagnostic(ClientDiagnosticCode::Store, error),
+        }
     }
 
     /// Dispatches one of the visible main-menu capabilities. New Workshop uses
@@ -972,7 +2290,9 @@ where
 
         if matches!(
             route,
-            MainMenuRoute::NewWorkshop | MainMenuRoute::ClassicSector
+            MainMenuRoute::NewWorkshop
+                | MainMenuRoute::ClassicSector
+                | MainMenuRoute::GalaxySandbox
         ) && self.resident_workshop_blocks_replacement()
         {
             self.push_diagnostic(
@@ -988,6 +2308,14 @@ where
                 Ok(ClientRuntimeEffect::None)
             }
             MainMenuRoute::Continue => {
+                if self.living_client.is_some() {
+                    if self.living_dirty() {
+                        return Err(ClientRuntimeError::RouteUnavailable);
+                    }
+                    self.begin_continue_bootstrap()?;
+                    self.neutral_continue_install = true;
+                    return Ok(ClientRuntimeEffect::None);
+                }
                 self.continue_selected_workshop()?;
                 Ok(ClientRuntimeEffect::None)
             }
@@ -998,6 +2326,24 @@ where
             MainMenuRoute::ClassicSector => {
                 self.active_session = ActiveSession::Classic;
                 self.screen = ClientScreen::ClassicSector;
+                self.recovery = None;
+                Ok(ClientRuntimeEffect::None)
+            }
+            MainMenuRoute::GalaxySandbox => {
+                let session = if self.sandbox.is_none() {
+                    Some(
+                        crate::sandbox_session::SandboxSession::open()
+                            .map_err(|_| ClientRuntimeError::SandboxUnavailable)?,
+                    )
+                } else {
+                    None
+                };
+                self.ensure_resident_workshop_replaceable()?;
+                self.active_session = ActiveSession::None;
+                if let Some(session) = session {
+                    self.sandbox = Some(session);
+                }
+                self.screen = ClientScreen::GalaxySandbox;
                 self.recovery = None;
                 Ok(ClientRuntimeEffect::None)
             }
@@ -2659,6 +4005,29 @@ where
                 if purpose == OpenPurpose::SelectOnly
                     && !candidate.loaded.recovered_from_previous =>
             {
+                if let Some(client) = self.living_client.as_mut() {
+                    let view = candidate.history.active_view();
+                    fn encode<T: serde::Serialize>(value: &T) -> String {
+                        serde_json::to_string(value)
+                            .expect("fixed identity serializes")
+                            .trim_matches('"')
+                            .to_owned()
+                    }
+                    let target = crate::library_selection::SelectionTarget {
+                        authority: crate::library_selection::SelectedAuthority::WorkshopV1,
+                        slot: candidate.loaded.slot.0,
+                        branch: encode(&view.selected_branch),
+                        revision: view.view_cursor.as_ref().map(encode),
+                        tick: view.tick.0,
+                        digest: encode(&view.digest),
+                    };
+                    if let Err(error) = client.select_neutral(Some(target)) {
+                        self.slot_requests = failed(ClientDiagnosticCode::Store);
+                        self.push_diagnostic(ClientDiagnosticCode::Store, error);
+                        return;
+                    }
+                    self.neutral_sync = true;
+                }
                 self.continue_candidate = Some(*candidate);
                 self.slot_requests = LibrarySlots::Idle;
                 self.slot_list = None;
@@ -2724,6 +4093,7 @@ where
     /// open has just moved the Continue marker, and a recovered one is about to
     /// through the session's own promotion obligation.
     fn install_opened(&mut self, candidate: LibraryCandidate) {
+        self.neutral_workshop_save_requested = true;
         self.active_session = ActiveSession::Workshop(WorkshopSession::from_loaded(
             candidate.history,
             candidate.loaded.slot,
@@ -2886,6 +4256,34 @@ where
         };
         match (&request, result) {
             (WorkshopStoreRequest::ListSlots, WorkshopStoreResult::Slots(list)) => {
+                // Abandoned mutations may commit after cancellation. Reconcile
+                // the neutral marker against the completed listing, rather than
+                // relying on a mutation outcome the caller no longer owns.
+                let invalid_selected_slot = self
+                    .living_client
+                    .as_ref()
+                    .and_then(|client| client.selection.as_ref())
+                    .and_then(|selection| selection.target().ok().flatten())
+                    .filter(|target| {
+                        target.authority == crate::library_selection::SelectedAuthority::WorkshopV1
+                    })
+                    .is_some_and(|target| {
+                        !list
+                            .slots
+                            .iter()
+                            .any(|slot| slot.id.0 == target.slot && !slot.archived)
+                    });
+                if invalid_selected_slot {
+                    match self
+                        .living_client
+                        .as_mut()
+                        .expect("selection owner present")
+                        .select_neutral(None)
+                    {
+                        Ok(()) => self.neutral_sync = true,
+                        Err(error) => self.push_diagnostic(ClientDiagnosticCode::Store, error),
+                    }
+                }
                 self.slot_list = Some(list);
                 return;
             }
@@ -2911,6 +4309,26 @@ where
                 // install a fresh candidate between dispatch and this arm.
                 // The call is idempotent.
                 self.withdraw_continue_candidate(answered);
+                let neutral_matches = self
+                    .living_client
+                    .as_ref()
+                    .and_then(|client| client.selection.as_ref())
+                    .and_then(|selection| selection.target().ok().flatten())
+                    .is_some_and(|target| {
+                        target.authority == crate::library_selection::SelectedAuthority::WorkshopV1
+                            && target.slot == answered.0
+                    });
+                if neutral_matches {
+                    match self
+                        .living_client
+                        .as_mut()
+                        .expect("selection owner present")
+                        .select_neutral(None)
+                    {
+                        Ok(()) => self.neutral_sync = true,
+                        Err(error) => self.push_diagnostic(ClientDiagnosticCode::Store, error),
+                    }
+                }
             }
             _ => {
                 self.retain_failed_slot_request(
@@ -2932,6 +4350,7 @@ where
     /// to bypass its pause/save/Continue-selection durability contract.
     pub fn return_to_main_menu(&mut self) -> Result<(), ClientRuntimeError> {
         if let ActiveSession::Workshop(session) = &mut self.active_session {
+            self.neutral_workshop_save_requested = true;
             session
                 .prepare_for_durable_transition()
                 .map_err(ClientRuntimeError::WorkshopAction)?;
@@ -2982,6 +4401,15 @@ where
         matches!(&self.active_session, ActiveSession::Workshop(session) if session.continue_ready())
     }
 
+    pub(crate) fn workshop_durable_ready(&self) -> bool {
+        self.resident_workshop_continue_ready()
+            && self
+                .living_client
+                .as_ref()
+                .is_none_or(|client| !client.busy())
+            && !self.neutral_workshop_save_requested
+    }
+
     /// Whether the resident Workshop holds unsaved work or a persistence
     /// obligation, so no route may replace it. §6's gate for Library Open.
     pub fn resident_workshop_blocks_replacement(&self) -> bool {
@@ -3012,7 +4440,17 @@ where
     fn poll_continue_bootstrap(&mut self) {
         match self.library.poll(&mut self.workshop_store) {
             LibraryEvent::Pending => {}
-            LibraryEvent::NoCandidate => self.screen = self.bootstrap_return,
+            LibraryEvent::NoCandidate => {
+                if self.neutral_migration {
+                    if let Some(client) = self.living_client.as_mut()
+                        && let Err(error) = client.select_neutral(None)
+                    {
+                        self.enter_recovery(ClientDiagnosticCode::Store, error);
+                    }
+                } else {
+                    self.screen = self.bootstrap_return;
+                }
+            }
             // Task 6 review Finding 9. Startup Continue treats a slot archived
             // under it exactly as no Continue, and that is not a softening:
             // `ArchiveSlot` clears the Continue marker when it archives the
@@ -3023,13 +4461,58 @@ where
             // left untouched because this route never assigned it.
             LibraryEvent::ArchivedRow { .. } => self.screen = self.bootstrap_return,
             LibraryEvent::Ready(candidate) => {
+                let view = candidate.history.active_view();
+                let branch = serde_json::to_string(&view.selected_branch)
+                    .expect("branch serializes")
+                    .trim_matches('"')
+                    .to_owned();
+                let revision = view.view_cursor.map(|id| {
+                    serde_json::to_string(&id)
+                        .expect("revision serializes")
+                        .trim_matches('"')
+                        .to_owned()
+                });
+                let digest = serde_json::to_string(&view.digest)
+                    .expect("digest serializes")
+                    .trim_matches('"')
+                    .to_owned();
+                if let Some(reference) = self.expected_workshop_selection.take()
+                    && (reference.slot != candidate.loaded.slot.0
+                        || reference.branch != branch
+                        || reference.revision != revision
+                        || reference.tick != view.tick.0
+                        || reference.digest != digest)
+                {
+                    self.enter_recovery(ClientDiagnosticCode::Archive,"Recorded Workshop branch/revision/tick/digest differs from the saved authority; explicit recovery required");
+                    return;
+                }
                 let recovered = candidate.loaded.recovered_from_previous;
+                if self.neutral_continue_install && !recovered {
+                    self.neutral_continue_install = false;
+                    self.release_living_transfer_hold();
+                    self.install_opened(*candidate);
+                    return;
+                }
+                let migration_target = crate::library_selection::SelectionTarget {
+                    authority: crate::library_selection::SelectedAuthority::WorkshopV1,
+                    slot: candidate.loaded.slot.0,
+                    branch,
+                    revision,
+                    tick: view.tick.0,
+                    digest,
+                };
                 self.continue_candidate = Some(*candidate);
                 if recovered {
                     self.enter_recovery(
                         ClientDiagnosticCode::Archive,
                         "The latest save was invalid; a previous valid generation is available",
                     );
+                } else if self.neutral_migration {
+                    if let Some(client) = self.living_client.as_mut()
+                        && let Err(error) = client.select_neutral(Some(migration_target))
+                    {
+                        self.enter_recovery(ClientDiagnosticCode::Store, error);
+                    }
                 } else {
                     self.screen = self.bootstrap_return;
                 }
@@ -3085,5 +4568,96 @@ where
             code,
             message: message.into(),
         });
+    }
+}
+
+#[cfg(test)]
+mod living_delete_guard_tests {
+    use super::*;
+    use crate::sandbox_session::SandboxUiAction;
+    use crate::{
+        living_store::{LivingGenerationV2, LivingSlotDescriptorV2, LivingSlotIdV2},
+        preferences::store::MemoryPreferencesStore,
+        scenario::{ScenarioDraft, store::MemoryScenarioStore},
+        workshop::store::MemoryWorkshopStore,
+    };
+
+    #[test]
+    fn permanent_delete_rechecks_review_against_current_list_before_store_dispatch() {
+        let classic = AppCore::new_with_preferences(
+            ScenarioDraft::factory_default().validated().unwrap(),
+            MemoryScenarioStore::default(),
+            MemoryPreferencesStore::default(),
+        );
+        let mut runtime = ClientRuntime::new(classic, MemoryWorkshopStore::default());
+        runtime
+            .select_menu_route(MainMenuRoute::GalaxySandbox)
+            .unwrap();
+        let session = runtime.sandbox.as_mut().unwrap();
+        let row = LivingSlotDescriptorV2 {
+            id: LivingSlotIdV2(7),
+            name: "Reviewed Galaxy".into(),
+            archived: true,
+            generation: LivingGenerationV2(3),
+            catalog_hash: session.authority().catalog().catalog_hash(),
+            diagnostic: None,
+        };
+        let before = session.state().digest().unwrap();
+        session.set_storage_projection("Ready", std::slice::from_ref(&row), false);
+        runtime.living_slots = vec![row.clone()];
+        assert!(
+            runtime
+                .mutate_living_slot(7, 2)
+                .unwrap_err()
+                .contains("Review")
+        );
+        let session = runtime.sandbox.as_mut().unwrap();
+        session
+            .apply_action(SandboxUiAction::DeleteSave(7))
+            .unwrap();
+        session.set_living_continue_projection(None);
+        session
+            .edit_creator_field("delete_name", &row.name)
+            .unwrap();
+        // A valid review reaches the unavailable store, while stale rows stop earlier.
+        assert_eq!(
+            runtime.mutate_living_slot(7, 2).unwrap_err(),
+            "Living store unavailable"
+        );
+        runtime.living_slots[0].generation = LivingGenerationV2(4);
+        assert!(
+            runtime
+                .mutate_living_slot(7, 2)
+                .unwrap_err()
+                .contains("Review")
+        );
+        runtime.living_slots[0] = row.clone();
+        runtime.living_slots[0].name = "Renamed Galaxy".into();
+        assert!(
+            runtime
+                .mutate_living_slot(7, 2)
+                .unwrap_err()
+                .contains("Review")
+        );
+        runtime.living_slots[0] = row;
+        runtime.living_slots[0].archived = false;
+        assert!(
+            runtime
+                .mutate_living_slot(7, 2)
+                .unwrap_err()
+                .contains("Review")
+        );
+        assert_eq!(
+            runtime.sandbox.as_ref().unwrap().state().digest().unwrap(),
+            before
+        );
+        assert!(
+            runtime
+                .sandbox
+                .as_ref()
+                .unwrap()
+                .delete_review_descriptor()
+                .is_some()
+        );
     }
 }

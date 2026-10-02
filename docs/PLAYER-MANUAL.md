@@ -1,9 +1,10 @@
 # NYON player manual
 
-NYON has two separate modes. Neither needs an account, an MCP server, or an AI agent.
+NYON has three separate entry points. None needs an account, an MCP server, or an AI agent.
 
 | Mode | What you are trying to do | Your first success |
 | --- | --- | --- |
+| Living Galaxy sandbox | Observe autonomous societies, inspect world inventories and recent events. This entry point is still being completed. | Select a world and step a production boundary. |
 | Classic Sector | Command the Union and control **five of seven worlds** before a rival does. | Issue an order and watch your first fleet travel. |
 | Galaxy Workshop | Create a galaxy, run an economy, inspect results, revise and save. There is **no enemy or victory screen**. | Build a solar array and make **4 energy**. |
 
@@ -16,6 +17,162 @@ The guide holds simulation time while you read. Click Previous/Next to turn page
 Classic's small **TUTORIAL … PAUSED** overlay is an optional six-step introduction in the real match, not a separate training game. During its first step, **START HERE** points to one of your Union worlds. Click that world or the START HERE button; the button is also reachable with Tab and Enter. Ownership is not communicated by color alone.
 
 **Just want to play? Click SKIP at the top right.** This removes the tutorial and resumes **the same match**, normally at 1x (or at your previous running speed if you restarted guidance). It does not regenerate the galaxy. Use **P** or **PLAY/PAUSE** afterward. Settings > **RESET GUIDANCE** restarts the observed-action tutorial and pauses the same match.
+
+## Living Galaxy sandbox
+
+Choose **Living Galaxy** on the main menu. **Vale Confluence** opens paused with
+four systems, eight worlds, three civilizations and six lanes. You observe the
+societies and change their circumstances through creator interventions; you do
+not need to finish a tutorial before using the tools. **New galaxy** also offers
+Commerce, Frontier Friction, Interrupted Corridor, First Expansion, Blank and
+Seeded galaxies. The Seeded choice uses the hexadecimal seed field to reproduce
+the same starting authority. Save a valued resident galaxy before replacing it.
+
+### Select, inspect and run
+
+Select a world in the diorama, or open **Navigator** to search and filter entity
+rows. The Navigator exposes systems, worlds, civilizations, facilities, fleets,
+routes, shipments, hazards and the other stable records. Selecting an entity
+changes its inspector without issuing a civilization or creator command. Galaxy,
+system and world views provide different scopes; **Camera** offers focus, fit,
+pan, orbit and zoom controls. Ownership and selection also have text and shape
+cues.
+
+The **Inspector** shows authoritative record details. For a world, inspect local
+inventory, ownership, facilities, blocked recipes and paid construction deadlines.
+For a civilization, inspect recorded intentions and their structured reasons.
+**Chronicle** distinguishes creator interventions, scheduled events and autonomous
+decisions; inspect an entry for its recorded tick, identity and available facts.
+Its filtered summaries and the short recent receipt cache are presentation aids,
+not a complete durable transcript of every boundary. Use the page controls to
+reach additional text.
+
+Use **Run/Pause** or unmodified **P** to toggle time. **Step**, or unmodified **.**,
+advances one boundary while paused. The **1x**, **4x** and **20x** buttons select
+requested speed; 1x means ten simulation ticks per second. An update catches up
+at most twenty ticks and drops excess timing debt; a limited-speed status reports
+requested versus effective pace. Tab/Shift+Tab moves focus; Enter or Space
+activates the focused control. Typing in a field owns its text input rather than
+issuing these unmodified shortcuts.
+
+The player guide, modal tools, focus loss, occlusion and suspension hold Living
+time. Returning from a hold clears timing debt. A simulation fault stops
+transport and preserves the last valid boundary; inspect the full fault message
+before proceeding. The twenty-tick catch-up limit does not establish smooth
+performance for a maximum-size galaxy: complete ticks still run synchronously.
+
+### Preview a creator intervention
+
+Open **Creator tools**, search for a command, and check its target identities and
+field values. The forms support creation, editing, inventory and ownership
+changes, agreements and war, fleet/hull operations, jobs, freight, hazards and
+reviewed removal. **Preview** validates the draft against the current authority
+and displays its affected records and any removal dependencies.
+**Fit / reveal changes** helps locate that projected change. Review the preview before **Apply**.
+
+A successful Apply creates a recorded creator revision. An invalid draft or
+rejected transaction preserves the authority and history. Removal of referenced
+objects needs an exact reviewed cascade; explicit cancellation of a paid job and
+generic removal have different resource rules, so read their previews. Cancel
+closes the draft without applying it. Conventional caret/selection and clipboard
+editing are implemented for Living fields; complete native/browser typing and
+assistive-technology qualification is still underway.
+
+### Preserve alternate histories
+
+Open **History** to choose a retained branch, creator cursor and tick. **Undo** and
+**Redo** restore recorded creator revisions at the current selected tick. Editing
+a historical boundary creates a sibling future rather than erasing its later work. An inspected history
+view is read-only until you return to the present or branch it. Use the History
+controls to select left and right branches and a **common comparison tick**;
+comparison reports their state measurements at that same tick. It is an
+observation of those alternatives, not proof of a general causal rule.
+
+**Notebook** can record named exact-state bookmarks and completed comparison
+measurements. Its seven suggested experiments are optional. Settlement evidence
+requires an exact autonomous settlement event. Dormant recovery accepts an exact
+autonomous reactivation event or a replay-verified creator intervention that
+changes an existing dormant actor with no colonies into an active actor holding
+a colony. The creator case keeps its creator-intervention label; it does not
+emit an autonomous reactivation event. A newly created actor, a colony created
+and removed within one batch, or a name/inventory edit is insufficient. Pause on
+the boundary that actually contains the witness: a later tick,
+a different same-tick creator state or an unrelated event is insufficient.
+
+A recorded observation stores its exact receipt digest and supporting event
+identities, ordinals and kinds alongside its bookmark. The saved/portable
+Notebook replays those references against the matching archive before accepting
+them. After reopening, a **Replay-verified observation** remains inspectable even
+when the recent receipt cache is empty. A fresh local record is labelled
+**Current authoritative observation** until validated replay establishes that
+stronger status. These references certify only the named recorded observation;
+they do not certify a whole experiment or causality.
+
+Trade can record separate **agreement formation** and **actual delivery** receipt
+observations. Formation identifies the negotiated Trade parties and interval;
+delivery identifies its sender, recipient, worlds, resource and accepted units.
+Use **Verify matching trade observations** in the Trade experiment to replay the
+exact notebook against its retained galaxy history. Verification pauses transport
+while it runs and does not save or alter the recorded metadata. Cancellation or a
+changed resident preserves the current notebook.
+
+A verified formation followed by a matching positive delivery on the same retained
+branch, with the exact agreement still active, displays **Agreement and matching
+delivery observed** and links both exact bookmarks. Sibling futures, reversed
+history prefixes, expired or replaced agreements, unknown legacy classification,
+and details omitted for receipt capacity cannot qualify. This observes the two
+stages; it does not establish that the agreement caused dispatch. Host tests cover
+local replay and save/Continue; current-build live browser persistence remains
+unqualified.
+
+Supply can record successful **Ore-consuming Alloy production** and actual
+**Ore or Alloy deliveries between systems**. Use **Verify supply observations**
+to replay them. The verified pair must match its actor, world, system, resource
+and history: either Alloy production precedes delivery from its world, or Ore
+delivery precedes Alloy production on its recipient's world. Arrival can precede
+production in the same tick. The detail links both exact bookmarks and reports
+observed inputs, outputs and transferred units. It does not identify which
+fungible inventory units the foundry consumed or which production supplied a
+shipment. Automated host tests cover local runtime verification and a fresh
+native-store Continue after save; live platform acceptance remains separate.
+
+Three suggested evidence workflows remain incomplete: **corridor disruption**,
+**war and a diplomatic alternative**, and
+**export/import reproduction**. Their briefings are reachable, but their Record
+controls refuse unsupported evidence rather than award success from coincident
+event kinds or a download handoff. You can inspect states, record bookmarks,
+compare branches and use the implemented transfer tools.
+
+### Save, Continue and transfer
+
+**Save** persists the Living archive and its Notebook attachment, then updates
+neutral **Continue** to its exact recorded authority, slot, branch and state. Wait
+for the saved confirmation and cleared dirty state. **Save & leave** completes
+that sequence before leaving. If a save fails, retain the resident session and
+its dirty notes; an archive write alone is not confirmation that the Notebook
+and Continue were also saved. Continue can identify Living or Workshop saves;
+Classic remains a separate, nonresumable battle mode.
+
+The Living **Library** supports listing, opening, renaming, archiving, restoring
+and confirmed permanent deletion of saved slots. Read its status before an
+operation. Stale generations or an invalid exact archive/catalog/Notebook target
+enter failure or recovery instead of silently opening a different galaxy. Dirty
+resident sessions protect against unintended replacement.
+
+**Transfer** prepares coherent catalog, galaxy archive and Notebook copies for
+file export. Native Living uses file dialogs; browser Living uses file inputs
+and download handoff. Check each file's reported outcome. In a browser, a handed-
+off download is not proof that the file was saved to disk. Import validates the
+selected bytes and shows a preview before installation into a new slot. The
+Notebook is bound to an exact archive; arbitrary notes from a different history
+cannot be attached to it.
+
+Living uses separate storage and identities from Classic and Workshop. Closing
+without a successful save can lose unsaved resident changes. Browser storage
+belongs to the current origin and profile, so portable copies are useful backups.
+Complete current-build native, WebGPU and WebGL2 save/transfer/recovery journeys
+remain under qualification; the implemented controls and automated host journeys
+do not establish universal platform acceptance.
 
 ## Classic Sector: launch your first fleet
 
@@ -53,7 +210,7 @@ The neural advisory is a scoring hint, not an autopilot. It does not issue comma
 
 ## Galaxy Workshop: make your first 4 energy
 
-You can follow these steps with new objects in your existing Workshop. A fresh **New Workshop** is empty; **Continue** opens the selected Workshop save. Do not replace a valued save just to try the guide.
+You can follow these steps with new objects in your existing Workshop. A fresh **New Workshop** is empty; **Continue** opens the globally selected Living or Workshop save. Choose a Workshop save for this exercise. Do not replace a valued save just to try the guide.
 
 Keep time **paused** while editing. Use the left-hand hierarchy to select objects. The map displays the galaxy; it is not a click-to-place editor. In each creator form, verify the parent/world choice before applying: defaults can pick an existing object when none is selected.
 
@@ -116,11 +273,11 @@ The inspector model includes inventories, deposits, industries, routes, shipment
 
 ## Saving, undo and leaving safely
 
-**Workshop:** Save Workshop writes your current Workshop state. Wait for **Saved and selected for Continue** and no DIRTY indicator. Autosave/exit handling exists, but this visible confirmation is the clearest checkpoint. Main menu requests a durable transition; replacement routes can stay disabled until persistence finishes. **Continue is for Workshop saves**, not battle saves. If saving reports a failure, keep the app open and retain the working session; do not assume an earlier generation contains recent changes.
+**Workshop:** Save Workshop writes your current Workshop state. Wait for **Saved and selected for Continue** and no DIRTY indicator. Autosave/exit handling exists, but this visible confirmation is the clearest checkpoint. Main menu requests a durable transition; replacement routes can stay disabled until persistence finishes. **Continue identifies the selected Workshop or Living save**, not a resumable Classic battle. If saving reports a failure, keep the app open and retain the working session; do not assume an earlier generation contains recent changes.
 
-**Library:** open it from the main menu, or from the Workshop: the **Library** button in the top bar, or on a narrow window the **Library** button at the top of the Navigator drawer. Opening it leaves the Workshop exactly as it was, unsaved changes included, and **Close** or Escape returns to it. Select a save to **Rename**, **Archive** or **Unarchive** it; each asks first, and Archive says whether it will clear Continue. Names use 1 to 64 printable characters with single spaces between words. The resident Workshop's own save cannot be archived. **Open** loads the selected save into the Workshop and makes it the Continue save; it is unavailable while the open Workshop has unsaved changes, and for the save that is already open. If the save changed since the list was read, the Library says so and **Refresh** lists it again. If its latest generation is invalid, the Library offers **Open previous**, which opens the last valid one and replaces the invalid one when it saves. **Use for Continue** makes the selected save the one Continue opens, without opening it now; it is unavailable while a Workshop is open, because the open Workshop decides Continue until you leave it. **Export** checks the selected save, archived ones included, and prepares a portable copy of it without changing anything stored or moving Continue; if its latest generation is invalid, the Library offers **Export previous**, which prepares the last valid one and says so. **Export this galaxy** prepares a portable copy of the open Workshop, unsaved changes included, and says *Portable export; Workshop not saved for Continue* unless the Workshop was paused and already saved for Continue; **Export content pack** prepares a copy of the open Workshop's content pack. Saving any prepared copy to a file (**Save copy**), **Import galaxy** and **Import content pack** are shown but not available yet, because this build has no file picker, so **Discard** is how an export ends for now.
+**Library:** open it from the main menu, or from the Workshop: the **Library** button in the top bar, or on a narrow window the **Library** button at the top of the Navigator drawer. Opening it leaves the Workshop exactly as it was, unsaved changes included, and **Close** or Escape returns to it. Select a save to **Rename**, **Archive** or **Unarchive** it; each asks first, and Archive says whether it will clear Continue. Names use 1 to 64 printable characters with single spaces between words. The resident Workshop's own save cannot be archived. **Open** loads the selected save into the Workshop and makes it the Continue save; it is unavailable while the open Workshop has unsaved changes, and for the save that is already open. If the save changed since the list was read, the Library says so and **Refresh** lists it again. If its latest generation is invalid, the Library offers **Open previous**, which opens the last valid one and replaces the invalid one when it saves. **Use for Continue** makes the selected save the one Continue opens, without opening it now; it is unavailable while a Workshop is open, because the open Workshop decides Continue until you leave it. **Export** checks the selected save, archived ones included, and prepares a portable copy of it without changing anything stored or moving Continue; if its latest generation is invalid, the Library offers **Export previous**, which prepares the last valid one and says so. **Export this galaxy** prepares a portable copy of the open Workshop, unsaved changes included, and says *Portable export; Workshop not saved for Continue* unless the Workshop was paused and already saved for Continue; **Export content pack** prepares a copy of the open Workshop's content pack. Saving any prepared copy to a file (**Save copy**), **Import galaxy** and **Import content pack** are shown but not available yet, because Workshop does not yet connect those controls to its file handoff, so **Discard** is how a Workshop export ends for now. Living has its separate transfer path described above.
 
-**Undo and branches:** Undo moves to an earlier creator revision while paused. Editing a historical revision creates a branch rather than deleting later work. Branch buttons select a history branch. Save after choosing the state/branch you want Continue to reopen. Do not treat Undo as “erase everything since the last frame.” Portable copies are covered under **Library** above: this build can prepare one but cannot write it to a file or import one.
+**Undo and branches:** Undo moves to an earlier creator revision while paused. Editing a historical revision creates a branch rather than deleting later work. Branch buttons select a history branch. Save after choosing the state/branch you want Continue to reopen. Do not treat Undo as “erase everything since the last frame.” Portable copies are covered under **Library** above: Workshop can prepare one but its documented transfer path cannot yet write it to a file or import one.
 
 **Classic:** Scenario SAVE stores the editor's setup, **not a resumable battle**. LOAD changes the detached draft; APPLY AND RESTART starts that setup afresh. CANCEL leaves the active scenario intact. R restarts the current scenario and loses battle progress. Settings/preferences are saved separately.
 
@@ -130,10 +287,12 @@ To leave Classic for the product menu, open HELP and choose **Main menu**. To qu
 
 **There are no native gamepad bindings in this build.** No Xbox/PlayStation button layout or stick mapping is implemented. An external tool can map a controller to mouse/keyboard input, but such mappings have not been qualified here. Use mouse/keyboard for the documented paths. Classic's ordinary world targeting remains pointer-based.
 
-Workshop and the new guide provide a shared keyboard/pointer action model and native/browser semantic information. Actual screen-reader behavior is a separate platform acceptance check; the presence of those semantics does not establish complete accessibility in every screen. The first Classic marker uses text, a line and a ring rather than relying only on cyan color, and its button supports keyboard selection.
+Living, Workshop and the guide provide keyboard/pointer actions and native/browser semantic information. Actual screen-reader behavior is a separate platform acceptance check; the presence of those semantics does not establish complete accessibility in every screen. The first Classic marker uses text, a line and a ring rather than relying only on cyan color, and its button supports keyboard selection.
 
 The retro presentation is intentional. **Metal, WebGPU and WebGL2 labels identify rendering backends, not ray-tracing modes. There is no implemented ray-tracing option.** Classic's GPU advisory, when available, is separate from rendering and still only a hint. Use contrast/motion settings for readability; Classic also exposes UI scale and graphics-quality choices.
 
 ## Validation boundary
 
-This manual describes current source behavior. The first-energy/first-alloy exercise, guide layout, Classic START HERE selection and Skip behavior have automated regression coverage in `tests/player_guide.rs`. Source/build checks do not prove live native or browser usability. Test a newly built app after saving and quitting the older build; do not run two processes against the same Workshop save.
+This manual describes implemented behavior with the qualification limits stated above. Living creator forms, capacity rollback and exact undo/redo/reload have automated host coverage. The durable Notebook settlement and creator-recovery journeys have executed native-store/coordinator tests covering save, new-client Continue, replay-verified references and visible controls without the recent receipt cache. The recovery slice passes six public-authority cases and two public Session/native-store cases; these verify observation references and rejection boundaries, not whole-experiment completion. These tests do not establish current-build live browser persistence or assistive-technology speech. Production, repair, arrivals and observations have incremental private cursors, but complete simulation steps, forecast paths, validation and publication do not yet meet the accepted whole-step limit of 1024 visited records per work slice. Do not infer a frame-time guarantee from an individual cursor or the twenty-tick transport cap.
+
+The first-energy/first-alloy exercise, guide layout, Classic START HERE selection and Skip behavior have automated regression coverage in `tests/player_guide.rs`. Source/build checks do not prove live native or browser usability. Test a newly built app after saving and quitting the older build; do not run two processes against the same Workshop save.

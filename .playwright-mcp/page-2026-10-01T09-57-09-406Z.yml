@@ -1,0 +1,9 @@
+- generic [ref=e1]:
+  - status:
+    - text: WEBGL2 LOW
+    - generic: WEBGL2 LOW initialized successfully. forced by ?backend=webgl2
+  - application "NYON // Loading" [ref=e3]:
+    - text: NYON // Loading
+    - group "Product controls" [ref=e4]
+    - heading "NYON // Loading" [ref=e5]
+    - status "Validating the explicitly selected Workshop save" [ref=e6]

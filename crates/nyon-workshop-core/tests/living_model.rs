@@ -148,6 +148,7 @@ fn facilities(count: usize) -> Vec<LivingFacilityV2> {
             next_due: Some(LivingTickV2(10)),
             next_repair: None,
             blocked_reasons: LivingSortedVecV2::default(),
+            disabled: false,
         })
         .collect()
 }
@@ -184,6 +185,8 @@ fn shipments(count: usize) -> Vec<LivingShipmentV2> {
             departure_tick: LivingTickV2(10),
             arrival_tick: LivingTickV2(20),
             disposition: LivingShipmentDispositionV2::Outbound,
+            dispatch_kind: None,
+            returning_to_source: false,
         })
         .collect()
 }
@@ -309,6 +312,7 @@ fn valid_state() -> LivingGalaxyStateV2 {
             remaining_deposit: 0,
             facilities: LivingSortedVecV2::default(),
             stationed_hulls: LivingSortedVecV2::default(),
+            operational_defense_batteries: None,
         }]),
         hazards: sorted(hazards(1)),
         settlement_claims: sorted(vec![LivingSettlementClaimV2 {
@@ -335,6 +339,367 @@ fn relation(from: LivingEntityIdV2, to: LivingEntityIdV2) -> LivingRelationV2 {
     }
 }
 
+#[test]
+fn counted_validation_preserves_cross_group_and_field_error_precedence() {
+    let mut state = valid_state();
+    state.civilizations = sorted(civilizations(LIVING_MAX_CIVILIZATIONS_V2 + 1));
+    state.systems = sorted(systems(LIVING_MAX_SYSTEMS_V2 + 1));
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::Capacity {
+            collection: "civilizations",
+            limit: LIVING_MAX_CIVILIZATIONS_V2,
+            found: LIVING_MAX_CIVILIZATIONS_V2 + 1,
+        }
+    );
+    let mut state = valid_state();
+    let mut rows = state.stars.into_vec();
+    rows[0].system = id(999);
+    rows[0].archetype = slug("unknown");
+    state.stars = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "star system"
+        }
+    );
+    let mut state = valid_state();
+    let mut rows = state.worlds.into_vec();
+    rows[0].archetype = slug("unknown");
+    rows[0].owner = Some(id(999));
+    rows[0].inventory.energy = u32::MAX;
+    state.worlds = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "world archetype"
+        }
+    );
+    let mut state = valid_state();
+    let mut rows = state.shipments.into_vec();
+    rows[0].units = 0;
+    rows[0].returning_to_source = true;
+    rows[0].departure_tick = rows[0].arrival_tick;
+    state.shipments = sorted(rows);
+    expect_range(&state, "shipment units");
+    let mut rows = state.shipments.into_vec();
+    rows[0].units = 1;
+    state.shipments = sorted(rows);
+    expect_range(&state, "shipment return wait");
+}
+
+#[test]
+fn counted_validation_counts_targeted_untargeted_and_orphan_hull_jobs_before_references() {
+    let job = valid_state().hull_jobs.as_slice()[0].clone();
+    let mut state = scaffold();
+    state.hull_jobs = sorted(vec![job.clone()]);
+    state.fleets = sorted(fleets(1, LIVING_MAX_HULLS_PER_FLEET_V2 - 1));
+    expect_valid(&state);
+    state.fleets = sorted(fleets(1, LIVING_MAX_HULLS_PER_FLEET_V2));
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::Capacity {
+            collection: "fleet hulls",
+            limit: LIVING_MAX_HULLS_PER_FLEET_V2,
+            found: LIVING_MAX_HULLS_PER_FLEET_V2 + 1,
+        }
+    );
+    let mut orphan = job.clone();
+    orphan.target_fleet = Some(id(999));
+    state.hull_jobs = sorted(vec![orphan]);
+    state.fleets = sorted(fleets(
+        LIVING_MAX_HULLS_V2 / LIVING_MAX_HULLS_PER_FLEET_V2,
+        LIVING_MAX_HULLS_PER_FLEET_V2,
+    ));
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::Capacity {
+            collection: "hulls",
+            limit: LIVING_MAX_HULLS_V2,
+            found: LIVING_MAX_HULLS_V2 + 1,
+        }
+    );
+    state.fleets = sorted(fleets(1, LIVING_MAX_HULLS_PER_FLEET_V2 + 1));
+    expect_capacity(&state, "fleet hulls");
+    state.fleets = LivingSortedVecV2::default();
+    state.hull_jobs = sorted(
+        (0..=LIVING_MAX_FLEETS_V2)
+            .map(|index| {
+                let mut row = job.clone();
+                row.id = id(HULL_JOB_BASE + index as u32);
+                row.target_fleet = None;
+                row.world = id(999);
+                row
+            })
+            .collect(),
+    );
+    expect_capacity(&state, "fleets");
+}
+
+#[test]
+fn counted_validation_global_identity_order_includes_all_fleet_headers_before_hulls() {
+    let mut state = scaffold();
+    let mut rows = fleets(2, 1);
+    let mut nested = rows[0].hulls.clone().into_vec();
+    nested[0].id = rows[1].id;
+    nested[0].definition = slug("unknown");
+    rows[0].hulls = sorted(nested);
+    state.fleets = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DuplicateIdentity {
+            context: "authority object"
+        }
+    );
+    let mut rows = facilities(1);
+    rows[0].id = state.worlds.as_slice()[0].id;
+    state.facilities = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DuplicateIdentity {
+            context: "authority object"
+        }
+    );
+}
+
+#[test]
+fn counted_validation_world_slot_unique_and_combined_queue_errors_precede_dangling_jobs() {
+    let mut state = valid_state();
+    state.facilities = sorted(facilities(6));
+    expect_capacity(&state, "world industrial slots");
+    let mut rows = facilities(4);
+    rows[0].definition = slug("shipyard");
+    rows[1].definition = slug("shipyard");
+    rows[2].definition = slug("defense_battery");
+    rows[3].definition = slug("defense_battery");
+    rows[0].disabled = true;
+    state.facilities = sorted(rows);
+    expect_range(&state, "unique world industry");
+    let mut rows = state.facilities.into_vec();
+    rows[1].definition = slug("solar_array");
+    state.facilities = sorted(rows);
+    expect_range(&state, "unique world industry");
+    state.facilities = LivingSortedVecV2::default();
+    let mut rows = state.construction_jobs.into_vec();
+    let mut extra = rows[0].clone();
+    extra.id = id(CONSTRUCTION_BASE + 1);
+    extra.owner = id(999);
+    rows.push(extra);
+    state.construction_jobs = sorted(rows);
+    expect_range(&state, "world construction queue");
+    state.construction_jobs = LivingSortedVecV2::default();
+    let mut rows = state.hull_jobs.into_vec();
+    let mut extra = rows[0].clone();
+    extra.id = id(HULL_JOB_BASE + 1);
+    extra.owner = id(999);
+    rows.push(extra);
+    state.hull_jobs = sorted(rows);
+    expect_range(&state, "world construction queue");
+}
+
+#[test]
+fn counted_validation_hull_reservation_precedes_duration_and_fleet_lane_precedes_hulls() {
+    for reservation in 0..3 {
+        let mut state = valid_state();
+        let mut jobs = state.hull_jobs.into_vec();
+        jobs[0].completion_tick = jobs[0].accepted_tick;
+        state.hull_jobs = sorted(jobs);
+        let mut rows = state.fleets.into_vec();
+        match reservation {
+            0 => rows[0].owner = id(CIVILIZATION_BASE + 1),
+            1 => {
+                rows[0].location = LivingFleetLocationV2::Docked {
+                    world: id(WORLD_BASE + 1),
+                }
+            }
+            _ => {
+                rows[0].order = Some(LivingFleetOrderV2 {
+                    kind: LivingFleetOrderKindV2::Move,
+                    target_world: None,
+                    not_before_tick: LivingTickV2(0),
+                    lane_path: Vec::new(),
+                })
+            }
+        }
+        state.fleets = sorted(rows);
+        expect_range(&state, "hull job target reservation");
+    }
+    let mut state = valid_state();
+    let mut jobs = state.hull_jobs.into_vec();
+    jobs[0].target_fleet = Some(id(999));
+    jobs[0].completion_tick = jobs[0].accepted_tick;
+    state.hull_jobs = sorted(jobs);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "hull job target fleet"
+        }
+    );
+    state.hull_jobs = LivingSortedVecV2::default();
+    let mut rows = state.fleets.into_vec();
+    rows[0].order = Some(LivingFleetOrderV2 {
+        kind: LivingFleetOrderKindV2::Move,
+        target_world: None,
+        not_before_tick: LivingTickV2(u64::MAX),
+        lane_path: vec![id(999)],
+    });
+    let mut nested = rows[0].hulls.clone().into_vec();
+    nested[0].hit_points = 0;
+    rows[0].hulls = sorted(nested);
+    state.fleets = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "fleet order lane"
+        }
+    );
+}
+
+#[test]
+fn counted_validation_observation_battery_strict_aggregate_and_definition_precedence() {
+    use nyon_workshop_core::living::{LivingObservedFacilityV2, LivingObservedHullV2};
+    for (operational, count, valid) in [
+        (0, 0, false),
+        (0, 1, true),
+        (3, 3, false),
+        (2, 3, true),
+        (4, 3, false),
+    ] {
+        let mut state = valid_state();
+        let mut rows = state.observations.into_vec();
+        rows[0].facilities = sorted(vec![LivingObservedFacilityV2 {
+            definition: slug("defense_battery"),
+            count,
+        }]);
+        rows[0].operational_defense_batteries = Some(operational);
+        state.observations = sorted(rows);
+        if valid {
+            expect_valid(&state);
+        } else {
+            expect_range(&state, "observation operational_defense_batteries");
+        }
+    }
+    let mut state = valid_state();
+    let mut rows = state.observations.into_vec();
+    rows[0].facilities = sorted(vec![LivingObservedFacilityV2 {
+        definition: slug("unknown"),
+        count: 0,
+    }]);
+    rows[0].stationed_hulls = sorted(vec![LivingObservedHullV2 {
+        definition: slug("unknown"),
+        count: 0,
+    }]);
+    rows[0].operational_defense_batteries = Some(0);
+    state.observations = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "observed facility definition"
+        }
+    );
+    let mut rows = state.observations.into_vec();
+    rows[0].facilities = LivingSortedVecV2::default();
+    state.observations = sorted(rows);
+    expect_range(&state, "observation operational_defense_batteries");
+    let mut rows = state.observations.into_vec();
+    rows[0].operational_defense_batteries = None;
+    state.observations = sorted(rows);
+    assert_eq!(
+        expect_error(&state),
+        LivingValidationErrorV2::DanglingReference {
+            reference: "observed hull definition"
+        }
+    );
+}
+
+#[test]
+fn counted_validation_all_claim_intervals_precede_adjacent_close_comparison() {
+    let mut state = valid_state();
+    let mut rows = state.settlement_claims.into_vec();
+    let mut extra = rows[0];
+    extra.civilization = id(CIVILIZATION_BASE + 1);
+    extra.close_tick = LivingTickV2(1_040);
+    rows.push(extra);
+    rows.push(LivingSettlementClaimV2 {
+        world: id(WORLD_BASE + 2),
+        civilization: id(CIVILIZATION_BASE),
+        arrival_tick: LivingTickV2(1_040),
+        close_tick: LivingTickV2(1_040),
+    });
+    state.settlement_claims = sorted(rows);
+    expect_interval(&state, "claim window");
+    let mut rows = state.settlement_claims.into_vec();
+    rows[2].close_tick = LivingTickV2(1_050);
+    state.settlement_claims = sorted(rows);
+    expect_range(&state, "claim close_tick");
+}
+
+#[test]
+fn counted_validation_effective_tick_only_changes_observation_freshness() {
+    let state = valid_state();
+    assert_eq!(validation_parity(&state, Some(LivingTickV2(900))), Ok(()));
+    assert_eq!(
+        validation_parity(&state, Some(LivingTickV2(899))),
+        Err(LivingValidationErrorV2::Range {
+            field: "observation observed_tick"
+        })
+    );
+    assert_eq!(
+        validation_parity(&state, Some(LivingTickV2(0))),
+        Err(LivingValidationErrorV2::Range {
+            field: "observation observed_tick"
+        })
+    );
+    assert_eq!(
+        validation_parity(&state, Some(LivingTickV2(u64::MAX))),
+        Ok(())
+    );
+    expect_valid(&LivingGalaxyStateV2::default());
+    assert_eq!(
+        validation_parity(&scaffold(), Some(LivingTickV2(0))),
+        Ok(())
+    );
+}
+
+#[test]
+fn counted_validation_preserves_accepted_omissions_with_long_nested_lane_paths() {
+    use nyon_workshop_core::living::{LivingObservedFacilityV2, LivingObservedHullV2};
+    let mut state = valid_state();
+    state.hull_jobs = LivingSortedVecV2::default();
+    state.colonies = LivingSortedVecV2::default();
+    state.agreements = LivingSortedVecV2::default();
+    state.lanes = sorted(lanes(1));
+    let mut rows = state.facilities.into_vec();
+    rows[0].next_due = Some(LivingTickV2(u64::MAX));
+    rows[0].next_repair = Some(LivingTickV2(0));
+    state.facilities = sorted(rows);
+    let mut rows = state.routes.into_vec();
+    rows[0].source_owner = id(CIVILIZATION_BASE + 1);
+    rows[0].receiver_owner = id(CIVILIZATION_BASE + 1);
+    state.routes = sorted(rows);
+    let mut rows = state.fleets.into_vec();
+    rows[0].order = Some(LivingFleetOrderV2 {
+        kind: LivingFleetOrderKindV2::Move,
+        target_world: Some(id(WORLD_BASE + 2)),
+        not_before_tick: LivingTickV2(u64::MAX),
+        lane_path: vec![id(LANE_BASE); 4096],
+    });
+    state.fleets = sorted(rows);
+    let mut rows = state.observations.into_vec();
+    rows[0].owner = Some(id(CIVILIZATION_BASE + 1));
+    rows[0].remaining_deposit = u64::MAX;
+    rows[0].facilities = sorted(vec![LivingObservedFacilityV2 {
+        definition: slug("solar_array"),
+        count: 0,
+    }]);
+    rows[0].stationed_hulls = sorted(vec![LivingObservedHullV2 {
+        definition: slug("escort"),
+        count: 0,
+    }]);
+    state.observations = sorted(rows);
+    expect_valid(&state);
+}
+
 /// A topology-only state, so a capacity test can grow one collection without
 /// dragging the whole fixture's cross-references along.
 fn scaffold() -> LivingGalaxyStateV2 {
@@ -350,15 +715,97 @@ fn scaffold() -> LivingGalaxyStateV2 {
 }
 
 #[track_caller]
-fn expect_valid(state: &LivingGalaxyStateV2) {
-    state.validate(&catalog()).expect("state validates");
+fn validation_parity(
+    state: &LivingGalaxyStateV2,
+    effective_tick: Option<LivingTickV2>,
+) -> Result<(), LivingValidationErrorV2> {
+    use nyon_workshop_core::living::LivingDeterministicFaultV2;
+    use nyon_workshop_core::living::step_job::{
+        LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+        LivingStateValidationJobV2,
+    };
+    use std::sync::Arc;
+    let catalog = Arc::new(catalog());
+    let source = Arc::new(state.clone());
+    let mut reference = state.clone();
+    if let Some(tick) = effective_tick {
+        reference.tick = tick;
+    }
+    let expected = reference.validate(&catalog);
+    let mut total = None;
+    for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024, 3][..]] {
+        let mut job = if let Some(tick) = effective_tick {
+            LivingStateValidationJobV2::begin_at_tick(
+                Arc::clone(&catalog),
+                Arc::clone(&source),
+                tick,
+            )
+        } else {
+            LivingStateValidationJobV2::begin(Arc::clone(&catalog), Arc::clone(&source))
+        };
+        assert_eq!(job.total_visits(), 0);
+        assert!(matches!(job.finish(), Err(Error::NotReady)));
+        assert!(matches!(job.finish_retirement(), Err(Error::NotReady)));
+        assert_eq!(job.poll(0), Err(Error::Budget));
+        assert_eq!(job.poll(1025), Err(Error::Budget));
+        assert_eq!(job.total_visits(), 0);
+        let mut polls = 0;
+        let actual = loop {
+            let budget = budgets[polls % budgets.len()];
+            let before = job.total_visits();
+            let progress = job.poll(budget);
+            assert!(job.last_poll_visits() <= budget);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            polls += 1;
+            match progress {
+                Ok(Progress::Pending) => {}
+                Ok(Progress::Ready) => {
+                    assert_eq!(job.poll(1), Ok(Progress::Ready));
+                    assert_eq!(job.last_poll_visits(), 0);
+                    let (owner, pack, tick) = job.finish().unwrap();
+                    assert!(Arc::ptr_eq(&owner, &source));
+                    assert!(Arc::ptr_eq(&pack, &catalog));
+                    assert_eq!(tick, effective_tick.unwrap_or(state.tick));
+                    assert!(matches!(job.finish(), Err(Error::NotReady)));
+                    assert!(matches!(job.finish_retirement(), Err(Error::NotReady)));
+                    break Ok(());
+                }
+                Err(Error::Fault(LivingDeterministicFaultV2::Validation(error))) => {
+                    assert!(job.last_poll_visits() > 0, "the faulting visit is counted");
+                    let retained = (Arc::strong_count(&source), Arc::strong_count(&catalog));
+                    assert_eq!(
+                        job.poll(1),
+                        Err(Error::Fault(LivingDeterministicFaultV2::Validation(error)))
+                    );
+                    assert_eq!(job.last_poll_visits(), 0);
+                    assert!(
+                        matches!(job.finish(),Err(Error::Fault(LivingDeterministicFaultV2::Validation(found))) if found == error)
+                    );
+                    assert_eq!(
+                        retained,
+                        (Arc::strong_count(&source), Arc::strong_count(&catalog))
+                    );
+                    break Err(error);
+                }
+                other => panic!("unexpected validation result: {other:?}"),
+            }
+        };
+        assert_eq!(actual, expected);
+        if let Some(total) = total {
+            assert_eq!(job.total_visits(), total);
+        }
+        total = Some(job.total_visits());
+        assert_eq!(source.as_ref(), state);
+    }
+    expected
 }
-
+#[track_caller]
+fn expect_valid(state: &LivingGalaxyStateV2) {
+    validation_parity(state, None).expect("state validates");
+}
 #[track_caller]
 fn expect_error(state: &LivingGalaxyStateV2) -> LivingValidationErrorV2 {
-    state
-        .validate(&catalog())
-        .expect_err("state must fail validation")
+    validation_parity(state, None).expect_err("state must fail validation")
 }
 
 #[track_caller]
@@ -469,7 +916,12 @@ fn deposits_are_bounded_at_one_thousand_and_twenty_four() {
 #[test]
 fn facilities_are_bounded_at_the_industry_maximum() {
     let mut state = scaffold();
-    state.facilities = sorted(facilities(LIVING_MAX_INDUSTRIES_V2));
+    state.worlds = sorted(worlds(LIVING_MAX_INDUSTRIES_V2.div_ceil(6)));
+    let mut rows = facilities(LIVING_MAX_INDUSTRIES_V2);
+    for (index, row) in rows.iter_mut().enumerate() {
+        row.world = id(WORLD_BASE + (index / 6) as u32);
+    }
+    state.facilities = sorted(rows);
     expect_valid(&state);
     state.facilities = sorted(facilities(LIVING_MAX_INDUSTRIES_V2 + 1));
     expect_capacity(&state, "facilities");
@@ -704,6 +1156,7 @@ fn a_hull_job_may_reserve_a_new_fleet_instead_of_naming_one() {
 #[test]
 fn a_travelling_fleet_arrives_after_it_departs() {
     let mut state = valid_state();
+    state.hull_jobs = LivingSortedVecV2::default();
     let mut rows = state.fleets.into_vec();
     rows[0].location = LivingFleetLocationV2::Travelling {
         origin_world: id(WORLD_BASE),
@@ -718,6 +1171,7 @@ fn a_travelling_fleet_arrives_after_it_departs() {
 #[test]
 fn a_fleet_order_names_existing_lanes() {
     let mut state = valid_state();
+    state.hull_jobs = LivingSortedVecV2::default();
     let mut rows = state.fleets.into_vec();
     rows[0].order = Some(LivingFleetOrderV2 {
         kind: LivingFleetOrderKindV2::Move,
@@ -798,9 +1252,7 @@ fn a_route_declares_the_rules_batch_cadence_and_reserve() {
     rows[0].batch_size = 1;
     rows[0].source_reserve = 20;
     state.routes = sorted(rows);
-    state
-        .validate(&catalog())
-        .expect("batch 1, reserve 20 is valid");
+    expect_valid(&state);
 }
 
 #[test]

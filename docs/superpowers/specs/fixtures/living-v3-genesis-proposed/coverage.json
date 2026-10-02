@@ -1,0 +1,41 @@
+{
+  "status": "Partial",
+  "family": "zero_record_state_genesis_root",
+  "counts": {
+    "document_cases": 142,
+    "negative_documents": 138,
+    "zero_state_genesis_positives": 2,
+    "header_width_structural_positive": 1,
+    "unsupported_family_examples": 1,
+    "issuance_leaf_frames": 18,
+    "noncontiguous_roster_leaf": 1,
+    "root_diagnostic_negatives": 8,
+    "literal_frames": 10
+  },
+  "covered": [
+    {
+      "sections": "complete-schema §§Scalar grammar; Capacities and exact keys; Identity, kind tags and sequence consumption; History schemas; wire §§Canonical state layout, Identity framing",
+      "strength": "all applicable zero-record field/order/scalar/reference/empty-roster/genesis/root predicates; literal framing; full-range header scalar shape separate from replay admission"
+    }
+  ],
+  "missing": [
+    "Nonempty State families return outside_family, never fabricated invalid-wire errors; row schemas/history/initial observations/derived facts not validated.",
+    "All18 issuance frames and noncontiguous positive roster are leaf diagnostics, not full allocation-to-live/reserved Genesis correspondence.",
+    "No admitted Archive/Notebook/history/collision scanner or allocator abandonment/queue/replay proof.",
+    "Root Branch/HistoryView/allocator bytes are diagnostic records, not standalone portable envelopes.",
+    "Inhabited State and initial paid SnapshotReference provenance cycle unresolved.",
+    "No actor/forecast/scoring/mechanics/full six-gap closure or runtime/platform/budget/cancellation proof.",
+    "No exhaustive malformed-input matrix or universal failure precedence; diagnostics are local predicates except explicit raw byte-cap-first error."
+  ],
+  "source_sha256": {
+    "2026-10-01-living-expansion-architecture.md": "539009046173d4e6ffced1c7c3b79f1eaf977860d3bdfcd2e171fad76d630615",
+    "2026-10-01-living-societies-rules.md": "aa221fd432f193db4eedade9b690f4156bee264525ac58b5595a679ce9a02e71",
+    "2026-10-01-living-ecology-rules.md": "003659ee5eacd9b952344066eb6024964b630273505f598a86a6b3dfd3287fc1",
+    "2026-10-01-living-diplomacy-expansion.md": "045ebab7aed37ab81848dfc4e9225cfb43434f4518926b305397b468e7395747",
+    "2026-10-01-living-expansion-wire.md": "1a8ff87d275e4f5e4a7e620179237f41339e64541c9942af3100374dfac70904",
+    "2026-10-01-living-expansion-experience.md": "66cf1a76ae3111a7d7007892b180f9267f94d4fc5adcffd69b77e78ed9ab7cc4",
+    "2026-10-01-living-v3-complete-schema.md": "9a05423608640515a6797fc3e73167a7213266d2e790f4d47ee73e0589996d73",
+    "2026-10-02-living-v3-scoring.md": "c8bd14e773cc59fc8c9f7eb78b1eea6b5a32f648c6955b00ffe757f34c34976d"
+  },
+  "catalog_dependency_sha256": "ab6b0619b6b88bb316246e711bacecd654a3617ecae6bab03f6224cf195fe20a"
+}

@@ -198,7 +198,7 @@ fn sdf_installation_preserves_browser_semantic_identity_and_offline_assets() {
     assert!(mirror.contains("element.set_attribute(\"tabindex\", \"-1\")"));
     assert!(mirror.contains("if !node.visible"));
     let app = project_file("src/app.rs");
-    assert!(app.contains("install_platform_batches("));
+    assert!(app.contains("install_platform_batches_with_editor("));
     assert!(app.contains("install_guide_batches("));
     assert!(app.contains("self.sync_semantics(&frame.semantics)"));
     for path in ["src/ui/platform.rs", "src/ui/platform_sdf.rs", "src/ui.rs"] {
@@ -464,20 +464,22 @@ fn dom_mirror_returns_the_caret_after_it_rebuilds_editable_nodes() {
     assert!(mirror.contains("input.selection_end()"));
     assert!(mirror.contains("set_selection_range(start.min(length), end.min(length))"));
 
-    // Select-all belongs to entry, never to a rebuild the user did not ask for.
+    // Native pointer selection is preserved; rebuilding never selects all.
     let restore = mirror
         .split_once("fn restore_focus")
         .expect("restore_focus is defined")
         .1;
     let restore = restore
-        .split_once("\n    pub fn drain_actions")
-        .expect("restore_focus precedes drain_actions")
+        .split_once("\n    pub fn drain_events")
+        .expect("restore_focus precedes drain_events")
         .0;
     assert!(!restore.contains("select()"));
 
     // The rebuilt element is seeded from authoritative state, so the live input
     // value is the truth and needs no guess about what the browser replaced.
-    assert!(mirror.contains("push_back((action_id.clone(), input.value()))"));
+    assert!(mirror.contains("PlatformSemanticEvent::Edit(action_id.clone(), input.value())"));
+    assert!(mirror.contains("encode_utf16().count()"));
+    assert!(!mirror.contains("input.select()"));
     assert!(!mirror.contains("normalize_select_all_input"));
     assert!(!project_file("src/ui/accessibility.rs").contains("normalize_select_all_input"));
 }

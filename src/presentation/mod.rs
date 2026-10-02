@@ -2,6 +2,7 @@
 
 mod camera;
 mod interaction;
+pub mod living;
 mod picking;
 mod scene;
 pub mod ui;

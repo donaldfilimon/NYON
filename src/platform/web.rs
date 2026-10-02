@@ -117,11 +117,19 @@ pub fn run() -> Result<(), WebStartupError> {
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let event_proxy = event_loop.create_proxy();
-    let app = App::with_workshop_store(
+    let mut app = App::with_workshop_store(
         AppCore::new_with_preferences(scenario, WebScenarioStore, WebPreferencesStore),
         IndexedDbWorkshopStore::new(),
         event_proxy,
     );
+    app.runtime_mut().install_living_storage(
+        Box::new(crate::living_store::web::IndexedDbLivingStoreV2::default()),
+        Box::new(crate::library_selection::web::IndexedDbLibraryCoordinator::default()),
+    );
+    app.load_living_audio_settings();
+    app.runtime_mut().install_living_transfer(Box::new(
+        crate::living_transfer::web::BrowserLivingTransfer::default(),
+    ));
     event_loop.spawn_app(app);
     Ok(())
 }

@@ -690,7 +690,7 @@ fn v2_wrapper_hex_rejects_uppercase_short_long_and_non_hex_text() {
 /// Every source file the crate compiles, compiled in so the scan cannot resolve
 /// a stale path after the checkout moves. `crate_module_scan_covers_every_file`
 /// proves this list is complete.
-const CRATE_SOURCES: [(&str, &str); 17] = [
+const CRATE_SOURCES: [(&str, &str); 27] = [
     ("lib.rs", include_str!("../src/lib.rs")),
     ("archive.rs", include_str!("../src/archive.rs")),
     ("command.rs", include_str!("../src/command.rs")),
@@ -700,6 +700,22 @@ const CRATE_SOURCES: [(&str, &str); 17] = [
     ("pack.rs", include_str!("../src/pack.rs")),
     ("simulation.rs", include_str!("../src/simulation.rs")),
     ("living/mod.rs", include_str!("../src/living/mod.rs")),
+    (
+        "living/creator_additions.rs",
+        include_str!("../src/living/creator_additions.rs"),
+    ),
+    (
+        "living/decision.rs",
+        include_str!("../src/living/decision.rs"),
+    ),
+    (
+        "living/archive.rs",
+        include_str!("../src/living/archive.rs"),
+    ),
+    (
+        "living/history.rs",
+        include_str!("../src/living/history.rs"),
+    ),
     (
         "living/catalog.rs",
         include_str!("../src/living/catalog.rs"),
@@ -715,12 +731,33 @@ const CRATE_SOURCES: [(&str, &str); 17] = [
     ("living/ids.rs", include_str!("../src/living/ids.rs")),
     ("living/model.rs", include_str!("../src/living/model.rs")),
     (
+        "living/notebook.rs",
+        include_str!("../src/living/notebook.rs"),
+    ),
+    (
         "living/receipt.rs",
         include_str!("../src/living/receipt.rs"),
+    ),
+    ("living/rules.rs", include_str!("../src/living/rules.rs")),
+    (
+        "living/simulation/retirement.rs",
+        include_str!("../src/living/simulation/retirement.rs"),
     ),
     (
         "living/simulation.rs",
         include_str!("../src/living/simulation.rs"),
+    ),
+    (
+        "living/event_facts.rs",
+        include_str!("../src/living/event_facts.rs"),
+    ),
+    (
+        "living/step_job.rs",
+        include_str!("../src/living/step_job.rs"),
+    ),
+    (
+        "living/production_job.rs",
+        include_str!("../src/living/production_job.rs"),
     ),
     ("living/wire.rs", include_str!("../src/living/wire.rs")),
 ];
@@ -838,28 +875,59 @@ fn crate_module_scan_covers_every_file() {
     let scanned: Vec<&str> = CRATE_SOURCES.iter().map(|(name, _)| *name).collect();
     let mut declarations = 0;
     for (name, source) in CRATE_SOURCES {
-        for line in source.lines() {
-            let line = line.trim();
-            let Some(rest) = line
-                .strip_prefix("pub mod ")
-                .or_else(|| line.strip_prefix("mod "))
-            else {
+        let ast = syn::parse_file(source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        for item in ast.items {
+            let syn::Item::Mod(declaration) = item else {
                 continue;
             };
-            let Some(module) = rest.strip_suffix(';') else {
+            if declaration.content.is_some() {
                 continue;
-            };
+            }
             declarations += 1;
-            let directory = match name {
-                "lib.rs" => String::new(),
-                other => other
-                    .rsplit_once('/')
-                    .map_or_else(String::new, |(head, _)| format!("{head}/")),
+            let module = declaration.ident;
+            let parent = name.rsplit_once('/').map_or("", |(head, _)| head);
+            let explicit = declaration
+                .attrs
+                .iter()
+                .find(|attr| attr.path().is_ident("path"));
+            let candidates = if let Some(attribute) = explicit {
+                let syn::Meta::NameValue(value) = &attribute.meta else {
+                    panic!("invalid module path in {name}")
+                };
+                let syn::Expr::Lit(expression) = &value.value else {
+                    panic!("nonliteral module path in {name}")
+                };
+                let syn::Lit::Str(path) = &expression.lit else {
+                    panic!("nonstring module path in {name}")
+                };
+                // Explicit #[path] is relative to the source's directory.
+                vec![
+                    std::path::Path::new(parent)
+                        .join(path.value())
+                        .to_str()
+                        .expect("UTF-8 source label")
+                        .to_owned(),
+                ]
+            } else {
+                // Default children of foo.rs live under foo/, whereas lib.rs
+                // and mod.rs keep their containing module directory.
+                let directory = match name.rsplit('/').next().expect("source label") {
+                    "lib.rs" | "mod.rs" => parent.to_owned(),
+                    _ => name
+                        .strip_suffix(".rs")
+                        .expect("Rust source label")
+                        .to_owned(),
+                };
+                let prefix = if directory.is_empty() {
+                    String::new()
+                } else {
+                    format!("{directory}/")
+                };
+                vec![
+                    format!("{prefix}{module}.rs"),
+                    format!("{prefix}{module}/mod.rs"),
+                ]
             };
-            let candidates = [
-                format!("{directory}{module}.rs"),
-                format!("{directory}{module}/mod.rs"),
-            ];
             assert!(
                 candidates
                     .iter()
@@ -870,8 +938,8 @@ fn crate_module_scan_covers_every_file() {
         }
     }
     assert_eq!(
-        declarations, 16,
-        "the crate declares eight top-level modules and eight living submodules"
+        declarations, 26,
+        "all top-level, Living and nested authority modules are covered"
     );
     // `lib.rs` legitimately spells the word once, in `#![forbid(unsafe_code)]`.
     let (_, crate_root) = CRATE_SOURCES[0];
@@ -1193,7 +1261,6 @@ fn crate_sources_syncs_with_module_declarations_syn() {
         "At least some public modules should be declared"
     );
 
-    // The exact count may differ from the string-based test due to visibility differences
-    // (e.g., pub(crate) vs pub, or private modules). The string-based test in
-    // crate_sources_syncs_with_module_declarations remains the authoritative count.
+    // Public-only counts differ from the full source-isolation module scan.
+    // crate_module_scan_covers_every_file remains the exact declaration/membership check.
 }

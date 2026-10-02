@@ -667,7 +667,11 @@ fn saved_resident_workshop_continues_with_the_exact_digest_and_tick() {
     runtime.return_to_main_menu().unwrap();
     assert_eq!(runtime.screen(), ClientScreen::MainMenu);
     assert!(!runtime.continue_available());
-    for route in [MainMenuRoute::NewWorkshop, MainMenuRoute::ClassicSector] {
+    for route in [
+        MainMenuRoute::NewWorkshop,
+        MainMenuRoute::ClassicSector,
+        MainMenuRoute::GalaxySandbox,
+    ] {
         assert!(
             !runtime
                 .menu_capabilities()
@@ -829,6 +833,7 @@ fn menu_exposes_only_working_v1_routes_and_native_quit_is_an_effect() {
             MainMenuRoute::Continue,
             MainMenuRoute::Library,
             MainMenuRoute::ClassicSector,
+            MainMenuRoute::GalaxySandbox,
             MainMenuRoute::Settings,
             MainMenuRoute::Credits,
             MainMenuRoute::Quit,

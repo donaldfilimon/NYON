@@ -208,7 +208,7 @@ pub fn build_shell_platform_frame(input: ShellPlatformInput<'_>) -> PlatformUiFr
         }
         ClientScreen::Loading => {
             title = "NYON // Loading".to_owned();
-            status_lines = vec!["Validating the explicitly selected Workshop save".to_owned()];
+            status_lines = vec!["Validating the exact selected saved galaxy".to_owned()];
         }
         ClientScreen::RecoverableError => {
             title = "NYON // Recovery".to_owned();
@@ -250,7 +250,10 @@ pub fn build_shell_platform_frame(input: ShellPlatformInput<'_>) -> PlatformUiFr
         // Screens this builder never draws. The Library joined them when route
         // design task 8 gave it its own frame; its old placeholder here would
         // otherwise build a second Close control beside the real one.
-        ClientScreen::ClassicSector | ClientScreen::GalaxyWorkshop | ClientScreen::Library => {
+        ClientScreen::ClassicSector
+        | ClientScreen::GalaxyWorkshop
+        | ClientScreen::Library
+        | ClientScreen::GalaxySandbox => {
             title = "NYON".to_owned();
             status_lines = Vec::new();
         }
@@ -379,14 +382,15 @@ pub(super) fn menu_button(viewport: Vec2, index: usize, count: usize) -> Platfor
 pub(super) fn menu_copy(route: MainMenuRoute) -> (&'static str, &'static str) {
     match route {
         MainMenuRoute::NewWorkshop => ("New Workshop", "Create a blank deterministic galaxy."),
-        MainMenuRoute::Continue => (
-            "Continue",
-            "Open the last explicitly selected validated Workshop save.",
-        ),
-        MainMenuRoute::Library => ("Library", "Browse, open, and manage saved Workshops."),
+        MainMenuRoute::Continue => ("Continue", "Open the exact last selected saved galaxy."),
+        MainMenuRoute::Library => ("Library", "Browse, open, and manage saved galaxies."),
         MainMenuRoute::ClassicSector => (
             "Classic Sector",
             "Play the frozen deterministic RulesV1 sector.",
+        ),
+        MainMenuRoute::GalaxySandbox => (
+            "Living Galaxy",
+            "Step a galaxy that keeps running after conquest.",
         ),
         MainMenuRoute::Settings => ("Settings", "Open presentation and accessibility settings."),
         MainMenuRoute::Credits => ("Credits", "Show developer and product credits."),
@@ -401,6 +405,7 @@ pub(super) fn menu_slug(route: MainMenuRoute) -> &'static str {
         MainMenuRoute::Continue => "continue",
         MainMenuRoute::Library => "library",
         MainMenuRoute::ClassicSector => "classic-sector",
+        MainMenuRoute::GalaxySandbox => "galaxy-sandbox",
         MainMenuRoute::Settings => "settings",
         MainMenuRoute::Credits => "credits",
         #[cfg(not(target_arch = "wasm32"))]

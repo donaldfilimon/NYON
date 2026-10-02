@@ -95,75 +95,42 @@ struct ReferenceField {
 
 /// Is this the name of an enum variant, rather than a doc comment, an
 /// attribute, or a closing brace at the same indentation?
-fn is_variant_name(text: &str) -> bool {
-    text.starts_with(|character: char| character.is_ascii_uppercase())
-        && text
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric())
-}
-
-/// Read `living/command.rs` and return the operation variants it declares and
-/// every reference-bearing field of every enum in the file.
-///
-/// This is the part that makes the coverage test below total instead of a
-/// sample. A twenty-ninth operation, or one more `LivingCommandTargetV2` field
-/// on an existing operation, appears here without anyone remembering to say so,
-/// and fails the assertions that consume it until the templates are extended.
+/// Read real Rust syntax so formatting cannot hide a single-field variant.
 fn scan_command_schema() -> (Vec<String>, Vec<ReferenceField>) {
+    fn contains_target(ty: &syn::Type) -> bool {
+        let syn::Type::Path(path) = ty else {
+            return false;
+        };
+        path.path.segments.iter().any(|segment| {
+            segment.ident == "LivingCommandTargetV2" || match &segment.arguments {
+                syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|argument| matches!(argument, syn::GenericArgument::Type(inner) if contains_target(inner))),
+                _ => false,
+            }
+        })
+    }
+    let file = syn::parse_file(COMMAND_SOURCE).expect("command Rust syntax");
     let mut operations = Vec::new();
     let mut fields = Vec::new();
-    let mut current_enum: Option<&str> = None;
-    let mut current_variant: Option<String> = None;
-
-    for line in COMMAND_SOURCE.lines() {
-        if let Some(rest) = line.strip_prefix("pub enum ") {
-            current_enum = Some(rest.trim_end_matches(" {"));
-            current_variant = None;
-            continue;
-        }
-        if line == "}" {
-            current_enum = None;
-            current_variant = None;
-            continue;
-        }
-        let Some(enum_name) = current_enum else {
+    for item in file.items {
+        let syn::Item::Enum(item) = item else {
             continue;
         };
-
-        // A variant header sits at one level of indentation, a field at two.
-        if let Some(rest) = line.strip_prefix("    ")
-            && !rest.starts_with(' ')
-        {
-            let candidate = rest.trim_end_matches(" {").trim_end_matches(',');
-            if is_variant_name(candidate) {
-                if enum_name == "LivingCreatorOperationV2" {
-                    operations.push(candidate.to_owned());
-                }
-                current_variant = Some(candidate.to_owned());
+        for variant in item.variants {
+            if item.ident == "LivingCreatorOperationV2" {
+                operations.push(variant.ident.to_string());
             }
-            continue;
-        }
-
-        if let Some(rest) = line.strip_prefix("        ")
-            && !rest.starts_with(' ')
-            && let Some((field, declared)) = rest.split_once(": ")
-            && !field.is_empty()
-            && field
-                .chars()
-                .all(|character| character.is_ascii_lowercase() || character == '_')
-            && declared.contains("LivingCommandTargetV2")
-        {
-            let variant = current_variant
-                .clone()
-                .unwrap_or_else(|| panic!("{enum_name}.{field} sits outside any variant"));
-            fields.push(ReferenceField {
-                variant,
-                field: field.to_owned(),
-                plural: declared.starts_with("Vec<"),
-            });
+            for field in variant.fields {
+                if contains_target(&field.ty) {
+                    let plural = matches!(&field.ty, syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "Vec"));
+                    fields.push(ReferenceField {
+                        variant: variant.ident.to_string(),
+                        field: field.ident.expect("named target field").to_string(),
+                        plural,
+                    });
+                }
+            }
         }
     }
-
     (operations, fields)
 }
 
@@ -236,7 +203,7 @@ fn count_local_targets(document: &Value) -> usize {
 /// a variant fails to compile here, which is a stronger signal than a test
 /// failure and arrives sooner.
 fn every_operation_template() -> Vec<LivingCreatorOperationV2> {
-    vec![
+    let mut templates = vec![
         LivingCreatorOperationV2::CreateSystem {
             local: 0,
             name: name("Vale"),
@@ -413,7 +380,22 @@ fn every_operation_template() -> Vec<LivingCreatorOperationV2> {
                 dependents: vec![existing(0x02)],
             },
         },
-    ]
+    ];
+    let additions: LivingCommandV2 = decode_canonical_v2(
+        include_bytes!("fixtures/living-v2-additions/creator-command.json"),
+        65536,
+    )
+    .expect("independent additive command corpus");
+    for mut operation in additions.operations()[..18].iter().cloned() {
+        if let LivingCreatorOperationV2::ScrapFacility { cascade, .. } = &mut operation {
+            *cascade = LivingCascadeDispositionV2::RemoveReviewed {
+                dependents: vec![existing(0x02)],
+                derived: vec![],
+            };
+        }
+        templates.push(operation);
+    }
+    templates
 }
 
 /// The exact batch the reviewed `creator_command` vector describes: two
@@ -771,12 +753,12 @@ fn the_command_schema_scan_finds_every_declared_reference_field() {
     let (operations, fields) = scan_command_schema();
     assert_eq!(
         operations.len(),
-        28,
+        46,
         "the declared operation count moved: {operations:?}"
     );
     assert_eq!(
         fields.len(),
-        49,
+        81,
         "the reference-bearing field count moved: {fields:?}"
     );
 

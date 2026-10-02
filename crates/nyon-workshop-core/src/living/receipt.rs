@@ -102,6 +102,8 @@ pub enum LivingEventKindV2 {
     CreatorIntervention,
     /// A due facility attempt produced nothing and recorded its reasons.
     FacilityBlocked,
+    /// A successful enabled facility recipe consumed and produced its actual batch.
+    FacilityProduced,
     /// A fleet arrived at its destination world.
     FleetArrived,
     /// A fleet departed on a committed leg.
@@ -151,6 +153,7 @@ impl LivingEventKindV2 {
             Self::ConstructionCompleted => "construction_completed",
             Self::CreatorIntervention => "creator_intervention",
             Self::FacilityBlocked => "facility_blocked",
+            Self::FacilityProduced => "facility_produced",
             Self::FleetArrived => "fleet_arrived",
             Self::FleetDeparted => "fleet_departed",
             Self::HazardEnded => "hazard_ended",
@@ -300,9 +303,21 @@ pub enum LivingReceiptErrorV2 {
 /// its own, skip one, or reuse one. Combined with [`LivingPendingEventV2`]
 /// having no identity field, this is what makes the normative derivation order
 /// the only reachable one.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LivingPendingEventsV2 {
     entries: Vec<LivingEventPayloadV2>,
+    pub(crate) decisions: Vec<super::decision::LivingIntentDecisionV2>,
+    pub(crate) creator_recoveries: Vec<super::simulation::LivingCreatorRecoveryCandidateV2>,
+    pub(crate) corridor_restrictions: Vec<super::event_facts::LivingCorridorRestrictionV2>,
+    pub(crate) explained: Vec<(u16, super::event_facts::LivingEventFactsV2)>,
+    explained_bytes: usize,
+    explanations_enabled: bool,
+}
+
+impl Default for LivingPendingEventsV2 {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LivingPendingEventsV2 {
@@ -310,7 +325,25 @@ impl LivingPendingEventsV2 {
     pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
+            decisions: Vec::new(),
+            creator_recoveries: Vec::new(),
+            corridor_restrictions: Vec::new(),
+            explained: Vec::new(),
+            explained_bytes: 0,
+            explanations_enabled: true,
         }
+    }
+
+    /// Private discard-only forecast collector. Ordinary event ordering and
+    /// capacity remain exact; no authenticated explanation may be sealed from it.
+    pub(crate) fn for_forecast() -> Self {
+        Self {
+            explanations_enabled: false,
+            ..Self::new()
+        }
+    }
+    pub(crate) const fn explanations_enabled(&self) -> bool {
+        self.explanations_enabled
     }
 
     /// Append one event and return the ordinal it was given.
@@ -328,6 +361,43 @@ impl LivingPendingEventsV2 {
             provenance,
             kind,
         });
+        Ok(ordinal)
+    }
+
+    /// Append producer facts atomically with their ordinary event. Existing event
+    /// payloads and emission ordinals remain unchanged.
+    pub fn record_explained(
+        &mut self,
+        provenance: LivingEventProvenanceV2,
+        kind: LivingEventKindV2,
+        facts: super::event_facts::LivingEventFactsV2,
+    ) -> Result<u16, super::event_facts::LivingEventFactsErrorV2> {
+        if !self.explanations_enabled {
+            return self.record(provenance, kind).map_err(Into::into);
+        }
+        facts.validate(kind)?;
+        let expected_ordinal =
+            u16::try_from(self.entries.len()).map_err(|_| LivingReceiptErrorV2::TooManyEvents {
+                limit: LIVING_MAX_BOUNDARY_EVENTS_V2,
+            })?;
+        let entry = super::event_facts::LivingExplainedEventV2 {
+            ordinal: expected_ordinal,
+            event_id: LivingEventIdV2([0; 16]),
+            facts: facts.clone(),
+        };
+        let bytes = serde_json::to_vec(&entry)
+            .map_err(|_| LivingWireErrorV2::Json)?
+            .len();
+        let next_bytes = self
+            .explained_bytes
+            .checked_add(bytes + usize::from(!self.explained.is_empty()))
+            .ok_or(super::event_facts::LivingEventFactsErrorV2::Capacity)?;
+        // Canonical sidecar admission happens at sealing, where complete
+        // framing and coalesced omissions can be measured exactly. A valid
+        // explanation must not fault an otherwise valid ordinary boundary.
+        let ordinal = self.record(provenance, kind)?;
+        self.explained_bytes = next_bytes;
+        self.explained.push((ordinal, facts));
         Ok(ordinal)
     }
 
@@ -482,5 +552,184 @@ mod tests {
                 kind
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod explained_forecast_tests {
+    use super::*;
+    #[test]
+    fn forecast_keeps_exact_ordinary_ordinals_but_cannot_seal_discarded_facts() {
+        let provenance = LivingEventProvenanceV2::Autonomous {
+            phase: LivingPhaseV2::RunProduction,
+        };
+        let mut live = LivingPendingEventsV2::new();
+        let mut forecast = LivingPendingEventsV2::for_forecast();
+        for _ in 0..32 {
+            let facts = super::super::event_facts::LivingEventFactsV2::default();
+            live.record_explained(
+                provenance,
+                LivingEventKindV2::FacilityProduced,
+                facts.clone(),
+            )
+            .unwrap();
+            forecast
+                .record_explained(provenance, LivingEventKindV2::FacilityProduced, facts)
+                .unwrap();
+        }
+        assert_eq!(live.payloads(), forecast.payloads());
+        assert!(forecast.explained.is_empty());
+        assert_eq!(forecast.explained_bytes, 0);
+        let receipt = seal_living_tick_receipt_v2(
+            LivingTickV2(1),
+            vec![],
+            &live,
+            LivingStateDigestV2([1; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            receipt,
+            seal_living_tick_receipt_v2(
+                LivingTickV2(1),
+                vec![],
+                &forecast,
+                LivingStateDigestV2([1; 32])
+            )
+            .unwrap()
+        );
+        assert!(
+            super::super::event_facts::seal_living_event_facts_receipt_v2(&receipt, &forecast)
+                .is_err()
+        );
+    }
+}
+
+// Opaque collector retirement is shared by producers and later sealing owners.
+use super::step_job::{
+    LivingStateRetirementPolicyV2, RetirementFields, RetirementPoll, retirement_node,
+};
+impl<'a> RetirementFields<'a> for LivingPendingEventsV2 {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        match index {
+            0 => Some(retirement_node(std::mem::take(&mut self.entries), policy)),
+            1 => Some(retirement_node(std::mem::take(&mut self.decisions), policy)),
+            2 => Some(retirement_node(
+                std::mem::take(&mut self.creator_recoveries),
+                policy,
+            )),
+            3 => Some(retirement_node(
+                std::mem::take(&mut self.corridor_restrictions),
+                policy,
+            )),
+            4 => Some(retirement_node(std::mem::take(&mut self.explained), policy)),
+            _ => None,
+        }
+    }
+}
+impl<'a> RetirementFields<'a> for super::decision::LivingIntentDecisionV2 {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        (index == 0).then(|| retirement_node(std::mem::take(&mut self.reasons), policy))
+    }
+}
+impl<'a> RetirementFields<'a> for super::event_facts::LivingEventFactsV2 {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        match index {
+            0 => Some(retirement_node(std::mem::take(&mut self.resources), policy)),
+            1 => Some(retirement_node(
+                std::mem::take(&mut self.blocked_reasons),
+                policy,
+            )),
+            2 => Some(retirement_node(std::mem::take(&mut self.affected), policy)),
+            _ => None,
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) type LivingPendingEventsRetirementJobV2 =
+    super::step_job::LivingPhaseRetirementJobV2<'static, LivingPendingEventsV2>;
+impl LivingPendingEventsV2 {
+    #[allow(dead_code)]
+    pub(crate) fn into_retirement(self) -> LivingPendingEventsRetirementJobV2 {
+        super::step_job::LivingPhaseRetirementJobV2::begin(
+            self,
+            LivingStateRetirementPolicyV2::ReleaseHandle,
+        )
+    }
+}
+
+#[cfg(test)]
+mod phase_retirement_tests {
+    use super::*;
+    use crate::living::LivingEntityIdV2;
+    #[test]
+    fn phase_retirement_pending_events_drains_every_nested_facts_and_decision_buffer() {
+        let mut totals = Vec::new();
+        for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+            let mut events = LivingPendingEventsV2::new();
+            events.entries = Vec::with_capacity(30);
+            events
+                .decisions
+                .push(super::super::decision::LivingIntentDecisionV2 {
+                    phase: LivingPhaseV2::UpdateDiplomacy,
+                    actor: LivingEntityIdV2([1; 16]),
+                    ordinal: 0,
+                    action: super::super::decision::LivingIntentActionV2::War {
+                        peer: LivingEntityIdV2([2; 16]),
+                    },
+                    target: None,
+                    score: super::super::decision::LivingDecisionScoreV2(0),
+                    tier: super::super::decision::LivingDecisionTierV2::Ordinary,
+                    snapshot_tick: LivingTickV2(1),
+                    snapshot_digest: LivingStateDigestV2([0; 32]),
+                    observed_tick: None,
+                    outcome: super::super::decision::LivingDecisionOutcomeV2::Accepted,
+                    reasons: vec![
+                            super::super::decision::LivingDecisionReasonV2::MissingIntelligence {
+                                world: LivingEntityIdV2([3; 16])
+                            };
+                            4
+                        ],
+                });
+            events.explained.push((
+                0,
+                super::super::event_facts::LivingEventFactsV2 {
+                    resources: Vec::with_capacity(20),
+                    blocked_reasons: vec![super::super::model::LivingBlockedReasonV2::Disabled; 2],
+                    affected: vec![LivingEntityIdV2([4; 16]); 3],
+                    ..Default::default()
+                },
+            ));
+            let mut job = events.into_retirement();
+            let mut i = 0;
+            while job.poll(schedule[i % schedule.len()]).unwrap()
+                != super::super::step_job::LivingLifecycleProgressV2::Ready
+            {
+                i += 1;
+                assert!(i < 1000);
+            }
+            totals.push(job.total_visits());
+            assert_eq!(
+                job.poll(1).unwrap(),
+                super::super::step_job::LivingLifecycleProgressV2::Ready
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+        assert!(totals.iter().all(|total| *total == totals[0]));
+        // Empty entries/recoveries/corridors: 3 each; decision: 21;
+        // explained tuple/facts tree: 42; final collector root: 1.
+        assert_eq!(totals[0], 3 + 21 + 3 + 3 + 42 + 1);
     }
 }

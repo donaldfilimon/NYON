@@ -29,7 +29,7 @@ use web_time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 use winit::dpi::LogicalSize;
 #[cfg(target_arch = "wasm32")]
-use winit::platform::web::WindowAttributesExtWebSys;
+use winit::platform::web::{WindowAttributesExtWebSys, WindowExtWebSys};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalPosition, PhysicalSize},
@@ -243,6 +243,10 @@ pub struct App<
     interaction: InteractionController,
     modifiers: ModifiersState,
     last_frame: Option<Instant>,
+    sandbox_window_suspended: bool,
+    sandbox_guide_held: bool,
+    sandbox_window_focused: bool,
+    sandbox_window_occluded: bool,
     device_epoch: u64,
     gpu_generation: u64,
     fatal_message: Option<String>,
@@ -273,10 +277,30 @@ pub struct App<
     /// brought on screen is not in it until that frame is installed.
     pending_focus: Option<SemanticActionId>,
     ui_focus: FocusManager,
+    semantic_context: String,
+    semantic_context_owner: std::rc::Rc<()>,
     player_guide: Option<(GuideLocation, FocusManager)>,
     selected_workshop_entity: Option<nyon_workshop_core::EntityId>,
     pending_removal: Option<nyon_workshop_core::EntityId>,
     active_creator: Option<ActiveCreatorEditor>,
+    living_text_edit: Option<(String, crate::ui::text_edit::TextEdit)>,
+    #[cfg(not(target_arch = "wasm32"))]
+    living_text_drag: Option<(u64, String, std::rc::Rc<()>)>,
+    living_camera_drag: Option<(u64, Vec2, bool)>,
+    living_scene_focused: bool,
+    living_camera_touches: crate::living_camera_input::LivingCameraTouches,
+    living_scene_click: Option<(
+        Instant,
+        Vec2,
+        crate::living_navigation::LivingEntitySelection,
+    )>,
+    living_exit_pending: bool,
+    living_audio_scope: Option<std::rc::Rc<()>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    living_clipboard: crate::ui::clipboard::NativeClipboard,
+    living_audio: crate::living_audio::LivingAudio,
+    living_audio_origin: Instant,
+    living_audio_boundary: Option<(nyon_workshop_core::living::LivingBranchIdV2, u64)>,
     workshop_view: WorkshopViewState,
     continue_bootstrap_started: bool,
     quit_requested: bool,
@@ -337,6 +361,10 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             interaction: InteractionController::default(),
             modifiers: ModifiersState::empty(),
             last_frame: None,
+            sandbox_window_suspended: false,
+            sandbox_guide_held: false,
+            sandbox_window_focused: true,
+            sandbox_window_occluded: false,
             device_epoch: 0,
             gpu_generation: 0,
             fatal_message: None,
@@ -353,10 +381,26 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             library_view: LibraryView::default(),
             pending_focus: None,
             ui_focus: FocusManager::new(std::iter::empty()),
+            semantic_context: String::new(),
+            semantic_context_owner: std::rc::Rc::new(()),
             player_guide: None,
             selected_workshop_entity: None,
             pending_removal: None,
             active_creator: None,
+            living_text_edit: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            living_text_drag: None,
+            living_camera_drag: None,
+            living_scene_focused: false,
+            living_camera_touches: crate::living_camera_input::LivingCameraTouches::default(),
+            living_scene_click: None,
+            living_exit_pending: false,
+            living_audio_scope: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            living_clipboard: crate::ui::clipboard::NativeClipboard::default(),
+            living_audio: crate::living_audio::LivingAudio::default(),
+            living_audio_origin: Instant::now(),
+            living_audio_boundary: None,
             workshop_view: WorkshopViewState::default(),
             continue_bootstrap_started: false,
             quit_requested: false,
@@ -396,6 +440,15 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
 
     pub fn runtime_mut(&mut self) -> &mut ClientRuntime<S, P, W> {
         &mut self.runtime
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_living_audio_path(&mut self, path: std::path::PathBuf) {
+        self.living_audio.load_native(path);
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_living_audio_settings(&mut self) {
+        self.living_audio.load_browser();
     }
 
     pub fn take_fatal_message(&mut self) -> Option<String> {
@@ -606,10 +659,19 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         let Some(window) = &self.window else {
             return;
         };
-        let logical = window.inner_size().to_logical::<f32>(window.scale_factor());
+        #[cfg(target_arch = "wasm32")]
+        let css = window
+            .canvas()
+            .map(|canvas| Vec2::new(canvas.client_width() as f32, canvas.client_height() as f32));
+        #[cfg(not(target_arch = "wasm32"))]
+        let css = None;
         self.runtime
             .classic_mut()
-            .set_viewport(Vec2::new(logical.width, logical.height));
+            .set_viewport(resolve_logical_viewport(
+                window.inner_size(),
+                window.scale_factor(),
+                css,
+            ));
     }
 
     fn resize_surface(&mut self, event_loop: &ActiveEventLoop, size: PhysicalSize<u32>) {
@@ -673,6 +735,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             ClientScreen::ClassicSector => self.build_classic_frame(),
             ClientScreen::GalaxyWorkshop => self.build_workshop_frame(),
             ClientScreen::Library => self.build_library_frame(),
+            ClientScreen::GalaxySandbox => self.build_sandbox_frame(),
             ClientScreen::MainMenu
             | ClientScreen::Settings
             | ClientScreen::Loading
@@ -935,6 +998,64 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.install_platform_frame(frame);
     }
 
+    fn sandbox_transport_held(&self) -> bool {
+        // Web focus tracks the canvas, while semantic DOM controls remain
+        // inside the same application. Document visibility arrives as Occluded.
+        #[cfg(not(target_arch = "wasm32"))]
+        let focus_held = !self.sandbox_window_focused;
+        #[cfg(target_arch = "wasm32")]
+        let focus_held = web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.has_focus().ok())
+            .is_none_or(|focused| !focused);
+        self.sandbox_window_suspended
+            || self.sandbox_window_occluded
+            || focus_held
+            || self.player_guide.is_some()
+    }
+
+    fn build_sandbox_frame(&mut self) {
+        self.ui_batch.clear();
+        self.underlay_batch.clear();
+        self.overlay_batch.clear();
+        self.workshop_ui = None;
+        self.leave_library();
+        let viewport = self.runtime.classic().viewport();
+        let high_contrast = self.runtime.classic().preferences().high_contrast;
+        if let Some(frame) = self.runtime.sandbox_frame(viewport, high_contrast) {
+            let canvas = frame.layout.canvas;
+            let scene = self.runtime.sandbox_scene(canvas);
+            if let Some(scene) = scene.as_ref() {
+                scene.draw(&mut self.underlay_batch, high_contrast);
+            }
+            let show_labels = frame.modal.is_none();
+            self.install_platform_frame(frame);
+            if show_labels
+                && let Some(scene) = scene
+                && let Some(frame) = self.platform_ui.as_ref()
+            {
+                // Use installed records so appended operational status also counts.
+                for label in scene.measured_labels_for_ui(&self.ui_metrics, frame) {
+                    let selected = scene.selected_entity == Some(label.selection);
+                    let color = if high_contrast || selected {
+                        [1.0, 1.0, 0.9, 1.0]
+                    } else {
+                        [0.65, 0.78, 0.9, 1.0]
+                    };
+                    let _ = self.ui_batch.push_text_clipped(
+                        &self.ui_metrics,
+                        [label.baseline.x, label.baseline.y],
+                        13.0,
+                        crate::ui::FontWeight::Regular,
+                        color,
+                        &label.text,
+                        Some([canvas.min.x, canvas.min.y, canvas.width(), canvas.height()]),
+                    );
+                }
+            }
+        }
+    }
+
     fn build_shell_frame(&mut self) {
         self.ui_batch.clear();
         self.underlay_batch.clear();
@@ -962,11 +1083,23 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
 
     fn install_platform_frame(&mut self, mut frame: PlatformUiFrame) {
         self.prepare_platform_frame(&mut frame);
-        let result = crate::ui::platform::install_platform_batches(
+        #[cfg(not(target_arch = "wasm32"))]
+        let editor = self.living_text_edit.as_ref().and_then(|(key, editor)| {
+            self.ui_focus
+                .focused()
+                .filter(|action| {
+                    action.as_str().strip_prefix("sandbox.creator.field.") == Some(key.as_str())
+                })
+                .map(|action| (action, editor))
+        });
+        #[cfg(target_arch = "wasm32")]
+        let editor = None;
+        let result = crate::ui::platform::install_platform_batches_with_editor(
             &frame,
             &self.ui_metrics,
             &mut self.ui_batch,
             &mut self.overlay_batch,
+            editor,
         )
         .map(|_| ());
         self.finish_platform_frame(frame, result);
@@ -984,6 +1117,17 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     fn prepare_platform_frame(&mut self, frame: &mut PlatformUiFrame) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(document) = web_sys::window().and_then(|window| window.document())
+            && document.title() != frame.title
+        {
+            document.set_title(&frame.title);
+        }
+        if let Some(window) = self.window.as_ref()
+            && window.title() != frame.title
+        {
+            window.set_title(&frame.title);
+        }
         if self.durable_exit.is_pending() {
             frame.append_status_line(
                 "Waiting for Workshop save and Continue selection; press Escape to cancel exit"
@@ -1000,11 +1144,39 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.ui_focus
             .replace_active_order(frame.focus_order())
             .expect("a presented modal retains an actionable control");
+        if self.runtime.screen() == ClientScreen::GalaxySandbox
+            && let Some(target) = self.runtime.take_sandbox_requested_focus()
+        {
+            self.ui_focus.request_focus(&target);
+        }
         if let Some(target) = self.pending_focus.take() {
             self.ui_focus.request_focus(&target);
         }
         let focused = self.ui_focus.focused();
         frame.reconcile_focused(focused);
+        self.synchronize_living_field_editor();
+    }
+
+    fn synchronize_living_field_editor(&mut self) {
+        let focused = self
+            .ui_focus
+            .focused()
+            .and_then(|action| action.as_str().strip_prefix("sandbox.creator.field."))
+            .and_then(|key| {
+                self.runtime
+                    .sandbox_creator_field(key)
+                    .map(|value| (key.to_owned(), value.to_owned()))
+            });
+        let Some((key, value)) = focused else {
+            return;
+        };
+        if self
+            .living_text_edit
+            .as_ref()
+            .is_none_or(|(previous, edit)| previous != &key || edit.value() != value)
+        {
+            self.living_text_edit = Some((key, crate::ui::text_edit::TextEdit::new(value)));
+        }
     }
 
     fn finish_platform_frame(
@@ -1033,10 +1205,39 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.platform_ui = Some(frame);
     }
 
+    fn semantic_input_owner(&mut self) -> crate::ui::accessibility::SemanticInputOwner {
+        // Values are deliberately excluded: typing and Preview belong to the
+        // same editing context. Screen and modal changes invalidate old input.
+        let context = format!(
+            "{:?}|{}|{:?}|{:?}|{:?}",
+            self.runtime.screen(),
+            self.player_guide.is_some(),
+            self.library_confirmation,
+            self.library_view.sheet,
+            self.pending_removal
+        );
+        if let Some(mut owner) = self.runtime.living_presentation_input_owner() {
+            owner.context.push_str(&context);
+            return owner;
+        }
+        if context != self.semantic_context {
+            self.semantic_context = context.clone();
+            self.semantic_context_owner = std::rc::Rc::new(());
+        }
+        crate::ui::accessibility::SemanticInputOwner {
+            resident: std::rc::Rc::clone(&self.semantic_context_owner),
+            hold: None,
+            context,
+            draft: None,
+        }
+    }
+
     fn sync_semantics(&mut self, tree: &SemanticTree) {
+        let owner = self.semantic_input_owner();
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.semantic_adapter.sync(tree, self.ui_focus.focused());
+            self.semantic_adapter
+                .sync_owned(tree, self.ui_focus.focused(), owner);
             let update = self.semantic_adapter.full_tree_update();
             if let Some(adapter) = &mut self.accesskit_adapter {
                 adapter.update_if_active(|| update);
@@ -1044,7 +1245,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         }
         #[cfg(target_arch = "wasm32")]
         if let Some(adapter) = &mut self.semantic_adapter
-            && let Err(error) = adapter.sync(tree)
+            && let Err(error) = adapter.sync(tree, &owner)
         {
             log::warn!("failed to update browser semantic mirror: {error:?}");
         }
@@ -1052,30 +1253,54 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
 
     fn drain_semantic_actions(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        let actions = self.semantic_adapter.drain_actions().collect::<Vec<_>>();
+        let events = {
+            let owner = self.semantic_adapter.input_owner().cloned();
+            self.semantic_adapter
+                .drain_events()
+                .filter_map(|event| {
+                    owner.clone().map(|owner| {
+                        crate::ui::accessibility::OwnedPlatformSemanticEvent { owner, event }
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
         #[cfg(target_arch = "wasm32")]
-        let actions = self
+        let events = self
             .semantic_adapter
             .as_mut()
-            .map(|adapter| adapter.drain_actions().collect::<Vec<_>>())
+            .map(|adapter| adapter.drain_events().collect::<Vec<_>>())
             .unwrap_or_default();
-        #[cfg(target_arch = "wasm32")]
-        let edits = self
-            .semantic_adapter
-            .as_mut()
-            .map(|adapter| adapter.drain_edits().collect::<Vec<_>>())
-            .unwrap_or_default();
-        for action in actions {
-            self.activate_platform_action_id(&action, InputModality::Keyboard);
-        }
-        #[cfg(target_arch = "wasm32")]
-        for (action, value) in edits {
-            self.apply_creator_semantic_value(&action, value);
+        self.apply_owned_semantic_events(events);
+    }
+
+    fn apply_owned_semantic_events(
+        &mut self,
+        events: Vec<crate::ui::accessibility::OwnedPlatformSemanticEvent>,
+    ) {
+        for queued in events {
+            if !queued.owner.matches(&self.semantic_input_owner()) {
+                continue;
+            }
+            match queued.event {
+                crate::ui::accessibility::PlatformSemanticEvent::Action(action) => {
+                    self.activate_platform_action_id(&action, InputModality::Keyboard);
+                }
+                crate::ui::accessibility::PlatformSemanticEvent::Edit(action, value) => {
+                    self.apply_creator_semantic_value(&action, value);
+                }
+            }
         }
     }
 
     fn apply_creator_semantic_value(&mut self, action: &SemanticActionId, value: String) {
         if self.player_guide.is_some() {
+            return;
+        }
+        if let Some(key) = action.as_str().strip_prefix("sandbox.creator.field.") {
+            if self.runtime.edit_sandbox_creator_field(key, &value) {
+                self.living_text_edit =
+                    Some((key.to_owned(), crate::ui::text_edit::TextEdit::new(value)));
+            }
             return;
         }
         if action.as_str() == LIBRARY_RENAME_FIELD_ACTION {
@@ -1122,7 +1347,47 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     fn apply_platform_action(&mut self, action: PlatformUiAction, modality: InputModality) {
+        self.living_scene_focused = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.living_text_drag = None;
+        }
         match action {
+            PlatformUiAction::Sandbox(action) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                self.living_clipboard.cancel();
+                self.living_audio.user_gesture();
+                match action {
+                    crate::sandbox_session::SandboxUiAction::ToggleMute => {
+                        self.living_audio.settings.muted = !self.living_audio.settings.muted;
+                        self.living_audio.refresh();
+                        if let Err(error) = self.living_audio.persist() {
+                            self.runtime.report_living_presentation_failure(error);
+                        }
+                        return;
+                    }
+                    crate::sandbox_session::SandboxUiAction::CycleAudio(channel) => {
+                        self.living_audio.settings.cycle(channel);
+                        self.living_audio.refresh();
+                        if let Err(error) = self.living_audio.persist() {
+                            self.runtime.report_living_presentation_failure(error);
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+                if matches!(
+                    action,
+                    crate::sandbox_session::SandboxUiAction::SelectWorld(_)
+                        | crate::sandbox_session::SandboxUiAction::SelectEntity(_)
+                ) {
+                    self.living_audio.cue(
+                        self.living_audio_origin.elapsed(),
+                        crate::living_audio::AudioCue::Selection,
+                    );
+                }
+                self.runtime.apply_sandbox_action(action);
+            }
             PlatformUiAction::Guide(action) => self.apply_guide_action(action),
             PlatformUiAction::Shell(action) => self.apply_shell_action(action),
             PlatformUiAction::Workshop(action_id) => {
@@ -1361,6 +1626,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     fn apply_guide_action(&mut self, action: GuideAction) {
         match action {
             GuideAction::Open if self.player_guide.is_none() => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.living_text_drag = None;
+                }
+                self.living_camera_drag = None;
+                self.living_camera_touches.clear();
+                #[cfg(not(target_arch = "wasm32"))]
+                self.living_clipboard.cancel();
                 let previous = std::mem::replace(&mut self.ui_focus, FocusManager::new([]));
                 self.player_guide =
                     Some((GuideLocation::for_screen(self.runtime.screen()), previous));
@@ -1393,16 +1666,23 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
 
     fn apply_shell_action(&mut self, action: ShellUiAction) {
         match action {
-            ShellUiAction::Menu(route) => match self.runtime.select_menu_route(route) {
-                Ok(ClientRuntimeEffect::None | ClientRuntimeEffect::CreditsOpened) => {
-                    if route == MainMenuRoute::Settings {
-                        self.runtime.classic_mut().open_settings();
+            ShellUiAction::Menu(route) => {
+                let first_living =
+                    route == MainMenuRoute::GalaxySandbox && self.runtime.sandbox_tick().is_none();
+                match self.runtime.select_menu_route(route) {
+                    Ok(ClientRuntimeEffect::None | ClientRuntimeEffect::CreditsOpened) => {
+                        if first_living {
+                            self.runtime.present_sandbox_intro();
+                        }
+                        if route == MainMenuRoute::Settings {
+                            self.runtime.classic_mut().open_settings();
+                        }
                     }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Ok(ClientRuntimeEffect::QuitRequested) => self.request_durable_exit(),
+                    Err(error) => log::warn!("shell action was rejected: {error}"),
                 }
-                #[cfg(not(target_arch = "wasm32"))]
-                Ok(ClientRuntimeEffect::QuitRequested) => self.request_durable_exit(),
-                Err(error) => log::warn!("shell action was rejected: {error}"),
-            },
+            }
             ShellUiAction::CloseSettings => {
                 self.runtime.close_settings();
                 self.runtime.classic_mut().close_settings();
@@ -1582,12 +1862,43 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             .map_or(Duration::ZERO, |previous| {
                 now.saturating_duration_since(previous)
             });
-        let delta = if self.player_guide.is_some() {
+        let guide_held = self.player_guide.is_some();
+        let delta = if guide_held
+            || self.sandbox_guide_held != guide_held
+            || (self.runtime.screen() == ClientScreen::GalaxySandbox
+                && self.sandbox_transport_held())
+        {
             Duration::ZERO
         } else {
             delta
         };
+        self.sandbox_guide_held = guide_held;
+        self.runtime
+            .set_sandbox_suspended(self.sandbox_transport_held());
         let _ = self.runtime.update(delta);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_living_clipboard();
+        self.runtime
+            .set_living_audio_projection(self.living_audio.settings);
+        let scope = self.runtime.living_presentation_scope();
+        let same_scope = match (&self.living_audio_scope, &scope) {
+            (Some(old), Some(new)) => std::rc::Rc::ptr_eq(old, new),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same_scope {
+            self.living_audio.scene(false);
+            self.living_audio_boundary = None;
+            self.living_audio_scope = scope;
+        }
+        self.living_audio
+            .scene(self.runtime.screen() == ClientScreen::GalaxySandbox);
+        let (boundary, cues) = self.runtime.living_audio_events(self.living_audio_boundary);
+        self.living_audio_boundary = boundary;
+        for cue in cues {
+            self.living_audio
+                .cue(self.living_audio_origin.elapsed(), cue);
+        }
         self.poll_durable_exit();
         if self.runtime.screen() == ClientScreen::ClassicSector && self.player_guide.is_none() {
             self.runtime.classic_mut().advance(delta);
@@ -1625,10 +1936,18 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     fn request_durable_exit(&mut self) {
-        let requires_save = matches!(
-            self.runtime.active_session(),
-            ActiveSession::Workshop(session) if !session.continue_ready()
-        );
+        if self.runtime.living_dirty() {
+            if self.living_exit_pending {
+                return;
+            }
+            match self.runtime.save_living(true) {
+                Ok(()) => self.living_exit_pending = true,
+                Err(error) => log::warn!("Living durable exit preparation rejected: {error}"),
+            }
+            return;
+        }
+        let requires_save = matches!(self.runtime.active_session(), ActiveSession::Workshop(_))
+            && !self.runtime.workshop_durable_ready();
         match self.durable_exit.request(requires_save) {
             DurableExitAction::ExitNow => self.quit_requested = true,
             DurableExitAction::PrepareWorkshop => {
@@ -1641,13 +1960,17 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     fn poll_durable_exit(&mut self) {
+        if self.living_exit_pending {
+            if !self.runtime.living_dirty() {
+                self.living_exit_pending = false;
+                self.request_durable_exit();
+            }
+            return;
+        }
         if !self.durable_exit.is_pending() {
             return;
         }
-        let continue_ready = matches!(
-            self.runtime.active_session(),
-            ActiveSession::Workshop(session) if session.continue_ready()
-        );
+        let continue_ready = self.runtime.workshop_durable_ready();
         match self.durable_exit.observe_workshop(continue_ready) {
             DurableExitAction::ExitNow => self.quit_requested = true,
             DurableExitAction::PrepareWorkshop => unreachable!("polling cannot start an exit"),
@@ -1660,7 +1983,12 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     pub(super) fn cancel_durable_exit(&mut self) -> bool {
-        self.durable_exit.cancel()
+        if self.living_exit_pending {
+            self.living_exit_pending = false;
+            true
+        } else {
+            self.durable_exit.cancel()
+        }
     }
 
     fn render_frame(
@@ -1749,6 +2077,7 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
     ApplicationHandler<AppEvent> for App<S, P, W>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.sandbox_window_suspended = false;
         self.runtime.classic_mut().on_resume();
         self.last_frame = None;
         if self.window.is_none() {
@@ -1799,6 +2128,8 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.sandbox_window_suspended = true;
+        self.runtime.set_sandbox_suspended(true);
         self.runtime.classic_mut().on_suspend();
         self.input.clear_all();
         self.last_frame = None;
@@ -1829,6 +2160,14 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
                         }
                     }
                     accesskit_winit::WindowEvent::ActionRequested(request) => {
+                        let current_owner = self.semantic_input_owner();
+                        if !self
+                            .semantic_adapter
+                            .input_owner()
+                            .is_some_and(|owner| owner.matches(&current_owner))
+                        {
+                            return;
+                        }
                         match request.action {
                             AccessibilityAction::Click => {
                                 self.semantic_adapter
@@ -1858,7 +2197,7 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
                                         .cloned(),
                                     value,
                                 ) {
-                                    self.apply_creator_semantic_value(&action, value);
+                                    self.semantic_adapter.request_edit(action, value);
                                 }
                             }
                             _ => {}
@@ -1911,6 +2250,11 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
                 if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::GalaxySandbox
+                {
+                    self.insert_living_field_text(&text);
+                }
+                if self.player_guide.is_none()
                     && self.runtime.screen() == ClientScreen::ClassicSector
                     && let Some(editor) = self.runtime.classic_mut().editor_mut()
                 {
@@ -1920,6 +2264,9 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
             WindowEvent::CursorMoved { position, .. } => {
                 let logical = physical_to_logical(position, self.window_scale_factor());
                 self.input.cursor_logical = logical;
+                if let Some((id, _, _)) = self.living_camera_drag {
+                    self.update_pointer(id, logical);
+                }
                 let mut pointer_active = false;
                 for id in 0..=2 {
                     if self.interaction.has_contact(id) {
@@ -1942,6 +2289,11 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
                 }
             }
             WindowEvent::CursorLeft { .. } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.living_text_drag = None;
+                }
+                self.living_camera_drag = None;
                 if self.player_guide.is_none()
                     && self.runtime.screen() == ClientScreen::ClassicSector
                 {
@@ -1951,9 +2303,38 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
             WindowEvent::MouseInput { state, button, .. } => {
                 self.handle_mouse_input(state, button);
             }
+            WindowEvent::PinchGesture { delta, .. } => {
+                if delta.is_finite()
+                    && self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::GalaxySandbox
+                    && !self.runtime.sandbox_creator_open()
+                    && let Some(frame) = self.platform_ui.as_ref()
+                    && frame.layout.canvas.contains(self.input.cursor_logical)
+                    && frame.hit_test(self.input.cursor_logical).is_none()
+                {
+                    self.runtime.zoom_sandbox_camera(
+                        (delta.clamp(-1.0, 1.0) as f32).exp(),
+                        self.input.cursor_logical,
+                        frame.layout.canvas,
+                    );
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = wheel_logical_delta(delta, self.window_scale_factor());
                 self.input.add_wheel_delta(delta);
+                if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::GalaxySandbox
+                    && !self.runtime.sandbox_creator_open()
+                    && let Some(frame) = self.platform_ui.as_ref()
+                    && frame.layout.canvas.contains(self.input.cursor_logical)
+                    && frame.hit_test(self.input.cursor_logical).is_none()
+                {
+                    self.runtime.zoom_sandbox_camera(
+                        (delta.y * 0.005).clamp(-1.0, 1.0).exp(),
+                        self.input.cursor_logical,
+                        frame.layout.canvas,
+                    );
+                }
                 if self.runtime.screen() == ClientScreen::GalaxyWorkshop {
                     self.scroll_workshop_view(delta.y);
                 }
@@ -1985,12 +2366,50 @@ impl<S: ScenarioStore + 'static, P: PreferencesStore + 'static, W: WorkshopStore
                     ),
                     TouchPhase::Moved => self.update_pointer(touch.id, logical),
                     TouchPhase::Ended => self.end_pointer(touch.id, logical),
-                    TouchPhase::Cancelled => self.interaction.cancel(),
+                    TouchPhase::Cancelled => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            self.living_text_drag = None;
+                        }
+                        self.living_camera_drag = None;
+                        self.living_camera_touches.clear();
+                        self.interaction.cancel();
+                    }
                 }
             }
-            WindowEvent::Focused(false) => {
-                self.input.clear_all();
-                self.interaction.cancel();
+            WindowEvent::Occluded(occluded) => {
+                if occluded {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.living_text_drag = None;
+                    }
+                    self.living_camera_drag = None;
+                    self.living_camera_touches.clear();
+                }
+                self.sandbox_window_occluded = occluded;
+                self.last_frame = None;
+                self.runtime
+                    .set_sandbox_suspended(self.sandbox_transport_held());
+            }
+            WindowEvent::Focused(focused) => {
+                self.sandbox_window_focused = focused;
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.last_frame = None;
+                }
+                self.runtime
+                    .set_sandbox_suspended(self.sandbox_transport_held());
+                if !focused {
+                    self.living_scene_focused = false;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.living_text_drag = None;
+                    }
+                    self.living_camera_drag = None;
+                    self.living_camera_touches.clear();
+                    self.input.clear_all();
+                    self.interaction.cancel();
+                }
             }
             _ => {}
         }
@@ -2017,6 +2436,46 @@ fn mouse_pointer(button: MouseButton) -> Option<(u64, PointerButton)> {
         MouseButton::Right => Some((1, PointerButton::Secondary)),
         MouseButton::Middle => Some((2, PointerButton::Middle)),
         MouseButton::Back | MouseButton::Forward | MouseButton::Other(_) => None,
+    }
+}
+
+/// Browser resize observers may report device pixels independently of an
+/// emulated DPR. The canvas CSS box owns UI geometry; backing pixels only size
+/// the surface. Native windows retain winit's logical-size conversion.
+fn resolve_logical_viewport(size: PhysicalSize<u32>, scale: f64, css: Option<Vec2>) -> Vec2 {
+    if let Some(css) = css
+        && css.is_finite()
+        && css.min_element() > 0.0
+    {
+        return css;
+    }
+    let logical = size.to_logical::<f32>(scale);
+    Vec2::new(logical.width, logical.height)
+}
+
+#[cfg(test)]
+mod logical_viewport_tests {
+    use super::*;
+
+    #[test]
+    fn css_canvas_geometry_does_not_depend_on_backing_pixels_or_emulated_dpr() {
+        let css = Vec2::new(1440.0, 900.0);
+        for scale in [1.0, 1.5, 2.0, 3.0] {
+            assert_eq!(
+                resolve_logical_viewport(PhysicalSize::new(2880, 1800), scale, Some(css)),
+                css
+            );
+        }
+        assert_eq!(
+            resolve_logical_viewport(PhysicalSize::new(2880, 1800), 2.0, None),
+            css
+        );
+        for invalid in [Vec2::ZERO, Vec2::new(f32::NAN, 900.0)] {
+            assert_eq!(
+                resolve_logical_viewport(PhysicalSize::new(2880, 1800), 2.0, Some(invalid)),
+                css
+            );
+        }
     }
 }
 

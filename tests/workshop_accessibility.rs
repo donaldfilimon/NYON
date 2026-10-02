@@ -12,6 +12,56 @@ fn action(value: &str) -> SemanticActionId {
     SemanticActionId::new(value)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_accesskit_preserves_group_expansion_without_marking_leaves() {
+    let group = action("navigator.system");
+    let leaf = action("navigator.world");
+    let mut adapter = NativeSemanticAdapter::default();
+    for expanded in [false, true] {
+        let tree = SemanticTree {
+            root: SemanticNode::container(
+                "root",
+                SemanticRole::Application,
+                "NYON",
+                vec![
+                    SemanticNode::control(
+                        "system",
+                        SemanticRole::Button,
+                        "System",
+                        "Toggle worlds",
+                        true,
+                        false,
+                        group.clone(),
+                    )
+                    .with_expanded(expanded),
+                    SemanticNode::control(
+                        "world",
+                        SemanticRole::Button,
+                        "World",
+                        "Inspect world",
+                        true,
+                        false,
+                        leaf.clone(),
+                    ),
+                ],
+            ),
+            announcements: Vec::new(),
+        };
+        adapter.sync(&tree, Some(&group));
+        let update = adapter.full_tree_update();
+        for (action, expected) in [(&group, Some(expanded)), (&leaf, None)] {
+            let id = adapter.action_node(action).unwrap();
+            let node = update
+                .nodes
+                .iter()
+                .find(|(candidate, _)| *candidate == id)
+                .unwrap();
+            assert_eq!(node.1.is_expanded(), expected);
+        }
+    }
+}
+
 #[test]
 fn focus_order_is_stable_cyclic_and_deduplicated() {
     let mut focus = FocusManager::new([
@@ -643,4 +693,95 @@ fn check_actual_native_frame(
             }
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_owned_semantic_events_preserve_edit_action_chronology() {
+    use nyon::ui::accessibility::{PlatformSemanticEvent, SemanticInputOwner};
+    let owner = SemanticInputOwner {
+        resident: std::rc::Rc::new(()),
+        hold: Some(1),
+        context: "creator".into(),
+        draft: Some(std::rc::Rc::new(())),
+    };
+    let tree = SemanticTree {
+        root: SemanticNode::container("root", SemanticRole::Application, "NYON", vec![]),
+        announcements: vec![],
+    };
+    let mut adapter = NativeSemanticAdapter::default();
+    adapter.sync_owned(&tree, None, owner.clone());
+    adapter.request_edit(action("field"), "first".into());
+    adapter.request_action(action("preview"));
+    adapter.request_edit(action("field"), "second".into());
+    adapter.request_action(action("apply"));
+    let events = adapter.drain_events().collect::<Vec<_>>();
+    assert!(
+        matches!(&events[0], PlatformSemanticEvent::Edit(id, value) if id == &action("field") && value == "first")
+    );
+    assert!(matches!(&events[1], PlatformSemanticEvent::Action(id) if id == &action("preview")));
+    assert!(
+        matches!(&events[2], PlatformSemanticEvent::Edit(id, value) if id == &action("field") && value == "second")
+    );
+    assert!(matches!(&events[3], PlatformSemanticEvent::Action(id) if id == &action("apply")));
+    assert_eq!(events.len(), 4);
+    assert!(adapter.input_owner().unwrap().matches(&owner));
+    assert_eq!(adapter.drain_events().count(), 0);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_owned_semantic_replacement_retires_raw_nodes_and_queued_edits() {
+    use nyon::ui::accessibility::{PlatformSemanticEvent, SemanticInputOwner};
+    let resident = std::rc::Rc::new(());
+    let owner = |draft| SemanticInputOwner {
+        resident: std::rc::Rc::clone(&resident),
+        hold: Some(1),
+        context: "creator".into(),
+        draft: Some(draft),
+    };
+    let owner_a = owner(std::rc::Rc::new(()));
+    let owner_b = owner(std::rc::Rc::new(()));
+    let id = action("creator.preview");
+    let tree = SemanticTree {
+        root: SemanticNode::container(
+            "root",
+            SemanticRole::Application,
+            "NYON",
+            vec![SemanticNode::control(
+                "preview",
+                SemanticRole::Button,
+                "Preview",
+                "Preview current draft",
+                true,
+                false,
+                id.clone(),
+            )],
+        ),
+        announcements: vec![],
+    };
+    let mut adapter = NativeSemanticAdapter::default();
+    adapter.sync_owned(&tree, Some(&id), owner_a.clone());
+    adapter.full_tree_update();
+    let old_node = adapter.action_node(&id).unwrap();
+    assert!(adapter.request_node_action(old_node));
+    adapter.request_edit(action("field"), "stale value".into());
+    // Same owner must preserve already queued input through a tree refresh.
+    adapter.sync_owned(&tree, Some(&id), owner_a);
+    assert_eq!(adapter.drain_events().count(), 2);
+    assert!(adapter.request_node_action(old_node));
+    adapter.request_edit(action("field"), "stale replacement value".into());
+    adapter.sync_owned(&tree, Some(&id), owner_b.clone());
+    assert_eq!(adapter.drain_events().count(), 0);
+    assert!(!adapter.request_node_action(old_node));
+    assert!(adapter.focus_action_for_node(old_node).is_none());
+    assert!(adapter.action_for_node(old_node).is_none());
+    adapter.full_tree_update();
+    let fresh_node = adapter.action_node(&id).unwrap();
+    assert_ne!(fresh_node, old_node);
+    assert!(!adapter.request_node_action(old_node));
+    assert!(adapter.request_node_action(fresh_node));
+    let events = adapter.drain_events().collect::<Vec<_>>();
+    assert!(matches!(&events[..], [PlatformSemanticEvent::Action(action)] if action == &id));
+    assert!(adapter.input_owner().unwrap().matches(&owner_b));
 }

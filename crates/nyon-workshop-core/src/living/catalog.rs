@@ -792,3 +792,781 @@ mod tests {
         assert_eq!(two_thirds.scale_batch(u32::MAX), 2_863_311_530);
     }
 }
+
+// Private move-only catalog reclamation. Retain incomplete jobs and deferred
+// tickets: ordinary Drop is not a bounded cancellation path. Record accounting
+// does not qualify allocator duration, including canonical-byte deallocation.
+#[derive(Default, Debug, Eq, PartialEq)]
+struct CatalogRetirementCounts {
+    buffer_moves: u64,
+    rows: u64,
+    nested_records: u64,
+    storage_releases: u64,
+    parent_releases: u64,
+    document_releases: u64,
+    root_releases: u64,
+    shared_attempts: u64,
+}
+enum CatalogRetirementRows {
+    Stars(std::vec::IntoIter<LivingStarArchetypeV2>),
+    Worlds(std::vec::IntoIter<LivingWorldArchetypeV2>),
+    Resources(std::vec::IntoIter<LivingResourceDefinitionV2>),
+    Industries(std::vec::IntoIter<LivingIndustryDefinitionV2>),
+    Hulls(std::vec::IntoIter<LivingHullDefinitionV2>),
+    Hazards(std::vec::IntoIter<LivingHazardDefinitionV2>),
+    Policies(std::vec::IntoIter<LivingPolicyDefinitionV2>),
+}
+impl CatalogRetirementRows {
+    fn begin(document: &mut LivingCatalogDocumentV2, index: usize) -> Self {
+        match index {
+            0 => Self::Stars(
+                std::mem::take(&mut document.star_archetypes)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            1 => Self::Worlds(
+                std::mem::take(&mut document.world_archetypes)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            2 => Self::Resources(
+                std::mem::take(&mut document.resources)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            3 => Self::Industries(
+                std::mem::take(&mut document.industry_definitions)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            4 => Self::Hulls(
+                std::mem::take(&mut document.hull_definitions)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            5 => Self::Hazards(
+                std::mem::take(&mut document.hazard_definitions)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            6 => Self::Policies(
+                std::mem::take(&mut document.policy_definitions)
+                    .into_vec()
+                    .into_iter(),
+            ),
+            _ => unreachable!("catalog collection index"),
+        }
+    }
+    fn remaining(&self) -> usize {
+        match self {
+            Self::Stars(rows) => rows.len(),
+            Self::Worlds(rows) => rows.len(),
+            Self::Resources(rows) => rows.len(),
+            Self::Industries(rows) => rows.len(),
+            Self::Hulls(rows) => rows.len(),
+            Self::Hazards(rows) => rows.len(),
+            Self::Policies(rows) => rows.len(),
+        }
+    }
+    fn retire_row(&mut self, parent: &mut Option<CatalogRetirementParent>) {
+        match self {
+            Self::Stars(rows) => {
+                drop(rows.next().expect("remaining row"));
+            }
+            Self::Worlds(rows) => {
+                drop(rows.next().expect("remaining row"));
+            }
+            Self::Resources(rows) => {
+                drop(rows.next().expect("remaining row"));
+            }
+            Self::Industries(rows) => {
+                *parent = Some(CatalogRetirementParent::Industries(
+                    rows.next().expect("remaining row"),
+                ))
+            }
+            Self::Hulls(rows) => {
+                drop(rows.next().expect("remaining row"));
+            }
+            Self::Hazards(rows) => {
+                drop(rows.next().expect("remaining row"));
+            }
+            Self::Policies(rows) => {
+                *parent = Some(CatalogRetirementParent::Policies(
+                    rows.next().expect("remaining row"),
+                ))
+            }
+        }
+    }
+}
+enum CatalogRetirementParent {
+    Industries(LivingIndustryDefinitionV2),
+    Policies(LivingPolicyDefinitionV2),
+}
+enum CatalogRetirementChildren {
+    Amounts(std::vec::IntoIter<LivingResourceAmountV2>),
+    Bonuses(std::vec::IntoIter<LivingPolicyBonusV2>),
+}
+impl CatalogRetirementChildren {
+    fn remaining(&self) -> usize {
+        match self {
+            Self::Amounts(rows) => rows.len(),
+            Self::Bonuses(rows) => rows.len(),
+        }
+    }
+    fn retire_record(&mut self) {
+        match self {
+            Self::Amounts(rows) => drop(rows.next().expect("remaining amount")),
+            Self::Bonuses(rows) => {
+                rows.next().expect("remaining bonus");
+            }
+        }
+    }
+}
+impl CatalogRetirementParent {
+    fn child(&mut self, index: usize) -> Option<CatalogRetirementChildren> {
+        match (self, index) {
+            (
+                Self::Industries(LivingIndustryDefinitionV2 {
+                    effect: LivingIndustryEffectV2::Recipe { inputs, .. },
+                    ..
+                }),
+                0,
+            ) => Some(CatalogRetirementChildren::Amounts(
+                std::mem::take(inputs).into_vec().into_iter(),
+            )),
+            (
+                Self::Industries(LivingIndustryDefinitionV2 {
+                    effect: LivingIndustryEffectV2::Recipe { outputs, .. },
+                    ..
+                }),
+                1,
+            ) => Some(CatalogRetirementChildren::Amounts(
+                std::mem::take(outputs).into_vec().into_iter(),
+            )),
+            (Self::Policies(row), 0) => Some(CatalogRetirementChildren::Bonuses(
+                std::mem::take(&mut row.bonuses).into_vec().into_iter(),
+            )),
+            _ => None,
+        }
+    }
+    fn child_count(&self) -> usize {
+        match self {
+            Self::Industries(row) => {
+                if matches!(row.effect, LivingIndustryEffectV2::Recipe { .. }) {
+                    2
+                } else {
+                    0
+                }
+            }
+            Self::Policies(_) => 1,
+        }
+    }
+}
+#[must_use = "Retain or resume this exact catalog owner through counted retirement."]
+pub(crate) struct LivingDeferredCatalogRetirementV2 {
+    source: std::sync::Arc<ValidatedLivingCatalogPackV2>,
+}
+#[must_use = "SharedReleased releases a handle; Deferred retains the catalog payload."]
+pub(crate) enum LivingCatalogRetirementDispositionV2 {
+    Drained,
+    SharedReleased,
+    Deferred(LivingDeferredCatalogRetirementV2),
+}
+pub(crate) struct LivingCatalogRetirementJobV2 {
+    owned: Option<ValidatedLivingCatalogPackV2>,
+    boxed: Option<Box<ValidatedLivingCatalogPackV2>>,
+    shared: Option<(
+        std::sync::Arc<ValidatedLivingCatalogPackV2>,
+        super::step_job::LivingStateRetirementPolicyV2,
+    )>,
+    rows: Option<CatalogRetirementRows>,
+    parent: Option<CatalogRetirementParent>,
+    children: Option<CatalogRetirementChildren>,
+    collection: usize,
+    child_index: usize,
+    bytes_released: bool,
+    document_released: bool,
+    ready: bool,
+    delivered: bool,
+    disposition: Option<LivingCatalogRetirementDispositionV2>,
+    last_poll_visits: usize,
+    total_visits: u64,
+    counts: CatalogRetirementCounts,
+}
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Private catalog retirement precedes child integration."
+    )
+)]
+impl LivingCatalogRetirementJobV2 {
+    fn empty() -> Self {
+        Self {
+            owned: None,
+            boxed: None,
+            shared: None,
+            rows: None,
+            parent: None,
+            children: None,
+            collection: 0,
+            child_index: 0,
+            bytes_released: false,
+            document_released: false,
+            ready: false,
+            delivered: false,
+            disposition: None,
+            last_poll_visits: 0,
+            total_visits: 0,
+            counts: Default::default(),
+        }
+    }
+    pub(crate) fn begin_owned(pack: ValidatedLivingCatalogPackV2) -> Self {
+        Self {
+            owned: Some(pack),
+            ..Self::empty()
+        }
+    }
+    pub(crate) fn begin_boxed(pack: Box<ValidatedLivingCatalogPackV2>) -> Self {
+        Self {
+            boxed: Some(pack),
+            ..Self::empty()
+        }
+    }
+    pub(crate) fn begin_shared(
+        source: std::sync::Arc<ValidatedLivingCatalogPackV2>,
+        policy: super::step_job::LivingStateRetirementPolicyV2,
+    ) -> Self {
+        Self {
+            shared: Some((source, policy)),
+            ..Self::empty()
+        }
+    }
+    pub(crate) fn resume(ticket: LivingDeferredCatalogRetirementV2) -> Self {
+        Self::begin_shared(
+            ticket.source,
+            super::step_job::LivingStateRetirementPolicyV2::DeferUntilUnique,
+        )
+    }
+    pub(crate) const fn last_poll_visits(&self) -> usize {
+        self.last_poll_visits
+    }
+    pub(crate) const fn total_visits(&self) -> u64 {
+        self.total_visits
+    }
+    pub(crate) fn poll(
+        &mut self,
+        budget: usize,
+    ) -> Result<
+        super::step_job::LivingLifecycleProgressV2,
+        super::step_job::LivingLifecycleJobErrorV2,
+    > {
+        self.last_poll_visits = 0;
+        if budget == 0 || budget > super::step_job::LIVING_MAX_PHASE_POLL_VISITS_V2 {
+            return Err(super::step_job::LivingLifecycleJobErrorV2::Budget);
+        }
+        while self.last_poll_visits < budget && !self.ready {
+            self.visit();
+            self.last_poll_visits += 1;
+            self.total_visits += 1;
+        }
+        Ok(if self.ready {
+            super::step_job::LivingLifecycleProgressV2::Ready
+        } else {
+            super::step_job::LivingLifecycleProgressV2::Pending
+        })
+    }
+    pub(crate) fn finish(
+        &mut self,
+    ) -> Result<LivingCatalogRetirementDispositionV2, super::step_job::LivingLifecycleJobErrorV2>
+    {
+        if !self.ready || self.delivered {
+            return Err(super::step_job::LivingLifecycleJobErrorV2::NotReady);
+        }
+        self.delivered = true;
+        Ok(self.disposition.take().expect("ready catalog disposition"))
+    }
+    fn visit(&mut self) {
+        use super::step_job::LivingStateRetirementPolicyV2;
+        use std::sync::Arc;
+        if let Some((source, policy)) = self.shared.take() {
+            self.counts.shared_attempts += 1;
+            let payload = match policy {
+                LivingStateRetirementPolicyV2::ReleaseHandle => match Arc::into_inner(source) {
+                    Some(pack) => Some(pack),
+                    None => {
+                        self.disposition =
+                            Some(LivingCatalogRetirementDispositionV2::SharedReleased);
+                        None
+                    }
+                },
+                LivingStateRetirementPolicyV2::DeferUntilUnique => match Arc::try_unwrap(source) {
+                    Ok(pack) => Some(pack),
+                    Err(source) => {
+                        self.disposition = Some(LivingCatalogRetirementDispositionV2::Deferred(
+                            LivingDeferredCatalogRetirementV2 { source },
+                        ));
+                        None
+                    }
+                },
+            };
+            if let Some(pack) = payload {
+                self.owned = Some(pack);
+            } else {
+                self.ready = true;
+            }
+            return;
+        }
+        if let Some(children) = &mut self.children {
+            if children.remaining() != 0 {
+                children.retire_record();
+                self.counts.nested_records += 1;
+            } else {
+                drop(self.children.take().expect("exhausted children"));
+                self.counts.storage_releases += 1;
+                self.child_index += 1;
+            }
+            return;
+        }
+        if let Some(parent) = &mut self.parent {
+            if self.child_index < parent.child_count() {
+                self.children = parent.child(self.child_index);
+                assert!(self.children.is_some(), "declared catalog child");
+                self.counts.buffer_moves += 1;
+                return;
+            }
+            drop(self.parent.take().expect("empty catalog parent"));
+            self.counts.parent_releases += 1;
+            self.child_index = 0;
+            return;
+        }
+        if let Some(rows) = &mut self.rows {
+            if rows.remaining() != 0 {
+                rows.retire_row(&mut self.parent);
+                self.counts.rows += 1;
+            } else {
+                drop(self.rows.take().expect("exhausted rows"));
+                self.counts.storage_releases += 1;
+                self.collection += 1;
+            }
+            return;
+        }
+        let pack = self
+            .owned
+            .as_mut()
+            .or(self.boxed.as_deref_mut())
+            .expect("catalog owner");
+        if self.collection < 7 {
+            self.rows = Some(CatalogRetirementRows::begin(
+                &mut pack.document,
+                self.collection,
+            ));
+            self.counts.buffer_moves += 1;
+            return;
+        }
+        if !self.bytes_released {
+            drop(std::mem::take(&mut pack.canonical_bytes));
+            self.counts.storage_releases += 1;
+            self.bytes_released = true;
+            return;
+        }
+        if !self.document_released {
+            // The private, no-longer-observable document has no collection owners.
+            // Empty replacements allocate no storage and need no validation.
+            drop(std::mem::take(&mut pack.document.kind));
+            drop(std::mem::take(&mut pack.document.pack_id.0));
+            self.counts.document_releases += 1;
+            self.document_released = true;
+            return;
+        }
+        drop(self.owned.take());
+        drop(self.boxed.take());
+        self.counts.root_releases += 1;
+        self.disposition = Some(LivingCatalogRetirementDispositionV2::Drained);
+        self.ready = true;
+    }
+}
+
+#[cfg(test)]
+mod retirement_tests {
+    use super::super::step_job::{
+        LivingLifecycleJobErrorV2, LivingLifecycleProgressV2, LivingStateRetirementPolicyV2,
+    };
+    use super::*;
+    use std::sync::Arc;
+
+    fn run(
+        mut job: LivingCatalogRetirementJobV2,
+        budgets: &[usize],
+    ) -> (
+        LivingCatalogRetirementDispositionV2,
+        CatalogRetirementCounts,
+        u64,
+    ) {
+        assert!(matches!(
+            job.finish(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        ));
+        let mut index = 0;
+        while job.poll(budgets[index % budgets.len()]).unwrap() != LivingLifecycleProgressV2::Ready
+        {
+            assert!(job.last_poll_visits() <= budgets[index % budgets.len()]);
+            assert!(matches!(
+                job.finish(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            ));
+            index += 1;
+        }
+        let total = job.total_visits();
+        assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+        assert_eq!(job.last_poll_visits(), 0);
+        assert_eq!(job.total_visits(), total);
+        let result = job.finish().unwrap();
+        assert!(matches!(
+            job.finish(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        ));
+        (result, job.counts, total)
+    }
+    fn expected(pack: &ValidatedLivingCatalogPackV2) -> CatalogRetirementCounts {
+        let mut counts = CatalogRetirementCounts {
+            buffer_moves: 7,
+            rows: (pack.star_archetypes().len()
+                + pack.world_archetypes().len()
+                + pack.resources().len()
+                + pack.industries().len()
+                + pack.hulls().len()
+                + pack.hazards().len()
+                + pack.policies().len()) as u64,
+            storage_releases: 8,
+            document_releases: 1,
+            root_releases: 1,
+            ..Default::default()
+        };
+        for industry in pack.industries() {
+            counts.parent_releases += 1;
+            if let LivingIndustryEffectV2::Recipe {
+                inputs, outputs, ..
+            } = &industry.effect
+            {
+                counts.buffer_moves += 2;
+                counts.storage_releases += 2;
+                counts.nested_records +=
+                    (inputs.as_slice().len() + outputs.as_slice().len()) as u64;
+            }
+        }
+        for policy in pack.policies() {
+            counts.parent_releases += 1;
+            counts.buffer_moves += 1;
+            counts.storage_releases += 1;
+            counts.nested_records += policy.bonuses.as_slice().len() as u64;
+        }
+        counts
+    }
+    fn sum(c: &CatalogRetirementCounts) -> u64 {
+        c.buffer_moves
+            + c.rows
+            + c.nested_records
+            + c.storage_releases
+            + c.parent_releases
+            + c.document_releases
+            + c.root_releases
+            + c.shared_attempts
+    }
+    #[test]
+    fn catalog_retirement_every_collection_and_nested_field_owned_boxed() {
+        for budgets in [&[1][..], &[64], &[1024], &[1, 64, 1024, 7]] {
+            for boxed in [false, true] {
+                let pack = living_core_pack_v2().unwrap();
+                assert!(
+                    !pack.star_archetypes().is_empty()
+                        && !pack.world_archetypes().is_empty()
+                        && !pack.resources().is_empty()
+                        && !pack.industries().is_empty()
+                        && !pack.hulls().is_empty()
+                        && !pack.hazards().is_empty()
+                        && !pack.policies().is_empty()
+                );
+                let counts = expected(&pack);
+                assert_eq!(
+                    counts,
+                    CatalogRetirementCounts {
+                        buffer_moves: 18,
+                        rows: 21,
+                        nested_records: 15,
+                        storage_releases: 19,
+                        parent_releases: 10,
+                        document_releases: 1,
+                        root_releases: 1,
+                        shared_attempts: 0
+                    }
+                );
+                let job = if boxed {
+                    let owner = Box::new(pack);
+                    let pointer = &*owner as *const _;
+                    let job = LivingCatalogRetirementJobV2::begin_boxed(owner);
+                    assert_eq!(job.boxed.as_deref().unwrap() as *const _, pointer);
+                    job
+                } else {
+                    let pointer = pack.canonical_bytes.as_ptr();
+                    let job = LivingCatalogRetirementJobV2::begin_owned(pack);
+                    assert_eq!(
+                        job.owned.as_ref().unwrap().canonical_bytes.as_ptr(),
+                        pointer
+                    );
+                    job
+                };
+                let (out, actual, total) = run(job, budgets);
+                assert!(matches!(out, LivingCatalogRetirementDispositionV2::Drained));
+                assert_eq!(actual, counts);
+                assert_eq!(total, sum(&counts));
+            }
+        }
+    }
+    #[test]
+    fn catalog_retirement_empty_allocated_outer_and_canonical_buffers() {
+        let mut pack = living_core_pack_v2().unwrap();
+        macro_rules! empty { ($($field:ident),*) => {$({ let mut v = std::mem::take(&mut pack.document.$field).into_vec(); v.clear(); assert!(v.capacity() > 0); pack.document.$field = LivingSortedVecV2::new(v).unwrap(); })*}; }
+        empty!(
+            star_archetypes,
+            world_archetypes,
+            resources,
+            industry_definitions,
+            hull_definitions,
+            hazard_definitions,
+            policy_definitions
+        );
+        pack.canonical_bytes.clear();
+        assert!(pack.canonical_bytes.capacity() > 0);
+        let mut job = LivingCatalogRetirementJobV2::begin_owned(pack);
+        for invalid in [0, 1025] {
+            assert_eq!(job.poll(invalid), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+            assert_eq!(job.total_visits(), 0);
+        }
+        let (out, counts, total) = run(job, &[1]);
+        assert!(matches!(out, LivingCatalogRetirementDispositionV2::Drained));
+        assert_eq!(counts.buffer_moves, 7);
+        assert_eq!(counts.storage_releases, 8);
+        assert_eq!(total, 17);
+    }
+    #[test]
+    fn catalog_retirement_empty_allocated_children_keep_parent_until_release() {
+        let mut pack = living_core_pack_v2().unwrap();
+        let mut industries = std::mem::take(&mut pack.document.industry_definitions).into_vec();
+        for row in &mut industries {
+            if let LivingIndustryEffectV2::Recipe {
+                inputs, outputs, ..
+            } = &mut row.effect
+            {
+                for child in [inputs, outputs] {
+                    let mut v = std::mem::take(child).into_vec();
+                    v.clear();
+                    v.reserve(16);
+                    *child = LivingSortedVecV2::new(v).unwrap();
+                }
+            }
+        }
+        pack.document.industry_definitions = LivingSortedVecV2::new(industries).unwrap();
+        let mut policies = std::mem::take(&mut pack.document.policy_definitions).into_vec();
+        for row in &mut policies {
+            let mut v = std::mem::take(&mut row.bonuses).into_vec();
+            v.clear();
+            v.reserve(16);
+            row.bonuses = LivingSortedVecV2::new(v).unwrap();
+        }
+        pack.document.policy_definitions = LivingSortedVecV2::new(policies).unwrap();
+        let expected = expected(&pack);
+        let mut job = LivingCatalogRetirementJobV2::begin_owned(pack);
+        while job.children.is_none() {
+            job.poll(1).unwrap();
+        }
+        assert_eq!(job.children.as_ref().unwrap().remaining(), 0);
+        assert!(job.parent.is_some());
+        let released = job.counts.storage_releases;
+        let total = job.total_visits();
+        assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+        assert!(matches!(
+            job.finish(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        ));
+        assert_eq!(job.total_visits(), total);
+        job.poll(1).unwrap();
+        assert!(job.parent.is_some());
+        assert!(job.children.is_none());
+        assert_eq!(job.counts.storage_releases, released + 1);
+        let (_, actual, _) = run(job, &[1]);
+        assert_eq!(actual, expected);
+    }
+    #[test]
+    fn catalog_retirement_partial_iterator_and_nested_suffix_preserved() {
+        let pack = living_core_pack_v2().unwrap();
+        let expected = expected(&pack);
+        let mut job = LivingCatalogRetirementJobV2::begin_owned(pack);
+        job.poll(1).unwrap();
+        let rows = job.rows.as_ref().unwrap().remaining();
+        assert!(rows > 0);
+        assert_eq!(job.poll(1025), Err(LivingLifecycleJobErrorV2::Budget));
+        assert_eq!(job.rows.as_ref().unwrap().remaining(), rows);
+        while job.children.as_ref().is_none_or(|c| c.remaining() == 0) {
+            job.poll(1).unwrap();
+        }
+        let remaining = job.children.as_ref().unwrap().remaining();
+        assert!(matches!(
+            job.finish(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        ));
+        job.poll(1).unwrap();
+        assert_eq!(job.children.as_ref().unwrap().remaining(), remaining - 1);
+        assert!(job.parent.is_some());
+        let (_, actual, _) = run(job, &[1, 64]);
+        assert_eq!(actual, expected);
+    }
+    #[test]
+    fn catalog_retirement_shared_release_both_orders_and_concurrent() {
+        for reverse in [false, true] {
+            let source = Arc::new(living_core_pack_v2().unwrap());
+            let alias = Arc::clone(&source);
+            let expected = source.canonical_bytes().to_vec();
+            let (first, second) = if reverse {
+                (alias, source)
+            } else {
+                (source, alias)
+            };
+            let (out, counts, total) = run(
+                LivingCatalogRetirementJobV2::begin_shared(
+                    first,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                ),
+                &[1024],
+            );
+            assert!(matches!(
+                out,
+                LivingCatalogRetirementDispositionV2::SharedReleased
+            ));
+            assert_eq!(counts.shared_attempts, 1);
+            assert_eq!(total, 1);
+            assert_eq!(second.canonical_bytes(), expected);
+            let (out, counts, total) = run(
+                LivingCatalogRetirementJobV2::begin_shared(
+                    second,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                ),
+                &[1],
+            );
+            assert!(matches!(out, LivingCatalogRetirementDispositionV2::Drained));
+            assert_eq!(total, sum(&counts));
+        }
+        let source = Arc::new(living_core_pack_v2().unwrap());
+        let alias = Arc::clone(&source);
+        let thread = std::thread::spawn(move || {
+            run(
+                LivingCatalogRetirementJobV2::begin_shared(
+                    source,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                ),
+                &[1],
+            )
+            .0
+        });
+        let other = run(
+            LivingCatalogRetirementJobV2::begin_shared(
+                alias,
+                LivingStateRetirementPolicyV2::ReleaseHandle,
+            ),
+            &[64],
+        )
+        .0;
+        assert!(matches!(
+            (thread.join().unwrap(), other),
+            (
+                LivingCatalogRetirementDispositionV2::Drained,
+                LivingCatalogRetirementDispositionV2::SharedReleased
+            ) | (
+                LivingCatalogRetirementDispositionV2::SharedReleased,
+                LivingCatalogRetirementDispositionV2::Drained
+            )
+        ));
+    }
+    #[test]
+    fn catalog_retirement_deferred_exact_identity_and_weak_unique_resume() {
+        let source = Arc::new(living_core_pack_v2().unwrap());
+        let alias = Arc::clone(&source);
+        let pointer = Arc::as_ptr(&source);
+        let weak = Arc::downgrade(&source);
+        let (out, _, total) = run(
+            LivingCatalogRetirementJobV2::begin_shared(
+                source,
+                LivingStateRetirementPolicyV2::DeferUntilUnique,
+            ),
+            &[1024],
+        );
+        assert_eq!(total, 1);
+        let LivingCatalogRetirementDispositionV2::Deferred(ticket) = out else {
+            panic!("deferred");
+        };
+        assert_eq!(Arc::as_ptr(&ticket.source), pointer);
+        let (out, _, total) = run(LivingCatalogRetirementJobV2::resume(ticket), &[1]);
+        assert_eq!(total, 1);
+        let LivingCatalogRetirementDispositionV2::Deferred(ticket) = out else {
+            panic!("deferred");
+        };
+        assert_eq!(Arc::as_ptr(&ticket.source), pointer);
+        assert!(weak.upgrade().is_some());
+        drop(alias);
+        let (out, counts, total) = run(LivingCatalogRetirementJobV2::resume(ticket), &[64]);
+        assert!(matches!(out, LivingCatalogRetirementDispositionV2::Drained));
+        assert_eq!(total, sum(&counts));
+        assert!(weak.upgrade().is_none());
+    }
+}
+
+#[cfg(test)]
+mod retirement_large_tests {
+    use super::*;
+    #[test]
+    fn catalog_retirement_malformed_large_nested_buffer_remains_sliced() {
+        let mut pack = living_core_pack_v2().unwrap();
+        pack.document.kind = String::new();
+        pack.document.format_version = 999;
+        let mut rows = std::mem::take(&mut pack.document.industry_definitions).into_vec();
+        let row = rows
+            .iter_mut()
+            .find(|r| matches!(r.effect, LivingIndustryEffectV2::Recipe { .. }))
+            .unwrap();
+        let LivingIndustryEffectV2::Recipe {
+            inputs,
+            period_ticks,
+            ..
+        } = &mut row.effect
+        else {
+            unreachable!()
+        };
+        *period_ticks = 0;
+        *inputs = LivingSortedVecV2::new(
+            (0..2048)
+                .map(|n| LivingResourceAmountV2 {
+                    resource: LivingSlugV2::new(format!("undeclared_{n:04}")).unwrap(),
+                    quantity: 0,
+                })
+                .collect(),
+        )
+        .unwrap();
+        pack.document.industry_definitions = LivingSortedVecV2::new(rows).unwrap();
+        let mut job = LivingCatalogRetirementJobV2::begin_owned(pack);
+        while job.children.as_ref().is_none_or(|c| c.remaining() != 2048) {
+            job.poll(1).unwrap();
+        }
+        assert!(job.parent.is_some());
+        job.poll(64).unwrap();
+        assert_eq!(job.last_poll_visits(), 64);
+        assert_eq!(job.children.as_ref().unwrap().remaining(), 1984);
+        assert!(job.parent.is_some());
+        while job.poll(1024).unwrap() != super::super::step_job::LivingLifecycleProgressV2::Ready {}
+        assert!(matches!(
+            job.finish().unwrap(),
+            LivingCatalogRetirementDispositionV2::Drained
+        ));
+        assert_eq!(job.counts.nested_records, 2062);
+    }
+}

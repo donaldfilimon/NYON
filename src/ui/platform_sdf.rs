@@ -129,7 +129,7 @@ pub fn build_platform_ui_batch(
     let control_fill = if frame.high_contrast {
         [0.14, 0.14, 0.14, 1.0]
     } else {
-        [0.06, 0.2, 0.32, 0.96]
+        [0.045, 0.14, 0.23, 1.0]
     };
     let text_color = if frame.high_contrast {
         [1.0, 1.0, 1.0, 1.0]
@@ -209,10 +209,12 @@ pub fn build_platform_ui_batch(
     }) {
         let fill = if !control.enabled {
             [0.11, 0.13, 0.15, 0.82]
+        } else if frame.high_contrast && (control.focused || control.selected) {
+            [0.1, 0.1, 0.1, 1.0]
         } else if control.focused {
             [0.95, 0.58, 0.12, 1.0]
         } else if control.selected {
-            [0.08, 0.48, 0.72, 1.0]
+            [0.12, 0.56, 0.8, 1.0]
         } else {
             control_fill
         };
@@ -263,6 +265,16 @@ pub fn build_platform_ui_batch(
     }) {
         let fixed_label = record.role == PlatformTextRole::Control
             && record.overflow == PlatformTextOverflow::Wrap;
+        let record_text_color = if !frame.high_contrast
+            && frame.controls.iter().any(|control| {
+                control.semantic_id == record.semantic_id
+                    && control.enabled
+                    && (control.focused || control.selected)
+            }) {
+            [0.01, 0.02, 0.035, 1.0]
+        } else {
+            text_color
+        };
         let Some(mut bounds) = record.bounds.intersection(viewport) else {
             continue;
         };
@@ -295,7 +307,7 @@ pub fn build_platform_ui_batch(
                 metrics,
                 icon,
                 rect_array(icon_bounds),
-                text_color,
+                record_text_color,
                 Some(rect_array(clip)),
             )?;
             output.icon_runs.push(PlatformIconRun {
@@ -394,7 +406,7 @@ pub fn build_platform_ui_batch(
                 ],
                 style.font_size,
                 style.weight,
-                text_color,
+                record_text_color,
                 &line,
                 Some(rect_array(line_clip)),
             )?;

@@ -25,9 +25,41 @@ verify_artifact_tree() {
     find "${artifact_dir}" -mindepth 1 -maxdepth 1 \
       ! -name nyon.js \
       ! -name nyon_bg.wasm \
+      ! -name snippets \
       -print
   )"
   [[ -z "${unexpected}" ]] || fail "unexpected artifact output: ${unexpected}"
+  # wasm-bindgen emits local modules for the two IndexedDB adapters. Accept
+  # exactly the imported snippet files, with no unreferenced output or symlinks.
+  python3 - "${artifact_dir}" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+loader = (root / 'nyon.js').read_text()
+imports = set(re.findall(r"from\s+['\"]\./(snippets/[^'\"]+)['\"]", loader))
+for relative in imports:
+    if not re.fullmatch(r'snippets/nyon-[0-9a-f]{16}/inline[0-9]+\.js', relative):
+        raise SystemExit(f'Invalid local snippet import: {relative}')
+actual = set()
+snippets = root / 'snippets'
+if snippets.exists() and not snippets.is_dir():
+    raise SystemExit(f'Generated snippets root is not a directory: {snippets}')
+if snippets.exists():
+    for entry in snippets.rglob('*'):
+        if entry.is_symlink():
+            raise SystemExit(f'Symlink in generated snippets: {entry}')
+        if entry.is_file():
+            actual.add(entry.relative_to(root).as_posix())
+        elif entry.is_dir():
+            if not any((root / name).is_relative_to(entry) for name in imports):
+                raise SystemExit(f'Unreferenced generated snippet directory: {entry}')
+        else:
+            raise SystemExit(f'Unexpected generated snippet entry: {entry}')
+if snippets.is_symlink() or actual != imports:
+    raise SystemExit(f'Generated snippet files do not match loader imports: {actual ^ imports}')
+PY
   grep -Fq "nyon_bg.wasm" "${artifact_dir}/nyon.js" || \
     fail "${artifact_dir}/nyon.js does not load its colocated WebAssembly"
 }
@@ -105,6 +137,12 @@ fi
 
 if command -v node >/dev/null 2>&1; then
   node --check web/loader.js
+  for artifact_dir in "${WEBGPU_DIR}" "${WEBGL_DIR}"; do
+    [[ -d "${artifact_dir}/snippets" ]] || continue
+    while IFS= read -r snippet; do
+      node --input-type=module --check < "${snippet}"
+    done < <(find "${artifact_dir}/snippets" -type f -name '*.js')
+  done
 fi
 
 workshop_gpu_paths=()

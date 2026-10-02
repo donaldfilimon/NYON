@@ -10,7 +10,8 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Document, Element, Event, HtmlElement, HtmlInputElement};
 
 use super::accessibility::{
-    AnnouncementKind, SemanticActionId, SemanticNode, SemanticRole, SemanticTree,
+    AnnouncementKind, OwnedPlatformSemanticEvent, PlatformSemanticEvent, SemanticActionId,
+    SemanticInputOwner, SemanticNode, SemanticRole, SemanticTree,
 };
 
 pub const SEMANTIC_MIRROR_ID: &str = "nyon-semantic-mirror";
@@ -30,8 +31,8 @@ pub struct DomSemanticMirror {
     root: Element,
     signature: String,
     callbacks: Vec<Closure<dyn FnMut(Event)>>,
-    actions: Rc<RefCell<VecDeque<SemanticActionId>>>,
-    edits: Rc<RefCell<VecDeque<(SemanticActionId, String)>>>,
+    events: Rc<RefCell<VecDeque<OwnedPlatformSemanticEvent>>>,
+    owner: Option<SemanticInputOwner>,
 }
 
 impl DomSemanticMirror {
@@ -60,19 +61,23 @@ impl DomSemanticMirror {
             root,
             signature: String::new(),
             callbacks: Vec::new(),
-            actions: Rc::new(RefCell::new(VecDeque::new())),
-            edits: Rc::new(RefCell::new(VecDeque::new())),
+            events: Rc::new(RefCell::new(VecDeque::new())),
+            owner: None,
         })
     }
 
-    pub fn sync(&mut self, tree: &SemanticTree) -> Result<(), JsValue> {
+    pub fn sync(&mut self, tree: &SemanticTree, owner: &SemanticInputOwner) -> Result<(), JsValue> {
         let signature = format!("{tree:?}");
-        if self.signature == signature {
+        let same_owner = self
+            .owner
+            .as_ref()
+            .is_some_and(|previous| previous.matches(owner));
+        if self.signature == signature && same_owner {
             return Ok(());
         }
         tree.validate()
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        let restore = self.capture_focus();
+        let restore = same_owner.then(|| self.capture_focus()).flatten();
         self.root.set_text_content(None);
         self.callbacks.clear();
         let modal_actions = modal_action_scope(&tree.root);
@@ -80,8 +85,8 @@ impl DomSemanticMirror {
             &self.document,
             &self.root,
             &tree.root,
-            &self.actions,
-            &self.edits,
+            &self.events,
+            owner,
             &mut self.callbacks,
             modal_actions.as_ref(),
         )?;
@@ -108,6 +113,7 @@ impl DomSemanticMirror {
         }
         self.restore_focus(restore.as_ref());
         self.signature = signature;
+        self.owner = Some(owner.clone());
         Ok(())
     }
 
@@ -134,8 +140,8 @@ impl DomSemanticMirror {
 
     /// Returns focus to the rebuilt element carrying the same stable node id.
     ///
-    /// This deliberately never selects the whole value. Select-all belongs to
-    /// entry (the click handler), not to a rebuild the user did not ask for.
+    /// Native pointer placement and explicit select-all remain browser operations;
+    /// rebuilding preserves their existing UTF-16 selection offsets.
     fn restore_focus(&self, restore: Option<&FocusRestore>) {
         let Some(restore) = restore else {
             return;
@@ -151,21 +157,13 @@ impl DomSemanticMirror {
         {
             // The rebuilt element carries the authoritative value, which can be
             // shorter than the caret we saved when a draft edit was rejected.
-            let length = u32::try_from(input.value().chars().count()).unwrap_or(u32::MAX);
+            let length = u32::try_from(input.value().encode_utf16().count()).unwrap_or(u32::MAX);
             let _ = input.set_selection_range(start.min(length), end.min(length));
         }
     }
 
-    pub fn drain_actions(&mut self) -> impl Iterator<Item = SemanticActionId> + '_ {
-        self.actions
-            .borrow_mut()
-            .drain(..)
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-
-    pub fn drain_edits(&mut self) -> impl Iterator<Item = (SemanticActionId, String)> + '_ {
-        self.edits
+    pub fn drain_events(&mut self) -> impl Iterator<Item = OwnedPlatformSemanticEvent> + '_ {
+        self.events
             .borrow_mut()
             .drain(..)
             .collect::<Vec<_>>()
@@ -177,8 +175,8 @@ fn append_node(
     document: &Document,
     parent: &Element,
     node: &SemanticNode,
-    actions: &Rc<RefCell<VecDeque<SemanticActionId>>>,
-    edits: &Rc<RefCell<VecDeque<(SemanticActionId, String)>>>,
+    events: &Rc<RefCell<VecDeque<OwnedPlatformSemanticEvent>>>,
+    owner: &SemanticInputOwner,
     callbacks: &mut Vec<Closure<dyn FnMut(Event)>>,
     modal_actions: Option<&BTreeSet<SemanticActionId>>,
 ) -> Result<(), JsValue> {
@@ -229,13 +227,11 @@ fn append_node(
     if node.role == SemanticRole::Dialog {
         element.set_attribute("aria-modal", "true")?;
     }
-    if node.selected {
-        element.set_attribute("aria-selected", "true")?;
-        if node.role == SemanticRole::Checkbox {
-            element.set_attribute("aria-checked", "true")?;
-        }
-    } else if node.role == SemanticRole::Checkbox {
-        element.set_attribute("aria-checked", "false")?;
+    if let Some((attribute, selected)) = node.selection_aria_state() {
+        element.set_attribute(attribute, if selected { "true" } else { "false" })?;
+    }
+    if let Some(expanded) = node.expanded {
+        element.set_attribute("aria-expanded", if expanded { "true" } else { "false" })?;
     }
     if let Some(level) = node.hierarchy_level {
         element.set_attribute("aria-level", &level.to_string())?;
@@ -260,23 +256,22 @@ fn append_node(
             element.set_attribute("disabled", "")?;
         } else {
             let action_id = action_id.clone();
-            let actions = Rc::clone(actions);
+            let click_events = Rc::clone(events);
+            let click_owner = owner.clone();
             let preserve_native_editing = matches!(
                 node.role,
                 SemanticRole::TextInput | SemanticRole::SpinButton
             );
             let callback = Closure::wrap(Box::new(move |event: Event| {
-                if preserve_native_editing {
-                    if let Some(input) = event
-                        .target()
-                        .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
-                    {
-                        input.select();
-                    }
-                } else {
+                if !preserve_native_editing {
                     event.prevent_default();
                 }
-                actions.borrow_mut().push_back(action_id.clone());
+                click_events
+                    .borrow_mut()
+                    .push_back(OwnedPlatformSemanticEvent {
+                        owner: click_owner.clone(),
+                        event: PlatformSemanticEvent::Action(action_id.clone()),
+                    });
             }) as Box<dyn FnMut(_)>);
             element.add_event_listener_with_callback("click", callback.as_ref().unchecked_ref())?;
             callbacks.push(callback);
@@ -285,7 +280,8 @@ fn append_node(
                 SemanticRole::TextInput | SemanticRole::SpinButton
             ) {
                 let action_id = node.action_id.clone().expect("editable nodes have actions");
-                let edits = Rc::clone(edits);
+                let edit_events = Rc::clone(events);
+                let edit_owner = owner.clone();
                 let callback = Closure::wrap(Box::new(move |event: Event| {
                     let Some(input) = event
                         .target()
@@ -295,9 +291,12 @@ fn append_node(
                     };
                     // The rebuilt element is seeded from authoritative state and
                     // `sync` restores the caret, so the live value is the truth.
-                    edits
+                    edit_events
                         .borrow_mut()
-                        .push_back((action_id.clone(), input.value()));
+                        .push_back(OwnedPlatformSemanticEvent {
+                            owner: edit_owner.clone(),
+                            event: PlatformSemanticEvent::Edit(action_id.clone(), input.value()),
+                        });
                 }) as Box<dyn FnMut(_)>);
                 element
                     .add_event_listener_with_callback("input", callback.as_ref().unchecked_ref())?;
@@ -314,8 +313,8 @@ fn append_node(
             document,
             &element,
             child,
-            actions,
-            edits,
+            events,
+            owner,
             callbacks,
             modal_actions,
         )?;

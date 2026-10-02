@@ -310,7 +310,6 @@ fn short_height_maximum_description_and_navigation_remain_reachable_in_both_moti
                 });
                 assert_eq!(outputs[0].text_runs, outputs[1].text_runs);
                 assert_eq!(outputs[0].icon_runs, outputs[1].icon_runs);
-                assert_eq!(outputs[0].batch.glyphs(), outputs[1].batch.glyphs());
                 let reduced_motion_id = frames[1]
                     .controls
                     .iter()
@@ -319,6 +318,41 @@ fn short_height_maximum_description_and_navigation_remain_reachable_in_both_moti
                     })
                     .map(|control| control.semantic_id.clone())
                     .unwrap();
+                // Only the preference toggle changes its selected state. Its
+                // ink follows its accessible fill; all other ink and every
+                // glyph's geometry must remain identical across motion modes.
+                let normalized = outputs.each_ref().map(|output| {
+                    let ranges = output
+                        .text_runs
+                        .iter()
+                        .filter(|run| run.semantic_id == reduced_motion_id)
+                        .map(|run| run.emitted_glyph_range)
+                        .chain(
+                            output
+                                .icon_runs
+                                .iter()
+                                .filter(|run| run.semantic_id == reduced_motion_id)
+                                .map(|run| run.emitted_glyph_range),
+                        )
+                        .collect::<Vec<_>>();
+                    output
+                        .batch
+                        .glyphs()
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .map(|(index, mut glyph)| {
+                            if ranges
+                                .iter()
+                                .any(|range| index >= range[0] && index < range[1])
+                            {
+                                glyph.color = [1.0; 4];
+                            }
+                            glyph
+                        })
+                        .collect::<Vec<_>>()
+                });
+                assert_eq!(normalized[0], normalized[1]);
                 let reduced_motion_outline = outputs[1].panel_witnesses.iter().find(|witness| {
                     witness.role == PlatformPanelRole::ContrastBorder
                         && witness.owning_node.as_ref() == Some(&reduced_motion_id)
@@ -482,6 +516,7 @@ fn shell_chrome_qualifies_at_every_required_viewport_and_scale() {
         MainMenuRoute::Continue,
         MainMenuRoute::Library,
         MainMenuRoute::ClassicSector,
+        MainMenuRoute::GalaxySandbox,
         MainMenuRoute::Settings,
         MainMenuRoute::Credits,
         MainMenuRoute::Quit,

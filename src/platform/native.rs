@@ -49,11 +49,45 @@ pub fn run() -> Result<(), NativeStartupError> {
         workshop_store,
         event_proxy,
     );
+    if let Ok(root) = living_application_root() {
+        app.runtime_mut().install_living_storage(
+            Box::new(crate::living_store::native::NativeLivingStoreV2::new(
+                root.clone(),
+            )),
+            Box::new(crate::library_selection::native::NativeLibraryCoordinator::new(root.clone())),
+        );
+        app.install_living_audio_path(root.join("living-audio-v1.json"));
+        app.runtime_mut().install_living_transfer(Box::new(
+            crate::living_transfer::native::NativeLivingTransfer::default(),
+        ));
+    }
     event_loop.run_app(&mut app)?;
     if let Some(message) = app.take_fatal_message() {
         return Err(NativeStartupError::Application(message));
     }
     Ok(())
+}
+
+fn living_application_root() -> Result<std::path::PathBuf, WorkshopStoreError> {
+    use crate::workshop::store::{
+        NativeWorkshopPlatform, WorkshopPathEnvironment, native_workshop_root,
+    };
+    #[cfg(target_os = "macos")]
+    let platform = NativeWorkshopPlatform::MacOs;
+    #[cfg(target_os = "windows")]
+    let platform = NativeWorkshopPlatform::Windows;
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let platform = NativeWorkshopPlatform::Linux;
+    let environment = WorkshopPathEnvironment {
+        home: std::env::var_os("HOME").map(std::path::PathBuf::from),
+        appdata: std::env::var_os("APPDATA").map(std::path::PathBuf::from),
+        xdg_data_home: std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from),
+    };
+    let workshop = native_workshop_root(platform, &environment)?;
+    Ok(workshop
+        .parent()
+        .expect("versioned store root has parent")
+        .to_path_buf())
 }
 
 enum RuntimeWorkshopStore {

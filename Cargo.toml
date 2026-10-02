@@ -39,6 +39,8 @@ wgpu = { version = "=30.0.1", default-features = false, features = ["std", "wgsl
 accesskit = "=0.25.0"
 accesskit_winit = "=0.34.0"
 env_logger = "0.11.8"
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+rodio = { version = "=0.22.2", default-features = false, features = ["playback"] }
 tempfile = "3.21.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
 winit = "=0.30.12"
@@ -50,6 +52,15 @@ js-sys = "=0.3.104"
 wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "=0.4.77"
 web-sys = { version = "=0.3.104", features = [
+    "AudioContext",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "GainNode",
+    "OscillatorNode",
+    "OscillatorType",
+    "Blob",
+    "BlobPropertyBag",
     "CustomEvent",
     "CustomEventInit",
     "DomException",
@@ -58,6 +69,8 @@ web-sys = { version = "=0.3.104", features = [
     "Element",
     "Event",
     "EventTarget",
+    "File",
+    "FileList",
     "HtmlElement",
     "HtmlInputElement",
     "IdbDatabase",
@@ -69,6 +82,7 @@ web-sys = { version = "=0.3.104", features = [
     "IdbTransactionMode",
     "Node",
     "Storage",
+    "Url",
     "Window",
 ] }
 web-time = "=1.1.0"

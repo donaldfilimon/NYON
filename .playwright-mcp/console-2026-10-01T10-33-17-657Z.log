@@ -1,0 +1,11 @@
+[      80ms] [INFO] browser GPU initialization scheduled, generation 1 @ http://127.0.0.1:8037/dist/webgl/nyon.js:899
+[     147ms] [INFO] GPU adapter 'ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)' backend Gl device IntegratedGpu, epoch 1 @ http://127.0.0.1:8037/dist/webgl/nyon.js:899
+[     152ms] [INFO] first frame presented @ http://127.0.0.1:8037/dist/webgl/nyon.js:899
+[   60871ms] Error: closure invoked recursively or after being dropped
+    at __wbg___wbindgen_throw_bb96b2010945f0bc (http://127.0.0.1:8037/dist/webgl/nyon.js:60:19)
+    at nyon.wasm.wasm_bindgen[aa8fe4b372c0cade]::__wbindgen_throw (http://127.0.0.1:8037/dist/webgl/nyon_bg.wasm:wasm-function[11066]:0x800eb5)
+    at nyon.wasm.wasm_bindgen[aa8fe4b372c0cade]::throw_str (http://127.0.0.1:8037/dist/webgl/nyon_bg.wasm:wasm-function[10505]:0x7ff330)
+    at nyon.wasm.wasm_bindgen[aa8fe4b372c0cade]::convert::closures::_::invoke::<wasm_bindgen[aa8fe4b372c0cade]::JsValue, (), true> (http://127.0.0.1:8037/dist/webgl/nyon_bg.wasm:wasm-function[9098]:0x7f7e58)
+    at nyon.wasm.wasm_bindgen[aa8fe4b372c0cade]::convert::closures::_::invoke::<wasm_bindgen[aa8fe4b372c0cade]::JsValue, (), true> externref shim (http://127.0.0.1:8037/dist/webgl/nyon_bg.wasm:wasm-function[9669]:0x7fbea0)
+    at wasm_bindgen_aa8fe4b372c0cade___convert__closures_____invoke___wasm_bindgen_aa8fe4b372c0cade___JsValue______true__4 (http://127.0.0.1:8037/dist/webgl/nyon.js:1995:10)
+    at HTMLInputElement.real (http://127.0.0.1:8037/dist/webgl/nyon.js:2244:20)

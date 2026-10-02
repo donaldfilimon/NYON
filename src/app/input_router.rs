@@ -36,6 +36,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         source: PointerSource,
         button: PointerButton,
     ) {
+        // A text edit may have arrived from the DOM or accessibility bridge
+        // before this canvas click. Dispatch it first; a context replacement
+        // also retires the pointer target drawn by the previous frame.
+        let owner = self.semantic_input_owner();
+        self.drain_semantic_actions();
+        if !owner.matches(&self.semantic_input_owner()) {
+            return;
+        }
         if self.player_guide.is_some() || self.runtime.screen() != ClientScreen::ClassicSector {
             if button == PointerButton::Primary {
                 let action = self
@@ -45,7 +53,88 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                     .map(|control| (control.action_id.clone(), control.action.clone()));
                 if let Some((action_id, action)) = action {
                     self.ui_focus.request_focus(&action_id);
+                    let living_field = action_id.as_str().starts_with("sandbox.creator.field.");
                     self.apply_platform_action(action, InputModality::Pointer);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if living_field {
+                        self.place_living_pointer_caret(
+                            id,
+                            position,
+                            self.modifiers.shift_key(),
+                            true,
+                        );
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    let _ = living_field;
+                } else if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::GalaxySandbox
+                    && self.runtime.sandbox_creator_scene_open()
+                    && let Some(frame) = self.platform_ui.as_ref()
+                    && frame.layout.canvas.contains(position)
+                    && !frame.modal.is_some_and(|panel| panel.contains(position))
+                    && let Some(entity) = self
+                        .runtime
+                        .sandbox_scene(frame.layout.canvas)
+                        .and_then(|scene| scene.hit_entity(position))
+                {
+                    self.apply_platform_action(
+                        crate::ui::platform::PlatformUiAction::Sandbox(
+                            crate::sandbox_session::SandboxUiAction::SnapCreatorParent(entity),
+                        ),
+                        InputModality::Pointer,
+                    );
+                } else if self.player_guide.is_none()
+                    && self.runtime.screen() == ClientScreen::GalaxySandbox
+                    && !self.runtime.sandbox_creator_open()
+                    && let Some(frame) = self.platform_ui.as_ref()
+                    && frame.layout.canvas.contains(position)
+                    && !frame.drawer.is_some_and(|panel| panel.contains(position))
+                {
+                    let orbit = self.modifiers.alt_key() || self.runtime.sandbox_camera_tool();
+                    self.living_scene_focused = true;
+                    let second_touch =
+                        source == PointerSource::Touch && !self.living_camera_touches.is_empty();
+                    if source == PointerSource::Touch {
+                        if !self.living_camera_touches.begin(id, position) {
+                            return;
+                        }
+                        self.living_camera_drag = None;
+                    } else {
+                        self.living_camera_drag = Some((id, position, orbit));
+                    }
+                    if !orbit
+                        && !second_touch
+                        && let Some(entity) = self
+                            .runtime
+                            .sandbox_scene(frame.layout.canvas)
+                            .and_then(|scene| scene.hit_entity(position))
+                    {
+                        let now = super::Instant::now();
+                        let double_click =
+                            self.living_scene_click
+                                .is_some_and(|(time, point, previous)| {
+                                    previous == entity
+                                        && now.saturating_duration_since(time)
+                                            <= std::time::Duration::from_millis(350)
+                                        && point.distance(position) <= 8.0
+                                });
+                        self.living_scene_click =
+                            (!double_click).then_some((now, position, entity));
+                        self.apply_platform_action(
+                            crate::ui::platform::PlatformUiAction::Sandbox(
+                                crate::sandbox_session::SandboxUiAction::SelectEntity(entity),
+                            ),
+                            InputModality::Pointer,
+                        );
+                        self.living_scene_focused = true;
+                        if double_click {
+                            self.runtime.apply_sandbox_action(
+                                crate::sandbox_session::SandboxUiAction::FocusSelection,
+                            );
+                        }
+                    } else {
+                        self.living_scene_click = None;
+                    }
                 }
             }
             return;
@@ -91,7 +180,65 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         self.interaction.begin(id, position, source, button, hit);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn place_living_pointer_caret(&mut self, id: u64, position: Vec2, extend: bool, begin: bool) {
+        let Some(action) = self.ui_focus.focused().cloned() else {
+            return;
+        };
+        let Some(key) = action.as_str().strip_prefix("sandbox.creator.field.") else {
+            return;
+        };
+        let Some(scope) = self.runtime.living_presentation_scope() else {
+            return;
+        };
+        self.synchronize_living_field_editor();
+        let Some((editor_key, editor)) = self.living_text_edit.as_mut() else {
+            return;
+        };
+        if editor_key != key {
+            return;
+        }
+        let Some(mut frame) = self.platform_ui.clone() else {
+            return;
+        };
+        frame.reconcile_focused(Some(&action));
+        let Ok(Some(offset)) = crate::ui::platform::platform_editor_caret_at(
+            &frame,
+            &self.ui_metrics,
+            &action,
+            editor,
+            position,
+        ) else {
+            return;
+        };
+        if editor.place_caret(offset, extend) && begin {
+            self.living_text_drag = Some((id, key.to_owned(), scope));
+        }
+    }
+
     pub(super) fn end_pointer(&mut self, id: u64, position: Vec2) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self
+            .living_text_drag
+            .as_ref()
+            .is_some_and(|(active, _, _)| *active == id)
+        {
+            self.update_pointer(id, position);
+            self.living_text_drag = None;
+            return;
+        }
+        if self.living_camera_touches.contains(id) {
+            self.update_pointer(id, position);
+            self.living_camera_touches.end(id);
+            return;
+        }
+        if self
+            .living_camera_drag
+            .is_some_and(|(active, _, _)| active == id)
+        {
+            self.update_pointer(id, position);
+            self.living_camera_drag = None;
+        }
         if self.player_guide.is_some() || self.runtime.screen() != ClientScreen::ClassicSector {
             return;
         }
@@ -133,6 +280,57 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     pub(super) fn update_pointer(&mut self, id: u64, position: Vec2) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((active, key, scope)) = self.living_text_drag.as_ref()
+            && *active == id
+        {
+            let current_scope = self.runtime.living_presentation_scope();
+            let valid = self.player_guide.is_none()
+                && self.runtime.screen() == ClientScreen::GalaxySandbox
+                && current_scope
+                    .as_ref()
+                    .is_some_and(|current| std::rc::Rc::ptr_eq(current, scope))
+                && self.ui_focus.focused().is_some_and(|action| {
+                    action.as_str().strip_prefix("sandbox.creator.field.") == Some(key.as_str())
+                });
+            if valid {
+                self.place_living_pointer_caret(id, position, true, false);
+            } else {
+                self.living_text_drag = None;
+            }
+            return;
+        }
+        if self.living_camera_touches.contains(id) {
+            if self.player_guide.is_none()
+                && self.runtime.screen() == ClientScreen::GalaxySandbox
+                && !self.runtime.sandbox_creator_open()
+                && let Some(bounds) = self.platform_ui.as_ref().map(|frame| frame.layout.canvas)
+                && let Some(gesture) = self.living_camera_touches.update(id, position)
+            {
+                self.runtime
+                    .pan_sandbox_camera(gesture.pan, self.runtime.sandbox_camera_tool());
+                if let Some((factor, anchor)) = gesture.zoom {
+                    self.runtime.zoom_sandbox_camera(factor, anchor, bounds);
+                }
+            } else {
+                self.living_camera_touches.clear();
+            }
+            return;
+        }
+        if let Some((active, previous, orbit)) = self.living_camera_drag
+            && active == id
+        {
+            if self.player_guide.is_none()
+                && self.runtime.screen() == ClientScreen::GalaxySandbox
+                && !self.runtime.sandbox_creator_open()
+            {
+                self.runtime.pan_sandbox_camera(position - previous, orbit);
+                self.living_camera_drag = Some((id, position, orbit));
+            } else {
+                self.living_camera_drag = None;
+            }
+            return;
+        }
         if self.player_guide.is_some() || self.runtime.screen() != ClientScreen::ClassicSector {
             return;
         }
@@ -165,6 +363,32 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
     }
 
     fn handle_navigation(&mut self, navigation: NavigationAction) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.living_clipboard.cancel();
+        if self.player_guide.is_none()
+            && self.runtime.screen() == ClientScreen::GalaxySandbox
+            && matches!(navigation, NavigationAction::Left | NavigationAction::Right)
+            && let Some(action) = self.ui_focus.focused()
+            && action.as_str().starts_with("sandbox.navigator.entity.")
+            && let Some(crate::ui::platform::PlatformUiAction::Sandbox(
+                crate::sandbox_session::SandboxUiAction::SelectEntity(selection),
+            )) = self
+                .platform_ui
+                .as_ref()
+                .and_then(|frame| frame.action(action))
+        {
+            let selection = *selection;
+            let action = if navigation == NavigationAction::Left {
+                crate::sandbox_session::SandboxUiAction::NavigatorLeft(selection)
+            } else {
+                crate::sandbox_session::SandboxUiAction::NavigatorRight(selection)
+            };
+            self.apply_platform_action(
+                crate::ui::platform::PlatformUiAction::Sandbox(action),
+                InputModality::Keyboard,
+            );
+            return;
+        }
         if self.player_guide.is_some() || self.runtime.screen() != ClientScreen::ClassicSector {
             match navigation {
                 NavigationAction::TabBackward | NavigationAction::Left | NavigationAction::Up => {
@@ -176,10 +400,22 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
                     self.reveal_workshop_focus();
                 }
                 NavigationAction::PageUp => {
-                    self.apply_workshop_view_action(WorkshopViewAction::ScrollPrevious)
+                    if self.runtime.screen() == ClientScreen::GalaxySandbox {
+                        self.runtime.apply_sandbox_action(
+                            crate::sandbox_session::SandboxUiAction::InspectorPage(true),
+                        );
+                    } else {
+                        self.apply_workshop_view_action(WorkshopViewAction::ScrollPrevious);
+                    }
                 }
                 NavigationAction::PageDown => {
-                    self.apply_workshop_view_action(WorkshopViewAction::ScrollNext)
+                    if self.runtime.screen() == ClientScreen::GalaxySandbox {
+                        self.runtime.apply_sandbox_action(
+                            crate::sandbox_session::SandboxUiAction::InspectorPage(false),
+                        );
+                    } else {
+                        self.apply_workshop_view_action(WorkshopViewAction::ScrollNext);
+                    }
                 }
                 NavigationAction::Activate => {
                     if let Some(action) = self.ui_focus.focused().cloned() {
@@ -235,6 +471,14 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         if self.cancel_durable_exit() {
             return;
         }
+        if self.runtime.screen() == ClientScreen::GalaxySandbox
+            && self.runtime.sandbox_creator_open()
+        {
+            self.runtime
+                .apply_sandbox_action(crate::sandbox_session::SandboxUiAction::CreatorCancel);
+            self.living_text_edit = None;
+            return;
+        }
         if self.active_creator.take().is_some() {
             self.close_workshop_modal_focus();
             return;
@@ -272,6 +516,7 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             ClientScreen::GalaxyWorkshop => {
                 self.apply_workshop_intent(crate::ui::workshop::WorkshopUiIntent::ReturnToMainMenu);
             }
+            ClientScreen::GalaxySandbox => self.runtime.close_sandbox(),
             ClientScreen::MainMenu | ClientScreen::ClassicSector | ClientScreen::Loading => {}
         }
     }
@@ -298,6 +543,11 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             if !pressed {
                 return;
             }
+            if self.runtime.screen() == ClientScreen::GalaxySandbox
+                && self.handle_living_field_key(event)
+            {
+                return;
+            }
             if self.runtime.screen() == ClientScreen::GalaxyWorkshop
                 && self.handle_creator_field_key(event)
             {
@@ -308,7 +558,40 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
             {
                 return;
             }
+            if self.runtime.screen() == ClientScreen::GalaxySandbox
+                && !self.runtime.sandbox_creator_open()
+                && !event.repeat
+                && self.modifiers.is_empty()
+            {
+                if self.living_scene_focused
+                    && matches!(event.logical_key, Key::Named(NamedKey::Home))
+                {
+                    self.runtime
+                        .apply_sandbox_action(crate::sandbox_session::SandboxUiAction::FitScope);
+                    return;
+                }
+                if self.living_scene_focused
+                    && matches!(&event.logical_key, Key::Character(value) if value.eq_ignore_ascii_case("f"))
+                {
+                    self.runtime.apply_sandbox_action(
+                        crate::sandbox_session::SandboxUiAction::FocusSelection,
+                    );
+                    return;
+                }
+                if matches!(&event.logical_key, Key::Character(value) if value == ".") {
+                    self.runtime
+                        .apply_sandbox_action(crate::sandbox_session::SandboxUiAction::Step);
+                    return;
+                }
+                if matches!(&event.logical_key, Key::Character(value) if value.eq_ignore_ascii_case("p"))
+                {
+                    self.runtime
+                        .apply_sandbox_action(crate::sandbox_session::SandboxUiAction::TogglePause);
+                    return;
+                }
+            }
             if let Some(navigation) = navigation_for_key(&event.logical_key, self.modifiers) {
+                self.living_scene_focused = false;
                 self.handle_navigation(navigation);
                 return;
             }
@@ -414,6 +697,208 @@ impl<S: ScenarioStore, P: PreferencesStore, W: WorkshopStore> App<S, P, W> {
         } else {
             self.runtime.classic_mut().activate_focused_ui();
         }
+    }
+
+    fn handle_living_field_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        let Some(key) = self
+            .ui_focus
+            .focused()
+            .and_then(|action| action.as_str().strip_prefix("sandbox.creator.field."))
+            .map(str::to_owned)
+        else {
+            return false;
+        };
+        let Some(value) = self.runtime.sandbox_creator_field(&key).map(str::to_owned) else {
+            return false;
+        };
+        if matches!(
+            event.logical_key,
+            Key::Named(NamedKey::Tab | NamedKey::Escape | NamedKey::Enter)
+        ) {
+            return false;
+        }
+        if self
+            .living_text_edit
+            .as_ref()
+            .is_none_or(|(old_key, edit)| old_key != &key || edit.value() != value)
+        {
+            self.living_text_edit = Some((key.clone(), crate::ui::text_edit::TextEdit::new(value)));
+        }
+        let edit = &mut self
+            .living_text_edit
+            .as_mut()
+            .expect("field editor installed")
+            .1;
+        let command = self.modifiers.control_key() || self.modifiers.super_key();
+        if command
+            && matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("a"))
+        {
+            edit.select_all();
+            return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if command && let Key::Character(text) = &event.logical_key {
+            use crate::ui::clipboard::ClipboardOperation;
+            let operation = match text.to_ascii_lowercase().as_str() {
+                "c" => Some(ClipboardOperation::Copy),
+                "x" => Some(ClipboardOperation::Cut),
+                "v" => Some(ClipboardOperation::Paste),
+                _ => None,
+            };
+            if let Some(operation) = operation {
+                if let Some(scope) = self.runtime.living_presentation_scope()
+                    && let Err(error) =
+                        self.living_clipboard
+                            .request(scope, key, edit.clone(), operation)
+                {
+                    self.runtime.report_living_presentation_failure(format!(
+                        "Clipboard operation failed: {error}"
+                    ));
+                }
+                return true;
+            }
+        }
+        // Platform paste/IME/semantic value updates insert their complete bounded text.
+        // Other modified keys remain typing-safe and do not activate transport.
+        let modified_edit = matches!(
+            event.logical_key,
+            Key::Named(
+                NamedKey::ArrowLeft
+                    | NamedKey::ArrowRight
+                    | NamedKey::Home
+                    | NamedKey::End
+                    | NamedKey::Backspace
+                    | NamedKey::Delete
+            )
+        );
+        if (command || self.modifiers.alt_key()) && !modified_edit {
+            return true;
+        }
+        let mut staged = edit.clone();
+        let edit = &mut staged;
+        let word = self.modifiers.control_key() || self.modifiers.alt_key();
+        let edge = self.modifiers.super_key();
+        match &event.logical_key {
+            Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight) if edge => {
+                edit.move_edge(
+                    matches!(event.logical_key, Key::Named(NamedKey::ArrowRight)),
+                    self.modifiers.shift_key(),
+                );
+            }
+            Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight) if word => {
+                edit.move_word(
+                    if matches!(event.logical_key, Key::Named(NamedKey::ArrowLeft)) {
+                        -1
+                    } else {
+                        1
+                    },
+                    self.modifiers.shift_key(),
+                );
+            }
+            Key::Named(NamedKey::Backspace | NamedKey::Delete) if edge => {
+                let backward = matches!(event.logical_key, Key::Named(NamedKey::Backspace));
+                if edit.selection().is_empty() {
+                    edit.move_edge(!backward, true);
+                }
+                edit.delete(backward);
+            }
+            Key::Named(NamedKey::Backspace | NamedKey::Delete) if word => {
+                edit.delete_word(matches!(event.logical_key, Key::Named(NamedKey::Backspace)));
+            }
+            Key::Named(NamedKey::ArrowLeft) => edit.move_caret(-1, self.modifiers.shift_key()),
+            Key::Named(NamedKey::ArrowRight) => edit.move_caret(1, self.modifiers.shift_key()),
+            Key::Named(NamedKey::Home) => edit.move_edge(false, self.modifiers.shift_key()),
+            Key::Named(NamedKey::End) => edit.move_edge(true, self.modifiers.shift_key()),
+            Key::Named(NamedKey::Backspace) => edit.delete(true),
+            Key::Named(NamedKey::Delete) => edit.delete(false),
+            _ => {
+                if let Some(text) = event.text.as_deref() {
+                    edit.insert(text, 4096);
+                }
+            }
+        }
+        let value = edit.value().to_owned();
+        if self.runtime.edit_sandbox_creator_field(&key, &value) {
+            self.living_text_edit
+                .as_mut()
+                .expect("field editor installed")
+                .1 = staged;
+        }
+        true
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn poll_living_clipboard(&mut self) {
+        let Some(completion) = self.living_clipboard.poll() else {
+            return;
+        };
+        let Some(scope) = self.runtime.living_presentation_scope() else {
+            return;
+        };
+        let Some((key, editor)) = self.living_text_edit.as_mut() else {
+            return;
+        };
+        let focused = self
+            .ui_focus
+            .focused()
+            .map(SemanticActionId::as_str)
+            .and_then(|id| id.strip_prefix("sandbox.creator.field."));
+        if focused != Some(key.as_str()) {
+            return;
+        }
+        if self.runtime.screen() != ClientScreen::GalaxySandbox
+            || self.player_guide.is_some()
+            || self.runtime.sandbox_creator_field(key) != Some(editor.value())
+        {
+            return;
+        }
+        let mut staged = editor.clone();
+        match completion.apply(&scope, key, &mut staged, 4096) {
+            Ok(crate::ui::clipboard::ClipboardApply::Changed) => {
+                if self.runtime.edit_sandbox_creator_field(key, staged.value()) {
+                    *editor = staged;
+                }
+            }
+            Ok(_) => {}
+            Err(error) => self
+                .runtime
+                .report_living_presentation_failure(format!("Clipboard operation failed: {error}")),
+        }
+    }
+
+    pub(super) fn insert_living_field_text(&mut self, text: &str) -> bool {
+        let Some(key) = self
+            .ui_focus
+            .focused()
+            .and_then(|action| action.as_str().strip_prefix("sandbox.creator.field."))
+            .map(str::to_owned)
+        else {
+            return false;
+        };
+        let Some(value) = self.runtime.sandbox_creator_field(&key).map(str::to_owned) else {
+            return false;
+        };
+        if self
+            .living_text_edit
+            .as_ref()
+            .is_none_or(|(old_key, edit)| old_key != &key || edit.value() != value)
+        {
+            self.living_text_edit = Some((key.clone(), crate::ui::text_edit::TextEdit::new(value)));
+        }
+        let edit = &mut self
+            .living_text_edit
+            .as_mut()
+            .expect("field editor installed")
+            .1;
+        let mut staged = edit.clone();
+        if staged.insert(text, 4096)
+            && self
+                .runtime
+                .edit_sandbox_creator_field(&key, staged.value())
+        {
+            *edit = staged;
+        }
+        true
     }
 
     fn handle_creator_field_key(&mut self, event: &winit::event::KeyEvent) -> bool {
@@ -903,5 +1388,444 @@ mod tests {
             workshop_scroll_target(None, None, Vec2::new(320.0, 400.0)),
             None
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sandbox_unopened_app() -> App<crate::scenario::store::MemoryScenarioStore> {
+        use crate::{
+            app::{AppCore, AppEventProxy},
+            preferences::store::MemoryPreferencesStore,
+            scenario::{ScenarioDraft, store::MemoryScenarioStore},
+            workshop::store::MemoryWorkshopStore,
+        };
+        let core = AppCore::new_with_preferences(
+            ScenarioDraft::factory_default().validated().unwrap(),
+            MemoryScenarioStore::default(),
+            MemoryPreferencesStore::default(),
+        );
+        let mut app = App::with_event_proxy(
+            core,
+            MemoryWorkshopStore::default(),
+            AppEventProxy::Headless,
+        );
+        app.runtime
+            .classic_mut()
+            .set_viewport(Vec2::new(1280.0, 720.0));
+        app
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn owned_semantic_edit_precedes_preview_and_commits_the_reviewed_name() {
+        use crate::sandbox_session::SandboxUiAction as A;
+        use crate::ui::accessibility::{
+            OwnedPlatformSemanticEvent as Queued, PlatformSemanticEvent as Event,
+        };
+        let mut app = sandbox_app();
+        app.runtime.apply_sandbox_action(A::OpenCreator(
+            crate::living_creator::LivingCreatorTool::System,
+        ));
+        app.build_sandbox_frame();
+        let owner = app.semantic_input_owner();
+        app.apply_owned_semantic_events(vec![
+            Queued {
+                owner: owner.clone(),
+                event: Event::Edit(
+                    SemanticActionId::new("sandbox.creator.field.0.name"),
+                    "Ordered preview system".into(),
+                ),
+            },
+            Queued {
+                owner: owner.clone(),
+                event: Event::Action(SemanticActionId::new("sandbox.creator.preview")),
+            },
+        ]);
+        app.build_sandbox_frame();
+        assert!(app.runtime.sandbox_creator_scene_open());
+        assert_eq!(
+            app.runtime.sandbox_creator_field("0.name"),
+            Some("Ordered preview system")
+        );
+        app.apply_owned_semantic_events(vec![Queued {
+            owner,
+            event: Event::Action(SemanticActionId::new("sandbox.creator.scene.apply")),
+        }]);
+        app.build_sandbox_frame();
+        assert!(!app.runtime.sandbox_creator_open());
+        let scene = app
+            .runtime
+            .sandbox_scene(app.platform_ui.as_ref().unwrap().layout.canvas)
+            .unwrap();
+        assert!(
+            scene
+                .entities
+                .iter()
+                .any(|entity| entity.name == "Ordered preview system")
+        );
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn queued_native_edit_is_flushed_before_pointer_preview() {
+        use crate::sandbox_session::SandboxUiAction as A;
+        let mut app = sandbox_app();
+        app.runtime.apply_sandbox_action(A::OpenCreator(
+            crate::living_creator::LivingCreatorTool::System,
+        ));
+        app.build_sandbox_frame();
+        let point = app
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| control.action_id.as_str() == "sandbox.creator.preview")
+            .unwrap()
+            .bounds
+            .center();
+        app.semantic_adapter.request_edit(
+            SemanticActionId::new("sandbox.creator.field.0.name"),
+            "Pointer ordered system".into(),
+        );
+        app.begin_pointer(0, point, PointerSource::Mouse, PointerButton::Primary);
+        assert!(app.runtime.sandbox_creator_scene_open());
+        assert_eq!(
+            app.runtime.sandbox_creator_field("0.name"),
+            Some("Pointer ordered system")
+        );
+        app.runtime.apply_sandbox_action(A::CreatorApply);
+        app.build_sandbox_frame();
+        let scene = app
+            .runtime
+            .sandbox_scene(app.platform_ui.as_ref().unwrap().layout.canvas)
+            .unwrap();
+        assert!(
+            scene
+                .entities
+                .iter()
+                .any(|entity| entity.name == "Pointer ordered system")
+        );
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn queued_context_replacement_retires_old_pointer_target() {
+        use crate::sandbox_session::SandboxUiAction as A;
+        let mut app = sandbox_app();
+        app.runtime.apply_sandbox_action(A::OpenCreator(
+            crate::living_creator::LivingCreatorTool::System,
+        ));
+        app.build_sandbox_frame();
+        let point = app
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| control.action_id.as_str() == "sandbox.creator.preview")
+            .unwrap()
+            .bounds
+            .center();
+        let cancel = app
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| {
+                control.action == crate::ui::platform::PlatformUiAction::Sandbox(A::CreatorCancel)
+            })
+            .unwrap()
+            .action_id
+            .clone();
+        app.semantic_adapter.request_action(cancel);
+        app.begin_pointer(0, point, PointerSource::Mouse, PointerButton::Primary);
+        assert!(!app.runtime.sandbox_creator_open());
+        assert!(!app.runtime.sandbox_creator_scene_open());
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn owned_semantic_input_accepts_same_draft_and_rejects_replacement_owners() {
+        use crate::sandbox_session::SandboxUiAction as A;
+        use crate::ui::accessibility::{
+            OwnedPlatformSemanticEvent as Queued, PlatformSemanticEvent as Event,
+        };
+        let mut app = sandbox_app();
+        app.runtime.apply_sandbox_action(A::OpenCreator(
+            crate::living_creator::LivingCreatorTool::System,
+        ));
+        app.build_sandbox_frame();
+        let owner = app.semantic_input_owner();
+        for value in ["First edit", "Second edit"] {
+            app.apply_owned_semantic_events(vec![Queued {
+                owner: owner.clone(),
+                event: Event::Edit(
+                    SemanticActionId::new("sandbox.creator.field.0.name"),
+                    value.into(),
+                ),
+            }]);
+            assert_eq!(app.runtime.sandbox_creator_field("0.name"), Some(value));
+            if value == "First edit" {
+                app.apply_owned_semantic_events(vec![Queued {
+                    owner: owner.clone(),
+                    event: Event::Action(SemanticActionId::new("sandbox.creator.preview")),
+                }]);
+                app.build_sandbox_frame();
+                assert!(app.runtime.sandbox_creator_scene_open());
+            }
+        }
+        app.runtime.apply_sandbox_action(A::OpenCreator(
+            crate::living_creator::LivingCreatorTool::System,
+        ));
+        app.build_sandbox_frame();
+        let replacement_value = app
+            .runtime
+            .sandbox_creator_field("0.name")
+            .unwrap()
+            .to_owned();
+        app.apply_owned_semantic_events(vec![
+            Queued {
+                owner: owner.clone(),
+                event: Event::Edit(
+                    SemanticActionId::new("sandbox.creator.field.0.name"),
+                    "Stale edit".into(),
+                ),
+            },
+            Queued {
+                owner,
+                event: Event::Action(SemanticActionId::new("sandbox.creator.preview")),
+            },
+        ]);
+        assert_eq!(
+            app.runtime.sandbox_creator_field("0.name"),
+            Some(replacement_value.as_str())
+        );
+        assert!(!app.runtime.sandbox_creator_scene_open());
+        app.runtime.apply_sandbox_action(A::CreatorCancel);
+        app.build_sandbox_frame();
+        let resident = app.semantic_input_owner();
+        // Fresh resident fixture replaces the unsaved current runtime explicitly;
+        // normal content creation correctly refuses dirty resident replacement.
+        app.runtime = sandbox_app().runtime;
+        app.build_sandbox_frame();
+        assert!(!resident.matches(&app.semantic_input_owner()));
+        app.apply_owned_semantic_events(vec![Queued {
+            owner: resident,
+            event: Event::Action(SemanticActionId::new("sandbox.toggle_pause")),
+        }]);
+        assert_eq!(app.runtime.sandbox_paused(), Some(true));
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sandbox_app() -> App<crate::scenario::store::MemoryScenarioStore> {
+        let mut app = sandbox_unopened_app();
+        app.runtime
+            .select_menu_route(crate::app::client_runtime::MainMenuRoute::GalaxySandbox)
+            .unwrap();
+        app.build_sandbox_frame();
+        app
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn first_living_menu_entry_holds_intro_then_resident_reentry_keeps_dismissal() {
+        let mut app = sandbox_unopened_app();
+        app.apply_shell_action(crate::ui::platform::ShellUiAction::Menu(
+            crate::app::client_runtime::MainMenuRoute::GalaxySandbox,
+        ));
+        app.build_sandbox_frame();
+        assert!(app.platform_ui.as_ref().unwrap().modal.is_some());
+        app.runtime.update(std::time::Duration::from_secs(20));
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+        app.runtime
+            .apply_sandbox_action(crate::sandbox_session::SandboxUiAction::IntroStart(false));
+        app.build_sandbox_frame();
+        assert!(app.platform_ui.as_ref().unwrap().modal.is_none());
+        app.runtime.step_sandbox(1).unwrap();
+        app.runtime.close_sandbox();
+        app.apply_shell_action(crate::ui::platform::ShellUiAction::Menu(
+            crate::app::client_runtime::MainMenuRoute::GalaxySandbox,
+        ));
+        app.build_sandbox_frame();
+        assert!(app.platform_ui.as_ref().unwrap().modal.is_none());
+        assert_eq!(app.runtime.sandbox_tick(), Some(1));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn sandbox_field_focus_installs_caret_without_typing_and_preserves_selection() {
+        let mut app = sandbox_app();
+        app.apply_platform_action(
+            crate::ui::platform::PlatformUiAction::Sandbox(
+                crate::sandbox_session::SandboxUiAction::OpenCreator(
+                    crate::living_creator::LivingCreatorTool::System,
+                ),
+            ),
+            InputModality::Keyboard,
+        );
+        app.build_sandbox_frame();
+        let action = app
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| {
+                control
+                    .action_id
+                    .as_str()
+                    .starts_with("sandbox.creator.field.")
+            })
+            .unwrap()
+            .action_id
+            .clone();
+        assert!(app.ui_focus.request_focus(&action));
+        app.living_text_edit = None;
+        app.build_sandbox_frame();
+        let editor = &mut app.living_text_edit.as_mut().unwrap().1;
+        assert_eq!(editor.caret(), editor.value().len());
+        editor.select_all();
+        let selection = editor.selection();
+        app.build_sandbox_frame();
+        assert_eq!(
+            app.living_text_edit.as_ref().unwrap().1.selection(),
+            selection
+        );
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_field_pointer_places_caret_and_drag_selects_without_publishing() {
+        let mut app = sandbox_app();
+        app.apply_platform_action(
+            crate::ui::platform::PlatformUiAction::Sandbox(
+                crate::sandbox_session::SandboxUiAction::OpenCreator(
+                    crate::living_creator::LivingCreatorTool::System,
+                ),
+            ),
+            InputModality::Keyboard,
+        );
+        app.build_sandbox_frame();
+        let bounds = app
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| control.action_id.as_str() == "sandbox.creator.field.0.name")
+            .unwrap()
+            .bounds;
+        let point = Vec2::new(bounds.min.x + 2.0, (bounds.min.y + bounds.max.y) / 2.0);
+        app.begin_pointer(0, point, PointerSource::Mouse, PointerButton::Primary);
+        assert_eq!(app.living_text_edit.as_ref().unwrap().1.caret(), 0);
+        assert!(app.living_text_drag.is_some());
+        app.update_pointer(0, Vec2::new(bounds.max.x + 100.0, point.y));
+        let editor = &app.living_text_edit.as_ref().unwrap().1;
+        assert_eq!(editor.selection(), 0..editor.value().len());
+        let value = editor.value().to_owned();
+        app.end_pointer(0, Vec2::new(bounds.max.x + 100.0, point.y));
+        assert!(app.living_text_drag.is_none());
+        assert_eq!(
+            app.runtime.sandbox_creator_field("0.name"),
+            Some(value.as_str())
+        );
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn sandbox_focused_space_activation_matches_pointer_selection() {
+        let mut keyboard = sandbox_app();
+        let next = SemanticActionId::new("sandbox.world.next");
+        assert!(keyboard.ui_focus.request_focus(&next));
+        let activate =
+            navigation_for_key(&Key::Named(NamedKey::Space), keyboard.modifiers).unwrap();
+        assert_eq!(activate, NavigationAction::Activate);
+        keyboard.handle_navigation(activate);
+        let bounds = keyboard.platform_ui.as_ref().unwrap().layout.canvas;
+        let selected = keyboard
+            .runtime
+            .sandbox_scene(bounds)
+            .unwrap()
+            .selected_world;
+        assert!(selected.is_some());
+        assert_eq!(keyboard.runtime.sandbox_tick(), Some(0));
+        assert_eq!(keyboard.runtime.sandbox_paused(), Some(true));
+
+        let mut pointer = sandbox_app();
+        let point = pointer
+            .platform_ui
+            .as_ref()
+            .unwrap()
+            .controls
+            .iter()
+            .find(|control| control.action_id == next)
+            .unwrap()
+            .bounds
+            .center();
+        pointer.begin_pointer(0, point, PointerSource::Mouse, PointerButton::Primary);
+        assert_eq!(
+            pointer
+                .runtime
+                .sandbox_scene(bounds)
+                .unwrap()
+                .selected_world,
+            selected
+        );
+        assert_eq!(pointer.runtime.sandbox_tick(), Some(0));
+
+        assert!(
+            keyboard
+                .ui_focus
+                .request_focus(&SemanticActionId::new("sandbox.toggle_pause"))
+        );
+        keyboard.handle_navigation(
+            navigation_for_key(&Key::Named(NamedKey::Space), keyboard.modifiers).unwrap(),
+        );
+        assert_eq!(keyboard.runtime.sandbox_paused(), Some(false));
+        assert_eq!(keyboard.runtime.sandbox_tick(), Some(0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn sandbox_visibility_holds_are_independent_and_clear_fractional_debt() {
+        use crate::sandbox_session::SandboxUiAction;
+        use std::time::Duration;
+        let mut app = sandbox_app();
+        app.runtime
+            .apply_sandbox_action(SandboxUiAction::TogglePause);
+        app.runtime.update(Duration::from_millis(90));
+        assert!(!app.sandbox_transport_held());
+        app.sandbox_window_occluded = true;
+        app.runtime
+            .set_sandbox_suspended(app.sandbox_transport_held());
+        app.runtime.update(Duration::from_secs(10));
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+        app.sandbox_window_focused = false;
+        app.sandbox_window_occluded = false;
+        assert!(app.sandbox_transport_held());
+        app.sandbox_window_focused = true;
+        app.sandbox_window_suspended = true;
+        assert!(app.sandbox_transport_held());
+        app.sandbox_window_suspended = false;
+        assert!(!app.sandbox_transport_held());
+        app.runtime
+            .set_sandbox_suspended(app.sandbox_transport_held());
+        app.runtime.update(Duration::from_millis(10));
+        assert_eq!(app.runtime.sandbox_tick(), Some(0));
+        app.runtime.update(Duration::from_millis(90));
+        for _ in 0..100 {
+            if app.runtime.sandbox_tick() == Some(1) {
+                break;
+            }
+            app.runtime.update(Duration::ZERO);
+        }
+        assert_eq!(app.runtime.sandbox_tick(), Some(1));
     }
 }

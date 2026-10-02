@@ -18,7 +18,7 @@ const TOPICS: &[(&str, &[&str])] = &[
         "Choose your game",
         &[
             "Classic Sector is a strategy battle. You command the Union: capture five of seven worlds before a rival does. Galaxy Workshop is a separate creative sandbox: build a galaxy, run production, inspect it and revise. It has no enemy or victory screen.",
-            "First time? Use Next for a first fleet in Classic, or continue to Workshop for your first 4 energy. No account, server or agent commands are needed.",
+            "Living Galaxy lets you observe autonomous societies and inspect their inventories and recorded events. First time? Use Next for a first fleet in Classic, continue to Workshop for your first 4 energy, or read Living Galaxy for a paused simulation experiment. No account, server or agent commands are needed.",
             "Open this guide with F1, the main-menu Player guide button, Workshop's Guide button, or Classic's HELP / H. Simulation time is held while reading. Close or Escape returns to the same session and speed; no save or scenario is replaced.",
         ],
     ),
@@ -49,6 +49,20 @@ const TOPICS: &[(&str, &[&str])] = &[
             "Place a foundry on that world with no linked deposit. Each operating tick consumes 2 energy and 3 ore to make 1 alloy. With one solar array and extractor, ore needs time to accumulate; not every tick can run the foundry. Select the world and watch Inventory for alloy.",
             "For shipping, build a second system, star and world. Connect lane joins the SYSTEMS. Connect route joins the WORLDS: choose source, destination, ore, and batch units 1. A lane by itself ships nothing. Run 1x until ore reaches the destination; travel is not instantaneous.",
             "Put a solar-array and foundry on the receiving world to turn delivered ore into alloy there. If nothing happens: check speed, industry Enabled, matching deposit, reserves, local energy/ore, lane, source/destination and route batch size. An ion storm reduces lane capacity; leave hazards out of your first factory.",
+        ],
+    ),
+    (
+        "Living Galaxy // First simulation",
+        &[
+            "1 / SELECTION: Open Living Galaxy to start paused in Vale Confluence. Select a world in the diorama, or open Navigator to search names, full identities or entity types. Expand a system and inspect a world, civilization, facility, fleet, route or hazard. Selection changes presentation only; Inspector reads current authority fields and recorded recipe causes.",
+            "2 / TIME: Step or the period key advances one boundary while paused. Check the tick and selected inventory before and after. Run/Pause or P toggles time outside text fields. Start at 1x: ten ticks per second. 4x and 20x request faster transport; the visible effective speed can be lower under load. Pause, modal activity and suspension discard timing debt.",
+            "3 / CREATION: Pause, choose Creator tools, select System and give it a name. Fields are drafts. Preview validates a private candidate and explains its changes; Apply commits only that current preview. Cancel preserves the galaxy. Removals require the displayed dependent objects and derived references to be reviewed. Editing retained history requires Branch here.",
+            "FIRST SUCCESS: Find a committed inventory change or event you can explain. Chronicle shows newest verified rows first; repetitive production and freight are summarized in 100-tick windows. Open a row for exact receipt references. Decision rows show recorded actor, score, outcome and reasons. Ordinary events without actor/entity payloads explicitly retain unknown links.",
+            "CAMERA: Galaxy, System and World buttons change scope. Empty-space drag pans; modified drag or the Camera tool orbits. Wheel zooms toward the pointer. F focuses selection and Home fits the current scope when scene focus is active. Camera offers visible equivalents. Removing a focused object returns to its surviving parent. Navigator and Inspector remain available when scene objects overlap.",
+            "EXPERIMENT: In History, name a bookmark Before the intervention. Preview a temporary lane hazard, Apply it, then observe receipts rather than predict an unrecorded result. Branch preserves the sibling future. Matching-tick comparison evaluates both histories at one exact tick. Record an experiment only from the completed measured comparison. Notebook labels and observations are separate session metadata.",
+            "LEARNING GALAXIES: New galaxy offers paused Vale Confluence, Commerce, Frontier Friction, Interrupted Corridor, First Expansion, Blank and reproducible Seeded starts. Main Vale has no guaranteed first war. Commerce, Frontier and Interrupted are deterministic fixture situations; their rules are unchanged while running. Save your current session before replacing it.",
+            "PRESERVE: Save and wait for its durable status. Save & leave completes the archive and notebook save before leaving. Library opens exact saved identities and supports rename, archive, restore and deleting archived saves. Continue resolves its recorded selection; invalid data enters recovery. Transfer first prepares an immutable export snapshot, then exports Galaxy, Catalog or Notebook separately. Browser download confirmation is separate from download handoff. Import displays a validated candidate for explicit Apply or Cancel.",
+            "ACCESS: Tab / Shift+Tab focuses controls; Enter or Space activates the focused action. Text fields support cursor movement, selection and editing. PageUp / PageDown reads inspector pages. Open F1 to read with time held, then Close to return to the same speed. A fault stops transport at the last committed authority boundary; read its message. Audio settings expose mute and separate volume channels.",
         ],
     ),
     (
@@ -83,6 +97,7 @@ impl GuideLocation {
             topic: match screen {
                 ClientScreen::ClassicSector => 1,
                 ClientScreen::GalaxyWorkshop => 2,
+                ClientScreen::GalaxySandbox => 4,
                 _ => 0,
             },
             sheet: 0,

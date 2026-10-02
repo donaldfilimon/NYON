@@ -213,6 +213,8 @@ impl LivingInventoryV2 {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LivingBlockedReasonV2 {
+    /// An explicitly disabled facility skipped its due attempt.
+    Disabled,
     /// The finite deposit could not supply the required units.
     MissingDeposit {
         /// Units the recipe consumes per recurrence.
@@ -241,6 +243,7 @@ impl LivingBlockedReasonV2 {
     /// The stable wire discriminant.
     pub const fn as_wire_str(&self) -> &'static str {
         match self {
+            Self::Disabled => "disabled",
             Self::MissingDeposit { .. } => "missing_deposit",
             Self::MissingInput { .. } => "missing_input",
             Self::OutputFull { .. } => "output_full",
@@ -249,7 +252,7 @@ impl LivingBlockedReasonV2 {
 
     const fn resource_key(&self) -> &'static str {
         match self {
-            Self::MissingDeposit { .. } => "",
+            Self::Disabled | Self::MissingDeposit { .. } => "",
             Self::MissingInput { resource, .. } | Self::OutputFull { resource } => {
                 resource.as_wire_str()
             }
@@ -501,6 +504,13 @@ pub struct LivingFacilityV2 {
     pub next_repair: Option<LivingTickV2>,
     /// Reasons the most recent blocked attempt produced nothing.
     pub blocked_reasons: LivingSortedVecV2<LivingBlockedReasonV2>,
+    /// Explicit creator disablement, omitted when false to preserve old bytes.
+    #[serde(default, skip_serializing_if = "living_false")]
+    pub disabled: bool,
+}
+
+fn living_false(value: &bool) -> bool {
+    !*value
 }
 
 impl LivingKeyedV2 for LivingFacilityV2 {
@@ -795,6 +805,14 @@ pub struct LivingShipmentV2 {
     pub arrival_tick: LivingTickV2,
     /// What the shipment is currently doing.
     pub disposition: LivingShipmentDispositionV2,
+    /// Immutable route classification at dispatch. Legacy/creator cargo may
+    /// carry no evidence and receives no inferred trade or aid credit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_kind: Option<LivingRouteKindV2>,
+    /// A return that has arrived at its source but is waiting for storage.
+    /// True is valid only with WaitingForStorage; false stays absent on wire.
+    #[serde(default, skip_serializing_if = "living_false")]
+    pub returning_to_source: bool,
 }
 
 impl LivingKeyedV2 for LivingShipmentV2 {
@@ -872,7 +890,7 @@ impl LivingKeyedV2 for LivingRelationV2 {
 }
 
 /// Which bilateral record an agreement is.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LivingAgreementKindV2 {
     /// Blocks new war while active.
@@ -1014,6 +1032,10 @@ pub struct LivingObservationV2 {
     pub facilities: LivingSortedVecV2<LivingObservedFacilityV2>,
     /// Hulls seen stationed, sorted by definition.
     pub stationed_hulls: LivingSortedVecV2<LivingObservedHullV2>,
+    /// Exact operational battery count when lower than the visible aggregate.
+    /// Absence retains the aggregate as a conservative legacy defense bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_defense_batteries: Option<u16>,
 }
 
 impl LivingKeyedV2 for LivingObservationV2 {
@@ -1207,34 +1229,10 @@ impl LivingGalaxyStateV2 {
     /// the canonical wire already rejects them, and a second implementation of
     /// the same rule is a second place for it to drift.
     ///
-    /// # What this deliberately does not check
-    ///
-    /// An earlier version of this comment said "every collection maximum",
-    /// which asserted a strong reading while the code implemented a weak one.
-    /// The bounds below are **reservation accounting**, and section 1 assigns
-    /// them to the creator-operation path rather than to the state schema:
-    /// "Accepting a building or hull job reserves its global entity capacity
-    /// and its destination industry/fleet slot through completion." The
-    /// civilizations plan gives that accounting a home in `civilization.rs`.
-    /// Enforcing it here would put the same rule in two places, which is the
-    /// drift this type avoids everywhere else.
-    ///
-    /// So a state is accepted by this function even when:
-    ///
-    /// - a colony exceeds section 3's six industrial slots, or holds more than
-    ///   one defense battery or shipyard. `LIVING_COLONY_INDUSTRY_SLOTS_V2`
-    ///   lives in `catalog.rs` and is deliberately not imported here. Note the
-    ///   bound applies to colony worlds only: section 3 also permits
-    ///   creator-created noncolonized industry.
-    /// - `construction_jobs` or `hull_jobs` are arbitrarily long. Neither is
-    ///   added to the `facilities` or hull sums, and neither carries an
-    ///   independent bound, so 2,048 facilities plus 2,048 outstanding
-    ///   construction jobs is accepted here.
-    /// - a `hull_jobs` entry with `target_fleet: None` reserves a fleet that is
-    ///   not counted against `LIVING_MAX_FLEETS_V2`.
-    ///
-    /// These are recorded rather than silently deferred, because the previous
-    /// sentence claimed they were covered.
+    /// Capacity accounting includes outstanding paid construction and hull
+    /// jobs, their reserved destination industry/fleet slots, and reservations
+    /// for fleets not yet created. Colony industry also enforces the six-slot
+    /// limit and unique shipyard/defense battery requirements.
     pub fn validate(
         &self,
         catalog: &ValidatedLivingCatalogPackV2,
@@ -1275,7 +1273,7 @@ impl LivingGalaxyStateV2 {
             (
                 "facilities",
                 LIVING_MAX_INDUSTRIES_V2,
-                self.facilities.as_slice().len(),
+                self.facilities.as_slice().len() + self.construction_jobs.as_slice().len(),
             ),
             ("routes", LIVING_MAX_ROUTES_V2, self.routes.as_slice().len()),
             (
@@ -1283,7 +1281,17 @@ impl LivingGalaxyStateV2 {
                 LIVING_MAX_SHIPMENTS_V2,
                 self.shipments.as_slice().len(),
             ),
-            ("fleets", LIVING_MAX_FLEETS_V2, self.fleets.as_slice().len()),
+            (
+                "fleets",
+                LIVING_MAX_FLEETS_V2,
+                self.fleets.as_slice().len()
+                    + self
+                        .hull_jobs
+                        .as_slice()
+                        .iter()
+                        .filter(|job| job.target_fleet.is_none())
+                        .count(),
+            ),
             (
                 "hazards",
                 LIVING_MAX_HAZARDS_V2,
@@ -1305,9 +1313,15 @@ impl LivingGalaxyStateV2 {
             }
         }
 
-        let mut hulls = 0_usize;
+        let mut hulls = self.hull_jobs.as_slice().len();
         for fleet in self.fleets.as_slice() {
-            let count = fleet.hulls.as_slice().len();
+            let count = fleet.hulls.as_slice().len()
+                + self
+                    .hull_jobs
+                    .as_slice()
+                    .iter()
+                    .filter(|job| job.target_fleet == Some(fleet.id))
+                    .count();
             if count > LIVING_MAX_HULLS_PER_FLEET_V2 {
                 return Err(LivingValidationErrorV2::Capacity {
                     collection: "fleet hulls",
@@ -1315,7 +1329,7 @@ impl LivingGalaxyStateV2 {
                     found: count,
                 });
             }
-            hulls += count;
+            hulls += fleet.hulls.as_slice().len();
         }
         if hulls > LIVING_MAX_HULLS_V2 {
             return Err(LivingValidationErrorV2::Capacity {
@@ -1435,6 +1449,62 @@ impl LivingGalaxyStateV2 {
                 });
             }
         }
+        for world in self.worlds.as_slice() {
+            let buildings = self
+                .construction_jobs
+                .as_slice()
+                .iter()
+                .filter(|job| job.world == world.id)
+                .count();
+            let hulls = self
+                .hull_jobs
+                .as_slice()
+                .iter()
+                .filter(|job| job.world == world.id)
+                .count();
+            let slots = buildings
+                + self
+                    .facilities
+                    .as_slice()
+                    .iter()
+                    .filter(|facility| facility.world == world.id)
+                    .count();
+            if slots > 6 {
+                return Err(LivingValidationErrorV2::Capacity {
+                    collection: "world industrial slots",
+                    limit: 6,
+                    found: slots,
+                });
+            }
+            for definition in ["shipyard", "defense_battery"] {
+                let count = self
+                    .facilities
+                    .as_slice()
+                    .iter()
+                    .filter(|facility| {
+                        facility.world == world.id && facility.definition.as_str() == definition
+                    })
+                    .count()
+                    + self
+                        .construction_jobs
+                        .as_slice()
+                        .iter()
+                        .filter(|job| {
+                            job.world == world.id && job.definition.as_str() == definition
+                        })
+                        .count();
+                if count > 1 {
+                    return Err(LivingValidationErrorV2::Range {
+                        field: "unique world industry",
+                    });
+                }
+            }
+            if buildings > 1 || hulls > 1 {
+                return Err(LivingValidationErrorV2::Range {
+                    field: "world construction queue",
+                });
+            }
+        }
         for facility in self.facilities.as_slice() {
             require(has_id(&self.worlds, facility.world), "facility world")?;
             require(
@@ -1466,7 +1536,22 @@ impl LivingGalaxyStateV2 {
                 "hull job definition",
             )?;
             if let Some(fleet) = job.target_fleet {
-                require(has_id(&self.fleets, fleet), "hull job target fleet")?;
+                let fleet = self
+                    .fleets
+                    .as_slice()
+                    .iter()
+                    .find(|row| row.id == fleet)
+                    .ok_or(LivingValidationErrorV2::DanglingReference {
+                        reference: "hull job target fleet",
+                    })?;
+                if fleet.owner != job.owner
+                    || fleet.location != (LivingFleetLocationV2::Docked { world: job.world })
+                    || fleet.order.is_some()
+                {
+                    return Err(LivingValidationErrorV2::Range {
+                        field: "hull job target reservation",
+                    });
+                }
             }
             interval(job.accepted_tick, job.completion_tick, "hull job duration")?;
         }
@@ -1588,6 +1673,20 @@ impl LivingGalaxyStateV2 {
                     field: "shipment units",
                 });
             }
+            if shipment.returning_to_source
+                && shipment.disposition != LivingShipmentDispositionV2::WaitingForStorage
+            {
+                return Err(LivingValidationErrorV2::Range {
+                    field: "shipment return wait",
+                });
+            }
+            if shipment.dispatch_kind == Some(LivingRouteKindV2::Internal)
+                && shipment.dispatch_owner != shipment.intended_receiver
+            {
+                return Err(LivingValidationErrorV2::Range {
+                    field: "shipment internal participants",
+                });
+            }
             interval(
                 shipment.departure_tick,
                 shipment.arrival_tick,
@@ -1698,6 +1797,20 @@ impl LivingGalaxyStateV2 {
                     catalog.industry(facility.definition.as_str()).is_some(),
                     "observed facility definition",
                 )?;
+            }
+            if let Some(operational) = observation.operational_defense_batteries {
+                let aggregate: u64 = observation
+                    .facilities
+                    .as_slice()
+                    .iter()
+                    .filter(|row| row.definition.as_str() == "defense_battery")
+                    .map(|row| u64::from(row.count))
+                    .sum();
+                if u64::from(operational) >= aggregate {
+                    return Err(LivingValidationErrorV2::Range {
+                        field: "observation operational_defense_batteries",
+                    });
+                }
             }
             for hull in observation.stationed_hulls.as_slice() {
                 require(

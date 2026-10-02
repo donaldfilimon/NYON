@@ -17,11 +17,12 @@ const FIRST_NODE_ID: u64 = 1;
 #[derive(Clone, Debug, PartialEq)]
 pub struct NativeSemanticAdapter {
     tree: Option<SemanticTree>,
+    input_owner: Option<super::accessibility::SemanticInputOwner>,
     ids: BTreeMap<SemanticNodeId, NodeId>,
     action_nodes: BTreeMap<SemanticActionId, NodeId>,
     node_actions: BTreeMap<NodeId, SemanticActionId>,
     focused_action: Option<SemanticActionId>,
-    actions: VecDeque<SemanticActionId>,
+    actions: VecDeque<super::accessibility::PlatformSemanticEvent>,
     next_node_id: u64,
 }
 
@@ -29,6 +30,7 @@ impl Default for NativeSemanticAdapter {
     fn default() -> Self {
         Self {
             tree: None,
+            input_owner: None,
             ids: BTreeMap::new(),
             action_nodes: BTreeMap::new(),
             node_actions: BTreeMap::new(),
@@ -45,12 +47,38 @@ impl NativeSemanticAdapter {
         self.focused_action = focused.cloned();
     }
 
+    pub fn sync_owned(
+        &mut self,
+        tree: &SemanticTree,
+        focused: Option<&SemanticActionId>,
+        owner: super::accessibility::SemanticInputOwner,
+    ) {
+        if self
+            .input_owner
+            .as_ref()
+            .is_none_or(|previous| !previous.matches(&owner))
+        {
+            // Never reuse an accessibility node id for a replacement draft.
+            self.ids.clear();
+            self.action_nodes.clear();
+            self.node_actions.clear();
+            self.actions.clear();
+        }
+        self.input_owner = Some(owner);
+        self.sync(tree, focused);
+    }
+
+    pub fn input_owner(&self) -> Option<&super::accessibility::SemanticInputOwner> {
+        self.input_owner.as_ref()
+    }
+
     pub fn tree(&self) -> Option<&SemanticTree> {
         self.tree.as_ref()
     }
 
     pub fn request_action(&mut self, action: SemanticActionId) {
-        self.actions.push_back(action);
+        self.actions
+            .push_back(super::accessibility::PlatformSemanticEvent::Action(action));
     }
 
     pub fn request_node_action(&mut self, node: NodeId) -> bool {
@@ -76,6 +104,22 @@ impl NativeSemanticAdapter {
     }
 
     pub fn drain_actions(&mut self) -> impl Iterator<Item = SemanticActionId> + '_ {
+        self.actions.drain(..).filter_map(|event| match event {
+            super::accessibility::PlatformSemanticEvent::Action(action) => Some(action),
+            super::accessibility::PlatformSemanticEvent::Edit(_, _) => None,
+        })
+    }
+
+    pub fn request_edit(&mut self, action: SemanticActionId, value: String) {
+        self.actions
+            .push_back(super::accessibility::PlatformSemanticEvent::Edit(
+                action, value,
+            ));
+    }
+
+    pub fn drain_events(
+        &mut self,
+    ) -> impl Iterator<Item = super::accessibility::PlatformSemanticEvent> + '_ {
         self.actions.drain(..)
     }
 
@@ -180,6 +224,9 @@ impl NativeSemanticAdapter {
         }
         if semantic.selected {
             node.set_selected(true);
+        }
+        if let Some(expanded) = semantic.expanded {
+            node.set_expanded(expanded);
         }
         if let Some(level) = semantic.hierarchy_level {
             node.set_level(level.saturating_sub(1) as usize);

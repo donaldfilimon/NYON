@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 pub mod accessibility;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod clipboard;
 pub mod creator;
 pub mod guide;
 pub mod library;
@@ -15,6 +17,7 @@ pub mod platform_sdf;
 #[cfg(target_arch = "wasm32")]
 pub mod platform_web;
 pub mod start_marker;
+pub mod text_edit;
 pub mod virtual_list;
 pub mod workshop;
 mod workshop_inspector;
@@ -199,6 +202,23 @@ impl AtlasMetrics {
         value: &str,
     ) -> Result<TextMetrics, UiBatchError> {
         glyph_walk(self, font_size, weight, value, |_, _, _| Ok(()))
+    }
+
+    pub(crate) fn measured_boundaries(
+        &self,
+        font_size: f32,
+        weight: FontWeight,
+        value: &str,
+    ) -> Result<Vec<(usize, f32)>, UiBatchError> {
+        let mut boundaries = Vec::with_capacity(value.len() + 1);
+        let mut offset = 0;
+        let measured = glyph_walk(self, font_size, weight, value, |character, _, advance| {
+            boundaries.push((offset, advance));
+            offset += character.len_utf8();
+            Ok(())
+        })?;
+        boundaries.push((value.len(), measured.advance));
+        Ok(boundaries)
     }
 
     pub fn validate(&self) -> Result<(), AtlasValidationError> {

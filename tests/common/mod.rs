@@ -455,6 +455,9 @@ pub fn assert_action_witnesses(
     for control in &frame.controls {
         let intent;
         let source = match &control.action {
+            PlatformUiAction::Sandbox(action) => {
+                panic!("Living transport {action:?} inside a Workshop frame")
+            }
             PlatformUiAction::Workshop(action) => {
                 intent = model
                     .controls()

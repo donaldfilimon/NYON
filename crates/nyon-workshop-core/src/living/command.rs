@@ -99,6 +99,105 @@ pub enum LivingCascadeDispositionV2 {
     },
     /// Refuse the removal if the target has any dependent at all.
     RejectIfReferenced,
+    /// Exact reviewed stable dependents and keyed records, including derived-only cascades.
+    RemoveReviewed {
+        /// Exact stable dependent targets, sorted by resolved identity.
+        dependents: Vec<LivingCommandTargetV2>,
+        /// Exact affected keyed records in registry/key order.
+        derived: Vec<LivingDerivedRemovalV2>,
+    },
+}
+
+/// Existing keyed records explicitly reviewed for a removal. Values verify keys.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LivingDerivedRemovalV2 {
+    /// Agreement keyed by pair and kind.
+    Agreement {
+        a: LivingEntityIdV2,
+        b: LivingEntityIdV2,
+        agreement_kind: LivingAgreementKindV2,
+    },
+    /// Colony keyed by world; owner verifies the current record.
+    Colony {
+        world: LivingEntityIdV2,
+        owner: LivingEntityIdV2,
+    },
+    /// Intelligence keyed by observer and world.
+    Observation {
+        civilization: LivingEntityIdV2,
+        world: LivingEntityIdV2,
+    },
+    /// Occupation keyed by world; claimant verifies the current record.
+    Occupation {
+        world: LivingEntityIdV2,
+        claimant: LivingEntityIdV2,
+    },
+    /// Retired standing fleet order.
+    Order { fleet: LivingEntityIdV2 },
+    /// Directed relation.
+    Relation {
+        from: LivingEntityIdV2,
+        to: LivingEntityIdV2,
+    },
+    /// Settlement arbitration claim.
+    SettlementClaim {
+        world: LivingEntityIdV2,
+        civilization: LivingEntityIdV2,
+    },
+    /// War keyed by pair.
+    War {
+        a: LivingEntityIdV2,
+        b: LivingEntityIdV2,
+    },
+}
+
+impl LivingDerivedRemovalV2 {
+    fn ordered_key(&self) -> (u8, LivingEntityIdV2, LivingEntityIdV2, &'static str) {
+        let zero = LivingEntityIdV2([0; 16]);
+        match self {
+            Self::Agreement {
+                a,
+                b,
+                agreement_kind,
+            } => (0, *a, *b, agreement_kind.as_wire_str()),
+            Self::Colony { world, owner } => (1, *world, *owner, ""),
+            Self::Observation {
+                civilization,
+                world,
+            } => (2, *civilization, *world, ""),
+            Self::Occupation { world, claimant } => (3, *world, *claimant, ""),
+            Self::Order { fleet } => (4, *fleet, zero, ""),
+            Self::Relation { from, to } => (5, *from, *to, ""),
+            Self::SettlementClaim {
+                world,
+                civilization,
+            } => (6, *world, *civilization, ""),
+            Self::War { a, b } => (7, *a, *b, ""),
+        }
+    }
+}
+impl Ord for LivingDerivedRemovalV2 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ordered_key().cmp(&other.ordered_key())
+    }
+}
+impl PartialOrd for LivingDerivedRemovalV2 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Explicit stable-entity dependencies for a creator removal preview. Derived
+/// keyed records (observations, colonies, diplomacy) are reported separately.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LivingCreatorRemovalPreviewV2 {
+    /// Requested stable entity identity.
+    pub target: LivingEntityIdV2,
+    /// Exact transitive stable-entity IDs that require reviewed disposition.
+    pub dependents: Vec<LivingEntityIdV2>,
+    /// Derived reference rows removed by an explicitly reviewed cascade.
+    pub derived_records: usize,
 }
 
 /// One operation of a creator batch.
@@ -432,6 +531,110 @@ pub enum LivingCreatorOperationV2 {
         /// What to do about its dependents.
         cascade: LivingCascadeDispositionV2,
     },
+    /// Rename a system without changing its identity.
+    EditSystem {
+        target: LivingCommandTargetV2,
+        name: LivingNameV2,
+    },
+    /// Edit a star's holding system, archetype and name.
+    EditStar {
+        target: LivingCommandTargetV2,
+        system: LivingCommandTargetV2,
+        archetype: LivingSlugV2,
+        name: LivingNameV2,
+    },
+    /// Edit a world's structural placement/archetype/name while preserving local assets.
+    EditWorld {
+        target: LivingCommandTargetV2,
+        system: LivingCommandTargetV2,
+        archetype: LivingSlugV2,
+        name: LivingNameV2,
+    },
+    /// Adjust an idle lane; active journeys must remain valid.
+    EditLane {
+        target: LivingCommandTargetV2,
+        system_a: LivingCommandTargetV2,
+        system_b: LivingCommandTargetV2,
+        distance_units: u64,
+    },
+    /// Edit a finite reserve.
+    EditDeposit {
+        target: LivingCommandTargetV2,
+        resource: LivingResourceV2,
+        remaining_units: u64,
+    },
+    /// Edit civilization presentation name and rules policy.
+    EditCivilization {
+        target: LivingCommandTargetV2,
+        name: LivingNameV2,
+        policy: LivingPolicyV2,
+    },
+    /// Enable or disable completed industry, without changing its last-attempt status.
+    SetFacilityEnabled {
+        target: LivingCommandTargetV2,
+        enabled: bool,
+    },
+    /// Scrap completed industry through reviewed dependencies.
+    ScrapFacility {
+        target: LivingCommandTargetV2,
+        cascade: LivingCascadeDispositionV2,
+    },
+    /// Cancel/refund one construction reservation.
+    CancelConstructionJob { target: LivingCommandTargetV2 },
+    /// Cancel/refund one hull reservation.
+    CancelHullJob { target: LivingCommandTargetV2 },
+    /// Explicitly relocate/reassign an idle unreserved fleet.
+    EditFleet {
+        target: LivingCommandTargetV2,
+        owner: LivingCommandTargetV2,
+        world: LivingCommandTargetV2,
+    },
+    /// Edit a hull's definition, health and return itinerary credit.
+    EditHull {
+        target: LivingCommandTargetV2,
+        definition: LivingSlugV2,
+        hit_points: u32,
+        return_credit: bool,
+    },
+    /// Split an idle unreserved fleet, retaining hull identities.
+    SplitFleet {
+        local: u16,
+        source: LivingCommandTargetV2,
+        hulls: Vec<LivingCommandTargetV2>,
+    },
+    /// Merge idle co-located fleets, retaining target and hull identities.
+    MergeFleets {
+        target: LivingCommandTargetV2,
+        source: LivingCommandTargetV2,
+    },
+    /// Adjust a freight route while preserving its identity and in-flight manifests.
+    EditRoute {
+        target: LivingCommandTargetV2,
+        kind: LivingRouteKindV2,
+        source_world: LivingCommandTargetV2,
+        destination_world: LivingCommandTargetV2,
+        resource: LivingResourceV2,
+        batch_size: u32,
+        cadence_ticks: u32,
+        source_reserve: u32,
+        source_owner: LivingCommandTargetV2,
+        receiver_owner: LivingCommandTargetV2,
+    },
+    /// Explicitly suspend/revalidate a standing route.
+    SetRouteSuspended {
+        target: LivingCommandTargetV2,
+        suspended: bool,
+    },
+    /// Edit a scheduled hazard with an end-exclusive interval.
+    EditHazard {
+        target: LivingCommandTargetV2,
+        lane: LivingCommandTargetV2,
+        definition: LivingSlugV2,
+        start_tick: LivingTickV2,
+        end_tick: LivingTickV2,
+    },
+    /// Cancel an existing hazard.
+    CancelHazard { target: LivingCommandTargetV2 },
 }
 
 fn push_local(target: &LivingCommandTargetV2, out: &mut Vec<u16>) {
@@ -464,7 +667,7 @@ impl LivingCreatorOperationV2 {
             Self::CreateFacility { .. } => Some(LivingEntityKindV2::Facility),
             Self::CreateConstructionJob { .. } => Some(LivingEntityKindV2::ConstructionJob),
             Self::CreateHullJob { .. } => Some(LivingEntityKindV2::HullJob),
-            Self::CreateFleet { .. } => Some(LivingEntityKindV2::Fleet),
+            Self::CreateFleet { .. } | Self::SplitFleet { .. } => Some(LivingEntityKindV2::Fleet),
             Self::CreateHull { .. } => Some(LivingEntityKindV2::Hull),
             Self::CreateRoute { .. } => Some(LivingEntityKindV2::Route),
             Self::CreateShipment { .. } => Some(LivingEntityKindV2::Shipment),
@@ -489,7 +692,8 @@ impl LivingCreatorOperationV2 {
             | Self::CreateHull { local, .. }
             | Self::CreateRoute { local, .. }
             | Self::CreateShipment { local, .. }
-            | Self::CreateHazard { local, .. } => Some(*local),
+            | Self::CreateHazard { local, .. }
+            | Self::SplitFleet { local, .. } => Some(*local),
             _ => None,
         }
     }
@@ -610,9 +814,75 @@ impl LivingCreatorOperationV2 {
                     push_local(lane, out);
                 }
             }
-            Self::RemoveEntity { target, cascade } => {
+            Self::EditSystem { target, .. }
+            | Self::EditDeposit { target, .. }
+            | Self::EditCivilization { target, .. }
+            | Self::SetFacilityEnabled { target, .. }
+            | Self::CancelConstructionJob { target }
+            | Self::CancelHullJob { target }
+            | Self::EditHull { target, .. }
+            | Self::SetRouteSuspended { target, .. }
+            | Self::CancelHazard { target } => push_local(target, out),
+            Self::EditStar { target, system, .. } | Self::EditWorld { target, system, .. } => {
                 push_local(target, out);
-                if let LivingCascadeDispositionV2::RemoveListed { dependents } = cascade {
+                push_local(system, out);
+            }
+            Self::EditLane {
+                target,
+                system_a,
+                system_b,
+                ..
+            } => {
+                push_local(target, out);
+                push_local(system_a, out);
+                push_local(system_b, out);
+            }
+            Self::EditFleet {
+                target,
+                owner,
+                world,
+            } => {
+                push_local(target, out);
+                push_local(owner, out);
+                push_local(world, out);
+            }
+            Self::SplitFleet { source, hulls, .. } => {
+                push_local(source, out);
+                for hull in hulls {
+                    push_local(hull, out);
+                }
+            }
+            Self::MergeFleets { target, source } => {
+                push_local(target, out);
+                push_local(source, out);
+            }
+            Self::EditRoute {
+                target,
+                source_world,
+                destination_world,
+                source_owner,
+                receiver_owner,
+                ..
+            } => {
+                for reference in [
+                    target,
+                    source_world,
+                    destination_world,
+                    source_owner,
+                    receiver_owner,
+                ] {
+                    push_local(reference, out);
+                }
+            }
+            Self::EditHazard { target, lane, .. } => {
+                push_local(target, out);
+                push_local(lane, out);
+            }
+            Self::ScrapFacility { target, cascade } | Self::RemoveEntity { target, cascade } => {
+                push_local(target, out);
+                if let LivingCascadeDispositionV2::RemoveListed { dependents }
+                | LivingCascadeDispositionV2::RemoveReviewed { dependents, .. } = cascade
+                {
                     for dependent in dependents {
                         push_local(dependent, out);
                     }
@@ -801,6 +1071,10 @@ impl LivingCommandV2 {
             }
 
             if let LivingCreatorOperationV2::RemoveEntity {
+                cascade: LivingCascadeDispositionV2::RemoveListed { dependents },
+                ..
+            }
+            | LivingCreatorOperationV2::ScrapFacility {
                 cascade: LivingCascadeDispositionV2::RemoveListed { dependents },
                 ..
             } = operation
