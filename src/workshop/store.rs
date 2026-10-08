@@ -77,6 +77,14 @@ impl TryFrom<String> for SlotName {
     }
 }
 
+impl std::str::FromStr for SlotName {
+    type Err = WorkshopStoreError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
 impl TryFrom<&str> for SlotName {
     type Error = WorkshopStoreError;
 

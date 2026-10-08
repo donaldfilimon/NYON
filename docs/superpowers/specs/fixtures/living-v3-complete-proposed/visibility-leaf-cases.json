@@ -1,0 +1,1784 @@
+[
+  {
+    "id": "no_source",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": false,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "owned_world_without_colony",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": "a07435a4b866af34923683fd781bc294",
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": true,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "own_colony_reveals_system",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [
+        {
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "owner": "a07435a4b866af34923683fd781bc294"
+        }
+      ],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": true,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "docked_scout_reveals_system",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [
+        {
+          "id": "c6652c8c4dc36cb91fcd46d908f079c2",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "location": {
+            "type": "docked",
+            "world": "c7a497ac5d83414be8c709a4a622634f"
+          },
+          "order": null,
+          "hulls": [
+            {
+              "id": "a91f112797bb64f092c688cfd74ed7b0",
+              "definition": "scout",
+              "hit_points": 10,
+              "return_credit": false,
+              "next_repair": null,
+              "passengers": {
+                "count": 0,
+                "voyage_origin": null
+              }
+            }
+          ],
+          "supply": {
+            "last_success": null,
+            "last_attempt": null,
+            "readiness": "never_supplied"
+          },
+          "blockade": null
+        }
+      ],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": true,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "mixed_scout_reveals_system",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [
+        {
+          "id": "c6652c8c4dc36cb91fcd46d908f079c2",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "location": {
+            "type": "docked",
+            "world": "c7a497ac5d83414be8c709a4a622634f"
+          },
+          "order": null,
+          "hulls": [
+            {
+              "id": "a91f112797bb64f092c688cfd74ed7b0",
+              "definition": "scout",
+              "hit_points": 10,
+              "return_credit": false,
+              "next_repair": null,
+              "passengers": {
+                "count": 0,
+                "voyage_origin": null
+              }
+            },
+            {
+              "id": "ffffffffffffffffffffffffffffffff",
+              "definition": "escort"
+            }
+          ],
+          "supply": {
+            "last_success": null,
+            "last_attempt": null,
+            "readiness": "never_supplied"
+          },
+          "blockade": null
+        }
+      ],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": true,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "non_scout_other_world_hidden",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [
+        {
+          "id": "c6652c8c4dc36cb91fcd46d908f079c2",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "location": {
+            "type": "docked",
+            "world": "c7a497ac5d83414be8c709a4a622634f"
+          },
+          "order": null,
+          "hulls": [
+            {
+              "id": "a91f112797bb64f092c688cfd74ed7b0",
+              "definition": "escort",
+              "hit_points": 10,
+              "return_credit": false,
+              "next_repair": null,
+              "passengers": {
+                "count": 0,
+                "voyage_origin": null
+              }
+            }
+          ],
+          "supply": {
+            "last_success": null,
+            "last_attempt": null,
+            "readiness": "never_supplied"
+          },
+          "blockade": null
+        }
+      ],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": false,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "non_scout_docked_world_visible",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "c7a497ac5d83414be8c709a4a622634f",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [
+        {
+          "id": "c6652c8c4dc36cb91fcd46d908f079c2",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "location": {
+            "type": "docked",
+            "world": "c7a497ac5d83414be8c709a4a622634f"
+          },
+          "order": null,
+          "hulls": [
+            {
+              "id": "a91f112797bb64f092c688cfd74ed7b0",
+              "definition": "escort",
+              "hit_points": 10,
+              "return_credit": false,
+              "next_repair": null,
+              "passengers": {
+                "count": 0,
+                "voyage_origin": null
+              }
+            }
+          ],
+          "supply": {
+            "last_success": null,
+            "last_attempt": null,
+            "readiness": "never_supplied"
+          },
+          "blockade": null
+        }
+      ],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": true,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "travelling_scout_no_sight",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [
+        {
+          "id": "c6652c8c4dc36cb91fcd46d908f079c2",
+          "owner": "a07435a4b866af34923683fd781bc294",
+          "location": {
+            "type": "travelling",
+            "origin_world": "c7a497ac5d83414be8c709a4a622634f",
+            "destination_world": "6e7f8c398c5abcbafcc3b69c309175c5",
+            "departure_tick": "0",
+            "arrival_tick": "1"
+          },
+          "order": null,
+          "hulls": [
+            {
+              "id": "a91f112797bb64f092c688cfd74ed7b0",
+              "definition": "scout",
+              "hit_points": 10,
+              "return_credit": false,
+              "next_repair": null,
+              "passengers": {
+                "count": 0,
+                "voyage_origin": null
+              }
+            }
+          ],
+          "supply": {
+            "last_success": null,
+            "last_attempt": null,
+            "readiness": "never_supplied"
+          },
+          "blockade": null
+        }
+      ],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "0",
+          "facilities": [],
+          "stationed_hulls": [],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        },
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "observed_tick": "0",
+          "owner": null,
+          "remaining_deposit": "20000",
+          "facilities": [],
+          "stationed_hulls": [
+            {
+              "definition": "scout",
+              "count": 1
+            }
+          ],
+          "operational_defense_batteries": 0,
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "stellar_scope": {
+              "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+              "originating_observer": "a07435a4b866af34923683fd781bc294",
+              "observed_tick": "0",
+              "events": []
+            }
+          },
+          "threats": [],
+          "hazard_scopes": []
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": false,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  },
+  {
+    "id": "submitted_observation_no_authority",
+    "actor": "a07435a4b866af34923683fd781bc294",
+    "world": {
+      "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+      "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+      "archetype": "temperate",
+      "name": "Harbor",
+      "owner": null,
+      "inventory": {
+        "energy": 100,
+        "ore": 100,
+        "alloy": 120,
+        "food": 100
+      },
+      "environment": {
+        "base_habitability": 10000,
+        "stress": 0,
+        "fertility": 10000,
+        "maximum_fertility": 10000,
+        "next_environment_tick": "100"
+      }
+    },
+    "state_operands": {
+      "tick": "0",
+      "branch_sequence": "0",
+      "next_sequence": "0",
+      "systems": [
+        {
+          "id": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "name": "Harbor"
+        }
+      ],
+      "stars": [
+        {
+          "id": "dd56cac208b6f6c042bb302fd9f68da8",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "main_sequence",
+          "name": "Harbor",
+          "next_activity_tick": "1000"
+        }
+      ],
+      "worlds": [
+        {
+          "id": "6e7f8c398c5abcbafcc3b69c309175c5",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        },
+        {
+          "id": "c7a497ac5d83414be8c709a4a622634f",
+          "system": "28d6a7a4f0e3d0bd1942c496afc9ffd7",
+          "archetype": "temperate",
+          "name": "Harbor",
+          "owner": null,
+          "inventory": {
+            "energy": 100,
+            "ore": 100,
+            "alloy": 120,
+            "food": 100
+          },
+          "environment": {
+            "base_habitability": 10000,
+            "stress": 0,
+            "fertility": 10000,
+            "maximum_fertility": 10000,
+            "next_environment_tick": "100"
+          }
+        }
+      ],
+      "lanes": [],
+      "civilizations": [
+        {
+          "id": "a07435a4b866af34923683fd781bc294",
+          "name": "Harbor",
+          "policy": "neutral",
+          "research": {
+            "target": null,
+            "progress": [],
+            "completed_technologies": []
+          },
+          "status": "dormant"
+        }
+      ],
+      "deposits": [
+        {
+          "id": "32acaeec75f4b6dd9dc96c253edf1ca6",
+          "world": "c7a497ac5d83414be8c709a4a622634f",
+          "resource": "ore",
+          "remaining_units": "20000"
+        }
+      ],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [
+        {
+          "civilization": "a07435a4b866af34923683fd781bc294",
+          "world": "6e7f8c398c5abcbafcc3b69c309175c5"
+        }
+      ],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "expected_visible": false,
+    "strength": "visibility_predicate_only_not_richer_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:4109-4124"
+  }
+]

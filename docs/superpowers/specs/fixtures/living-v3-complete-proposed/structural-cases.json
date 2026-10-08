@@ -1,0 +1,1546 @@
+[
+  {
+    "id": "ENV.shape",
+    "value": {
+      "base_habitability": 0,
+      "stress": 0,
+      "fertility": 0,
+      "maximum_fertility": 0,
+      "next_environment_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "SYSTEM.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "name": "N"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "STAR.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "system": "00000000000000000000000000000000",
+      "archetype": "a",
+      "name": "N",
+      "next_activity_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "WORLD.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "system": "00000000000000000000000000000000",
+      "archetype": "a",
+      "name": "N",
+      "owner": null,
+      "inventory": {
+        "energy": 0,
+        "ore": 0,
+        "alloy": 0,
+        "food": 0
+      },
+      "environment": {
+        "base_habitability": 0,
+        "stress": 0,
+        "fertility": 0,
+        "maximum_fertility": 0,
+        "next_environment_tick": "0"
+      }
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LANE.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "system_a": "00000000000000000000000000000000",
+      "system_b": "00000000000000000000000000000000",
+      "distance_units": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "RESEARCH.shape",
+    "value": {
+      "target": null,
+      "progress": [],
+      "completed_technologies": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "CIV.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "name": "N",
+      "policy": "a",
+      "research": {
+        "target": null,
+        "progress": [],
+        "completed_technologies": []
+      },
+      "status": "active"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "DEPOSIT.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "remaining_units": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "NEEDS.shape",
+    "value": {
+      "evaluated_tick": "0",
+      "population_before": 0,
+      "food_need": 0,
+      "energy_need": 0,
+      "food_paid": 0,
+      "energy_paid": 0,
+      "population_after": 0,
+      "outcome": "growth",
+      "causes": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.shape",
+    "value": {
+      "type": "disabled"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.disabled",
+    "value": {
+      "type": "disabled"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.disabled.missing.type",
+    "value": {},
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_deposit",
+    "value": {
+      "type": "missing_deposit",
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_deposit.missing.type",
+    "value": {
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_deposit.missing.required",
+    "value": {
+      "type": "missing_deposit",
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/required"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_deposit.missing.available",
+    "value": {
+      "type": "missing_deposit",
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/available"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_input",
+    "value": {
+      "type": "missing_input",
+      "resource": "energy",
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_input.missing.type",
+    "value": {
+      "resource": "energy",
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_input.missing.resource",
+    "value": {
+      "type": "missing_input",
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/resource"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_input.missing.required",
+    "value": {
+      "type": "missing_input",
+      "resource": "energy",
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/required"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_input.missing.available",
+    "value": {
+      "type": "missing_input",
+      "resource": "energy",
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/available"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.output_full",
+    "value": {
+      "type": "output_full",
+      "resource": "energy"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.output_full.missing.type",
+    "value": {
+      "resource": "energy"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.output_full.missing.resource",
+    "value": {
+      "type": "output_full"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/resource"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.workforce_unavailable",
+    "value": {
+      "type": "workforce_unavailable",
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.workforce_unavailable.missing.type",
+    "value": {
+      "required": 0,
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.workforce_unavailable.missing.required",
+    "value": {
+      "type": "workforce_unavailable",
+      "available": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/required"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.workforce_unavailable.missing.available",
+    "value": {
+      "type": "workforce_unavailable",
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/available"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.environmental_limit",
+    "value": {
+      "type": "environmental_limit",
+      "effective_habitability": 0,
+      "fertility": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.environmental_limit.missing.type",
+    "value": {
+      "effective_habitability": 0,
+      "fertility": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.environmental_limit.missing.effective_habitability",
+    "value": {
+      "type": "environmental_limit",
+      "fertility": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/effective_habitability"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.environmental_limit.missing.fertility",
+    "value": {
+      "type": "environmental_limit",
+      "effective_habitability": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/fertility"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_research_target",
+    "value": {
+      "type": "missing_research_target"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.missing_research_target.missing.type",
+    "value": {},
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.technology_ineligible",
+    "value": {
+      "type": "technology_ineligible",
+      "technology": "a"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.technology_ineligible.missing.type",
+    "value": {
+      "technology": "a"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.technology_ineligible.missing.technology",
+    "value": {
+      "type": "technology_ineligible"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/technology"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved",
+    "value": {
+      "type": "needs_reserved",
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "physical_stock": 0,
+      "held": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.type",
+    "value": {
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "physical_stock": 0,
+      "held": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.world",
+    "value": {
+      "type": "needs_reserved",
+      "resource": "energy",
+      "physical_stock": 0,
+      "held": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/world"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.resource",
+    "value": {
+      "type": "needs_reserved",
+      "world": "00000000000000000000000000000000",
+      "physical_stock": 0,
+      "held": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/resource"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.physical_stock",
+    "value": {
+      "type": "needs_reserved",
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "held": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/physical_stock"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.held",
+    "value": {
+      "type": "needs_reserved",
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "physical_stock": 0,
+      "required": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/held"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.needs_reserved.missing.required",
+    "value": {
+      "type": "needs_reserved",
+      "world": "00000000000000000000000000000000",
+      "resource": "energy",
+      "physical_stock": 0,
+      "held": 0
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/required"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "BLOCKED.bad_tag",
+    "value": {
+      "type": "unknown"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_enum",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "COLONY.shape",
+    "value": {
+      "world": "00000000000000000000000000000000",
+      "owner": "00000000000000000000000000000000",
+      "hub": {
+        "energy_next_due": "0",
+        "ore_next_due": "0",
+        "fallback_next_due": "0",
+        "blocked_reasons": []
+      },
+      "society": {
+        "population": 0,
+        "specialization": "balanced",
+        "next_needs_tick": "0",
+        "last_needs": null,
+        "workforce_assignments": []
+      }
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "HULL.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "definition": "a",
+      "hit_points": 0,
+      "return_credit": false,
+      "next_repair": null,
+      "passengers": {
+        "count": 0,
+        "voyage_origin": null
+      }
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.shape",
+    "value": {
+      "type": "docked",
+      "world": "00000000000000000000000000000000"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.docked",
+    "value": {
+      "type": "docked",
+      "world": "00000000000000000000000000000000"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.docked.missing.type",
+    "value": {
+      "world": "00000000000000000000000000000000"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.docked.missing.world",
+    "value": {
+      "type": "docked"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/world"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling",
+    "value": {
+      "type": "travelling",
+      "origin_world": "00000000000000000000000000000000",
+      "destination_world": "00000000000000000000000000000000",
+      "departure_tick": "0",
+      "arrival_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling.missing.type",
+    "value": {
+      "origin_world": "00000000000000000000000000000000",
+      "destination_world": "00000000000000000000000000000000",
+      "departure_tick": "0",
+      "arrival_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling.missing.origin_world",
+    "value": {
+      "type": "travelling",
+      "destination_world": "00000000000000000000000000000000",
+      "departure_tick": "0",
+      "arrival_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/origin_world"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling.missing.destination_world",
+    "value": {
+      "type": "travelling",
+      "origin_world": "00000000000000000000000000000000",
+      "departure_tick": "0",
+      "arrival_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/destination_world"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling.missing.departure_tick",
+    "value": {
+      "type": "travelling",
+      "origin_world": "00000000000000000000000000000000",
+      "destination_world": "00000000000000000000000000000000",
+      "arrival_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/departure_tick"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.travelling.missing.arrival_tick",
+    "value": {
+      "type": "travelling",
+      "origin_world": "00000000000000000000000000000000",
+      "destination_world": "00000000000000000000000000000000",
+      "departure_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": "/arrival_tick"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "LOCATION.bad_tag",
+    "value": {
+      "type": "unknown"
+    },
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_enum",
+      "path": "/type"
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ORDER.shape",
+    "value": {
+      "kind": "attack",
+      "target_world": null,
+      "not_before_tick": "0",
+      "lane_path": [],
+      "objective": null,
+      "defense_request": null
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "PAYMENT.shape",
+    "value": {
+      "tick": "0",
+      "world": "00000000000000000000000000000000",
+      "supplies_paid": 0,
+      "deadline": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ATTEMPT.shape",
+    "value": {
+      "tick": "0",
+      "world": "00000000000000000000000000000000",
+      "required": 0,
+      "paid": 0,
+      "outcome": "paid"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "FLEET.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "owner": "00000000000000000000000000000000",
+      "location": {
+        "type": "docked",
+        "world": "00000000000000000000000000000000"
+      },
+      "order": null,
+      "hulls": [],
+      "supply": {
+        "last_success": null,
+        "last_attempt": null,
+        "readiness": "supplied"
+      },
+      "blockade": null
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "FRACTION.shape",
+    "value": {
+      "numerator": 0,
+      "denominator": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "KNOWN_EVENT.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "star": "00000000000000000000000000000000",
+      "system": "00000000000000000000000000000000",
+      "warning_tick": "0",
+      "start_tick": "0",
+      "end_tick": "0",
+      "habitability_impact": 0,
+      "freight_factor": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "originating_observer": "00000000000000000000000000000000",
+      "observed_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "KNOWN_HAZARD.shape",
+    "value": {
+      "id": "00000000000000000000000000000000",
+      "definition": "a",
+      "lane": "00000000000000000000000000000000",
+      "warning_tick": "0",
+      "start_tick": "0",
+      "end_tick": "0",
+      "freight_factor": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "originating_observer": "00000000000000000000000000000000",
+      "observed_tick": "0"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "PAIR.shape",
+    "value": {
+      "participant_a": "00000000000000000000000000000000",
+      "participant_b": "00000000000000000000000000000000"
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "THREAT.shape",
+    "value": {
+      "enemy": "00000000000000000000000000000000",
+      "target_world": "00000000000000000000000000000000",
+      "war": null,
+      "observed_tick": "0",
+      "originating_observer": "00000000000000000000000000000000",
+      "observation_snapshot_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hostile_escort_count": 0,
+      "occupation": false,
+      "hostile_fleets": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "SCOPE.shape",
+    "value": {
+      "system": "00000000000000000000000000000000",
+      "originating_observer": "00000000000000000000000000000000",
+      "observed_tick": "0",
+      "events": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "HAZARD_SCOPE.shape",
+    "value": {
+      "lane": "00000000000000000000000000000000",
+      "originating_observer": "00000000000000000000000000000000",
+      "observed_tick": "0",
+      "events": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "SUMMARY.shape",
+    "value": {
+      "definition": "a",
+      "count": 0
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "OBS.shape",
+    "value": {
+      "civilization": "00000000000000000000000000000000",
+      "world": "00000000000000000000000000000000",
+      "observed_tick": "0",
+      "owner": null,
+      "remaining_deposit": "0",
+      "facilities": [],
+      "stationed_hulls": [],
+      "operational_defense_batteries": 0,
+      "environment": {
+        "base_habitability": 0,
+        "stress": 0,
+        "fertility": 0,
+        "maximum_fertility": 0,
+        "stellar_scope": {
+          "system": "00000000000000000000000000000000",
+          "originating_observer": "00000000000000000000000000000000",
+          "observed_tick": "0",
+          "events": []
+        }
+      },
+      "threats": [],
+      "hazard_scopes": []
+    },
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u16.valid.0",
+    "value": 0,
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u16.valid.1",
+    "value": 65535,
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u16.invalid.0",
+    "value": 65536,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u16.invalid.1",
+    "value": -1,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u16.invalid.2",
+    "value": true,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u32.valid.0",
+    "value": 0,
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u32.valid.1",
+    "value": 4294967295,
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u32.invalid.0",
+    "value": 4294967296,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u32.invalid.1",
+    "value": -1,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u32.invalid.2",
+    "value": true,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.valid.0",
+    "value": "0",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.valid.1",
+    "value": "18446744073709551615",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.invalid.0",
+    "value": "00",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.invalid.1",
+    "value": "-0",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.invalid.2",
+    "value": "18446744073709551616",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "u64.invalid.3",
+    "value": 0,
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ID.valid.0",
+    "value": "00000000000000000000000000000000",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ID.valid.1",
+    "value": "ffffffffffffffffffffffffffffffff",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ID.invalid.0",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "ID.invalid.1",
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Digest.valid.0",
+    "value": "0000000000000000000000000000000000000000000000000000000000000000",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Digest.valid.1",
+    "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Digest.invalid.0",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "noncanonical_bytes",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Digest.invalid.1",
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.valid.0",
+    "value": "A",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.valid.1",
+    "value": "𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀𐐀",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.valid.2",
+    "value": "�",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.valid.3",
+    "value": "é",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.valid.4",
+    "value": "é",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.0",
+    "value": "",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.1",
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.2",
+    "value": " a",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.3",
+    "value": "a ",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.4",
+    "value": "a  b",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.5",
+    "value": "",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Name.invalid.6",
+    "value": "",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Slug.valid.0",
+    "value": "a",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Slug.valid.1",
+    "value": "a0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_0_x",
+    "expected": {
+      "structurally_valid": true
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Slug.invalid.0",
+    "value": "A",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  },
+  {
+    "id": "Slug.invalid.1",
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected": {
+      "structurally_valid": false,
+      "stage": 5,
+      "error": "invalid_range",
+      "path": ""
+    },
+    "strength": "structural_shape_only_not_genesis_admission",
+    "source": "2026-10-01-living-v3-complete-schema.md:8-88;194-509;984-1224;1679-1835;3961-4008;4197-4216"
+  }
+]

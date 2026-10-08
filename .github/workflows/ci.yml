@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
           # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
           # rustup proxies and installed tools; do not save it to or restore it
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
       - run: cargo fmt --all --check
       # `--workspace` is required. `default-members = ["."]` scopes a bare
@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
       - run: cargo fmt --all --check
       # `--workspace` is required. `default-members = ["."]` scopes a bare
@@ -123,7 +123,7 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
           # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
           # rustup proxies and installed tools; do not save it to or restore it
@@ -145,7 +145,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
       - run: cargo fmt --manifest-path crates/nyon-workshop-core/fuzz/Cargo.toml --all --check
       # `--locked` is deliberate. That crate's lockfile had drifted out of date
@@ -168,7 +168,7 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
           # On a persistent host, ${CARGO_HOME}/bin is the runner account's own
           # rustup proxies and installed tools; do not save it to or restore it
@@ -199,7 +199,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly-2026-09-01
+          toolchain: nightly-2026-10-08
           components: rustfmt, clippy
       - run: ./tools/build-web.sh
       - run: cargo check --target wasm32-unknown-unknown --lib

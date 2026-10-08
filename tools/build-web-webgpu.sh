@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PROJECT_ROOT
-readonly TOOLCHAIN="nightly-2026-09-01"
+readonly TOOLCHAIN="nightly-2026-10-08"
 readonly TARGET="wasm32-unknown-unknown"
 readonly BACKEND_FEATURE="webgpu-backend"
 readonly WASM_BINDGEN_VERSION="0.2.127"

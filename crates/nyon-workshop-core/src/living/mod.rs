@@ -40,10 +40,11 @@ pub use decision::{
 
 pub use archive::{
     LIVING_ARCHIVE_FORMAT_VERSION_V2, LIVING_ARCHIVE_KIND_V2, LIVING_MAX_REPLAY_POLL_WORK_V2,
-    LivingArchiveErrorV2, LivingArchiveReplayStatusV2, LivingArchiveReplayV2, LivingArchiveV2,
-    LivingComparisonReplayV2, ValidatedLivingArchiveV2, begin_compare_living_v2,
-    begin_decode_living_archive_v2, begin_redo_living_v2, begin_restore_living_view_v2,
-    begin_undo_living_v2, decode_living_archive_v2, encode_living_archive_v2,
+    LivingArchiveErrorV2, LivingArchiveReplayStatusV2, LivingArchiveReplayV2,
+    LivingArchiveRetirementJobV2, LivingArchiveV2, LivingComparisonReplayV2,
+    ValidatedLivingArchiveV2, begin_compare_living_v2, begin_decode_living_archive_v2,
+    begin_redo_living_v2, begin_restore_living_view_v2, begin_undo_living_v2,
+    decode_living_archive_v2, encode_living_archive_v2,
 };
 pub use history::{
     LivingBookmarkV2, LivingComparisonV2, LivingHistoryBranchV2, LivingHistoryErrorV2,

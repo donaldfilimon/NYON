@@ -1,6 +1,6 @@
 # Living V3 society rules
 
-Date: 2026-10-01. Status: **Proposed numerical contract for review**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `2026-10-01-living-expansion-architecture.md`.
 These values are proposed balance choices, not implemented or accepted V2 rules.
 
@@ -107,8 +107,8 @@ The initial finite catalog graph is:
 | Technology | Prerequisite | Points | Effect |
 | --- | --- | ---: | --- |
 | Agronomy | None | 100 | Farm base Food output becomes 25 instead of 20 |
-| Resilient habitation | Agronomy | 150 | Environmental carrying-capacity penalty is halved, rounding penalty down |
-| Efficient logistics | None | 100 | Actor-funded fleet departure energy cost multiplied by 3/4, rounding up; positive base costs remain at least 1 |
+| Resilient habitation | Agronomy | 150 | Ecology §World environment and conservation Formula A: Cbase-floor((Cbase-Cnormal)/2); capacity-only penalty reduction, base habitability remains the capacity limit; e and Farm Food unchanged |
+| Efficient logistics | None | 100 | Actor-funded departure cost multiplied by3/4 PER HULL, ceiling/minimum1 then checked sum; already paid motion unchanged |
 
 Research has no effect before completion. For labs due on one boundary, process
 stable ID order. A lab pays only if its owner has an eligible selected target, progress is below
@@ -154,16 +154,50 @@ Candidate identity is full canonical action plus AdmissionTerms; batch/fleet/
 force alternatives are distinct. Category0 precedes all discretionary spending,
 then recovery, obligation and ordinary follow the exact shared ledger ordering.
 
-Colony founding requires an ark with an explicit passenger count. Boarding an
-autonomous ark reserves and removes 100 people from an owned origin with at
-least 200 population; boarding is a recorded transfer, not free population
-creation. An ark retains passengers in transit. Successful settlement moves them
-to the new colony. Return unloads them into the same-owner origin up to population
-capacity; remaining passengers stay aboard. Capture changes the passengers'
-owning faction with the hull; destruction removes them with a recorded loss.
-Creator-created arks may receive passengers only through an explicit creator
-operation, labeled as an override. Boarding/settlement/removal participates in
-history, conservation tests and capacity admission.
+Every Hull has required Passengers{count:u32,voyage_origin:Option<WorldID>}.
+Non-Ark requires count0/origin null; count0 clears origin. Per-Ark physical maximum
+is explicitly u32::MAX, a NEW Proposed capacity recommendation, with checked
+addition/transfer and separate Colony population/effective capacity. There is no
+invented narrower passenger-full denial or Catalog capacity field. A reached
+Board addition overflow is a whole unpublished Arithmetic fault, not omission or
+capacity Decision; earlier actual guard precedence remains intact.
+
+Autonomous Board transfers exactly100 from actual owned origin Colony population
+at least200 to exact Ark, with immediate workforce recomputation. Preserve origin
+Some or null; boarding/refuel/order/split/merge never substitutes present World for
+voyage origin. A first genuine positive-passenger NONRETURN departure with null
+origin installs actual departure World; Return never creates it. Some persists
+through later motion/reorganization/ownership changes until count0 or explicit
+creator cohort reset/deletion. Creator CreateHull uses count-only input and origin
+null; SetPassengers override starts the submitted count with origin null, never
+claims actor-paid provenance. World deletion clears matching origin while preserving
+people under exact reviewed closure, not nearest-origin substitution.
+
+Emit intent_decided then passengers_boarded then one operation_changed containing
+complete Fleet AND Colony Changes with
+passenger_delta+100/−100/resources[], workforce_changed iff assignments changed.
+These describe ONE transfer, never duplicate debit. Genuine phase3 pre-arrival
+Return unloads only Hulls whose original origin equals endpoint and current Fleet
+owner equals live matching Colony owner. Transfer min(count, max(effectiveCapacity−
+population,0)) in Hull-ID order; zero emits nothing/no stationary retry. Positive
+emits passengers_unloaded owning the population transfer, then one
+operation_changed with complete containing Fleet Change only (delta−unloaded
+count/resources[]), then workforce_changed iff assignments changed. No duplicate
+Colony Change repeats that transfer;
+remaining people stay aboard with their original origin. Count reaching0 clears it.
+No Food/Energy/Needs clock, demographic growth or new credit occurs on transfer.
+
+Founding consumes only lowest globally eligible Hull ID among winning civilization's
+actual closing-member Arks; Fleet ID is not first tie. Transfer its exact count P
+to new Colony once, removing containing Fleet iff last Hull. P must fit the existing Colony
+population domain and structural admission predicates; never truncate people. Other Arks retain counts/credits.
+Primary settlement_claim_resolved has full conserved Fleet−P/Colony+P Changes;
+passengers_unloaded iffP>0 has absent prior population=null, newSome(P), not fake0.
+No hull_destroyed/passengers_lost on settlement. Genuine combat/creator destruction
+records passenger loss once; captured Hull ownership changes faction with people,
+never resets their original voyage proof. Last-Hull creator removal uses reviewed
+containing-Fleet destruction/job occupancy closure, not an empty Fleet or combat
+half-refund convention. All exact source/capture/Changes are retained in history.
 
 ## Creator, explanation and evidence
 

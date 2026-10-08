@@ -452,3 +452,102 @@ fn generic_creator_job_removal_is_an_override_without_economic_refund() {
     let reloaded = decode_living_archive_v2(&bytes, authority.catalog()).unwrap();
     assert_eq!(reloaded.authority().state(), authority.state());
 }
+
+#[test]
+fn removal_public_reject_listed_shape_omission_extra_and_order_preserve_admission() {
+    let template = builtin_first_expansion_v2().unwrap();
+    let genesis = validate_living_genesis_manifest_v2(
+        LivingGenesisManifestV2 {
+            kind: LIVING_GENESIS_KIND_V2.into(),
+            format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+            rules_version: LIVING_RULES_VERSION,
+            state: template.state().clone(),
+        },
+        template.catalog(),
+    )
+    .unwrap();
+    let base = LivingGalaxyAuthorityV2::from_genesis(
+        template.catalog().clone(),
+        [0x68; 32],
+        LivingGenesisGeneratorV2 {
+            generator_id: LivingSlugV2::new("removal_admission").unwrap(),
+            generator_version: 1,
+        },
+        genesis,
+    )
+    .unwrap();
+    let target = base
+        .state()
+        .worlds
+        .as_slice()
+        .iter()
+        .find(|r| r.owner.is_some())
+        .unwrap()
+        .id;
+    let expected = preview_living_removal_v2(base.state(), target)
+        .unwrap()
+        .dependents;
+    assert!(expected.len() > 1);
+    for case in 0..7 {
+        let mut a = base.clone();
+        let before = encode_living_archive_v2(&a).unwrap();
+        let mut declared = expected.clone();
+        let cascade = match case {
+            0 => LivingCascadeDispositionV2::RejectIfReferenced,
+            1 => LivingCascadeDispositionV2::RemoveListed {
+                dependents: Vec::new(),
+            },
+            2 => LivingCascadeDispositionV2::RemoveListed {
+                dependents: vec![LivingCommandTargetV2::Existing { id: expected[0] }; 2],
+            },
+            _ => {
+                match case {
+                    3 => {
+                        declared.pop();
+                    }
+                    4 => declared.push(LivingEntityIdV2([0xfe; 16])),
+                    5 => declared.push(target),
+                    6 => declared.reverse(),
+                    _ => unreachable!(),
+                };
+                LivingCascadeDispositionV2::RemoveListed {
+                    dependents: declared
+                        .iter()
+                        .map(|id| LivingCommandTargetV2::Existing { id: *id })
+                        .collect(),
+                }
+            }
+        };
+        let mut request = envelope(
+            &a,
+            vec![LivingCreatorOperationV2::RemoveEntity {
+                target: LivingCommandTargetV2::Existing { id: target },
+                cascade,
+            }],
+        );
+        request.mode = LivingCommandModeV2::Running;
+        let result = a.submit(request);
+        if case == 6 {
+            assert!(result.is_ok());
+            continue;
+        }
+        match case {
+            0 => assert_eq!(result, Err(LivingCommandRejectionV2::ReferencedTarget)),
+            1 => assert_eq!(
+                result,
+                Err(LivingCommandRejectionV2::Command(
+                    LivingCommandErrorV2::EmptyCascade
+                ))
+            ),
+            2 => assert_eq!(
+                result,
+                Err(LivingCommandRejectionV2::Command(
+                    LivingCommandErrorV2::RepeatedCascadeDependent
+                ))
+            ),
+            _ => assert_eq!(result, Err(LivingCommandRejectionV2::CascadeMismatch)),
+        }
+        assert_eq!(encode_living_archive_v2(&a).unwrap(), before);
+        assert_eq!(a.accepted_sequence_high_water(), 0);
+    }
+}

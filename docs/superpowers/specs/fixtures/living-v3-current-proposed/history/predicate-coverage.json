@@ -1,0 +1,1790 @@
+{
+  "status": "Proposed HIST-C narrow empty-root admission; broader matrix Partial",
+  "source_pins": {
+    "v3-current-release-source-freeze/manifest.json": "d0ab6b0d86808e6f9f3fabfeb503e1a143d7b108c1e49468bb94dd88ec206c8c",
+    "v3-coordinated-amendment-current-source-manifest-2.json": "bab14622dfb118e45801f228e1153309641f72b3a50a8d84eb3cd0466a46bd3f",
+    "v3-coordinated-amendment-integrated-review.md": "cd485f38a06964734e435bb245025579a40ee59da176cc3f1c1c85a07a98ca65",
+    "v3-anchor-summary-rereview-1.md": "947111491e1467c6a122817c0a57c34d9afe384c4f3ae4ded8ff275608ca7ecf",
+    "v3-current-catalog-review.md": "d556d3230b34a167c997bbbfb58e6a6308e517d5fa006b23c806dfb6f0ded9f6",
+    "v3-current-genesis-review.md": "b7167d88507540d7f4b5a19ceda44fe9ecf0425944cd64b7c065e23f0eaec042",
+    "v3-current-genesis-wording-rereview.md": "d993d81664fcb1b5f53bf55946a66065b26209959588c89f1ffeb36e423c0464",
+    "v3-current-genesis-wording-correction.md": "a9258cc4cf37b1b11b2304938860460e3cb1abec6bbcaa91e5cb310a4f656e02",
+    "v3-current-genesis-write-report.md": "54e07e9f619fc5f78a373f4c94976d2f92c05a4b25a878c20b2017a66172e274",
+    "v3-current-history-admission-preflight.md": "904b574d06d318c6802744fe0569ec8065c63c2072aca8e2af1f20f476d33522"
+  },
+  "accepted_dependencies": {
+    "derive.py": "c8d772c48420b1dcf1c3598ceba35bc6ab59baa08e87fb7bd5e2fb917757ae51",
+    "core.catalog.json": "efc762006d5abfa3e3a00d3aa9ba46b001e9e1951833b1c655ab6518b18f3f10",
+    "vectors.json": "e1f1acde5bd98c2795e81886cbf3e3db731bdcf8281ca437ecbfd3b4dacb6ca2",
+    "predicate-coverage.json": "edb40f42a3c07a00bf0f92e69f03ce77b2bfeae714f1a1d33c0b3229afd5a394",
+    "README.md": "385502ca5144f82d778b4d91f271eedd49e7668a13efc2d9bd5257d82c18161b",
+    "genesis/derive.py": "f7e4a4b0f09397c9fe67b7d8d38a871e82ae5f44aa9971dc6fc67fe4edb35751",
+    "genesis/empty.genesis.json": "4c5db9ebe76e19b36e76cd7333934f8697b81303001d99c10c27f35448ed03a0",
+    "genesis/inhabited.genesis.json": "614d702ef8bcabe16493ee68ef79456541d1b26a3462a56b8e1bf6d4ec279d72",
+    "genesis/vectors.json": "03a9ce6ba537a89132e3acddcd3fe2da8fb403699a7ddbb1f8cd0fa890ca65d9",
+    "genesis/predicate-coverage.json": "1a37cb6494f4c0faadebf2979ba346da7e746715329e0410f9d486667cf81f9a",
+    "genesis/README.md": "1dfd25ebff4d7db219014cacabb3fa22f3a4402ebd8609ed36c1a927618ee18d"
+  },
+  "source_files": {
+    "2026-10-01-living-expansion-architecture.md": {
+      "sha256": "12c219236d8dcaf8a946d67dc1a1cb8e69d34563d6cc3469a55a6d97c109b8ef",
+      "bytes": 12655
+    },
+    "2026-10-01-living-societies-rules.md": {
+      "sha256": "ba27e52df19b1cb70632605be51f11b25461b54a59cdcbb8cb4501fb4356197e",
+      "bytes": 14116
+    },
+    "2026-10-01-living-ecology-rules.md": {
+      "sha256": "490bc20f8cf7f2fea2bd5face91c46632b31774a0ee6dd615bf14646da8fb9b8",
+      "bytes": 12237
+    },
+    "2026-10-01-living-diplomacy-expansion.md": {
+      "sha256": "76d9ebc2e0c49ca78eae8b4a81b77a9e0021eb78f744c10133ba22947e86669e",
+      "bytes": 17554
+    },
+    "2026-10-01-living-expansion-wire.md": {
+      "sha256": "56b0e6f5c141602a1f1dc225121e30ad6d28c65ca9ad5c9c832b03cea9101062",
+      "bytes": 23743
+    },
+    "2026-10-01-living-expansion-experience.md": {
+      "sha256": "cd762e0b7e15a23d06a33a5837eaae0e8240a770d9d2493b80f092d07ea27701",
+      "bytes": 13146
+    },
+    "2026-10-01-living-v3-complete-schema.md": {
+      "sha256": "92a4a11240830d16ca6fd037979678fecc7dd6503b8f9a6d53774cd6765ba243",
+      "bytes": 235028
+    },
+    "2026-10-02-living-v3-scoring.md": {
+      "sha256": "ca6b06bec113e828d7751409705addbbcc89de78664ce6821134ad57fd29bb54",
+      "bytes": 102350
+    }
+  },
+  "complete_positive_count": 8,
+  "strengths": {
+    "complete_history_admission": 8,
+    "exact_stage_error_only": 3,
+    "exact_stage_error_path": 396,
+    "rejection_only": 30
+  },
+  "source_contracts": {
+    "captures": "schema2446-2458 pre-command paused phase1 D0/D1",
+    "changes": "schema1723-1740 and2438-2442 complete direct snapshots; no header Changes",
+    "frames": "schema2370-2423; CreatorEntity flag2, Revision full32, STATE wrapper and root",
+    "publication": "schema2460-2485 one intervention/revision, no cascade, no duplicate operations",
+    "receipt": "schema2329-2340; wire149-154 ID-free payload then Event IDs",
+    "archive": "schema2575-2589/2630-2648/2692-2697 exact retained chronology/root/view/three receipt Anchors",
+    "notebook": "schema2497-2511/2654-2659 common positive ordinals, state-digest Bookmark, exact Archive attachment",
+    "transfer": "schema2614-2617 integrity plus exact inner inputs/selected view"
+  },
+  "gaps": [
+    "Only empty Genesis root and two paused single-System creator operations followed by ordinary1 are qualified; other histories unsupported coverage, not wire errors.",
+    "No inhabited Hub/autonomous receipt policy selected; T50 outside this empty family.",
+    "Only one creator System issuance origin; no general bounded retained-history collision scanner/performance claim.",
+    "No fork/running queue/multi-operation/cascade/removal/transient sibling history or unselected branch fixture.",
+    "No general decoder multi-fault semantic/path matrix. Rejection-only cases do not export private helper ordering.",
+    "Other Catalog metadata/Genesis profiles depend on their independent families; immutable exact core/empty inputs only here.",
+    "Notebook experiments/evidence and event-specific Anchors are unexamined; no causal completion/durability assertion.",
+    "No standalone VIEW domain, initial Receipt, portable queue, checkpoint, cache flag or receipt bytes in Archive.",
+    "Bounded-depth Python materialization/schema recursion is not production poll/memory/cancellation/ownership evidence."
+  ],
+  "declarations": {
+    "archive": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "genesis",
+        "revisions",
+        "branches",
+        "active_view",
+        "final_tick",
+        "final_digest",
+        "accepted_sequence_high_water",
+        "branch_sequence_high_water",
+        "anchors",
+        "integrity_sha256"
+      ]
+    },
+    "archive/kind": {
+      "primitive": "tag"
+    },
+    "archive/format_version": {
+      "primitive": "u32"
+    },
+    "archive/rules_version": {
+      "primitive": "u32"
+    },
+    "archive/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "archive/genesis": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "seed",
+        "generator",
+        "allocations",
+        "state"
+      ]
+    },
+    "archive/genesis/kind": {
+      "primitive": "tag"
+    },
+    "archive/genesis/format_version": {
+      "primitive": "u32"
+    },
+    "archive/genesis/rules_version": {
+      "primitive": "u32"
+    },
+    "archive/genesis/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "archive/genesis/seed": {
+      "primitive": "Digest"
+    },
+    "archive/genesis/generator": {
+      "fields": [
+        "generator_id",
+        "generator_version"
+      ]
+    },
+    "archive/genesis/generator/generator_id": {
+      "primitive": "Slug"
+    },
+    "archive/genesis/generator/generator_version": {
+      "primitive": "u32"
+    },
+    "archive/genesis/allocations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/allocations/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state": {
+      "fields": [
+        "tick",
+        "branch_sequence",
+        "next_sequence",
+        "systems",
+        "stars",
+        "worlds",
+        "lanes",
+        "civilizations",
+        "deposits",
+        "colonies",
+        "facilities",
+        "construction_jobs",
+        "hull_jobs",
+        "fleets",
+        "routes",
+        "shipments",
+        "relations",
+        "agreements",
+        "wars",
+        "observations",
+        "hazards",
+        "settlement_claims",
+        "occupations",
+        "offers",
+        "demand_requests",
+        "commitments",
+        "defense_requests",
+        "shared_intelligence",
+        "stellar_events",
+        "counters"
+      ]
+    },
+    "archive/genesis/state/tick": {
+      "primitive": "u64"
+    },
+    "archive/genesis/state/branch_sequence": {
+      "primitive": "u64"
+    },
+    "archive/genesis/state/next_sequence": {
+      "primitive": "u64"
+    },
+    "archive/genesis/state/systems": {
+      "cap": 64,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "archive/genesis/state/systems/*": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "archive/genesis/state/systems/*/id": {
+      "primitive": "ID"
+    },
+    "archive/genesis/state/systems/*/name": {
+      "primitive": "Name"
+    },
+    "archive/genesis/state/stars": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/stars/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/worlds": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/worlds/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/lanes": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/lanes/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/civilizations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/civilizations/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/deposits": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/deposits/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/colonies": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/colonies/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/facilities": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/facilities/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/construction_jobs": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/construction_jobs/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/hull_jobs": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/hull_jobs/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/fleets": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/fleets/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/routes": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/routes/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/shipments": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/shipments/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/relations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/relations/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/agreements": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/agreements/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/wars": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/wars/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/observations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/observations/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/hazards": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/hazards/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/settlement_claims": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/settlement_claims/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/occupations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/occupations/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/offers": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/offers/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/demand_requests": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/demand_requests/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/commitments": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/commitments/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/defense_requests": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/defense_requests/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/shared_intelligence": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/shared_intelligence/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/stellar_events": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/genesis/state/stellar_events/*": {
+      "primitive": "unsupported"
+    },
+    "archive/genesis/state/counters": {
+      "fields": []
+    },
+    "archive/revisions": {
+      "cap": 10000,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "archive/revisions/*": {
+      "fields": [
+        "id",
+        "branch",
+        "parent",
+        "tick",
+        "ordinal",
+        "mode",
+        "capture",
+        "command"
+      ]
+    },
+    "archive/revisions/*/id": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/branch": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/parent?": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/tick": {
+      "primitive": "u64"
+    },
+    "archive/revisions/*/ordinal": {
+      "primitive": "u64"
+    },
+    "archive/revisions/*/mode": {
+      "closed_enum": [
+        "paused",
+        "running"
+      ]
+    },
+    "archive/revisions/*/capture": {
+      "fields": [
+        "domain",
+        "catalog_hash",
+        "branch",
+        "revision",
+        "tick",
+        "state_digest",
+        "phase",
+        "permitted_snapshot_digest"
+      ]
+    },
+    "archive/revisions/*/capture/domain": {
+      "primitive": "u32"
+    },
+    "archive/revisions/*/capture/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/capture/branch": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/capture/revision?": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/capture/tick": {
+      "primitive": "u64"
+    },
+    "archive/revisions/*/capture/state_digest": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/capture/phase": {
+      "primitive": "u16"
+    },
+    "archive/revisions/*/capture/permitted_snapshot_digest": {
+      "primitive": "Digest"
+    },
+    "archive/revisions/*/command": {
+      "supported_tags": [
+        "creator_batch"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch": {
+      "fields": [
+        "type",
+        "operations",
+        "reviewed_effects"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/operations": {
+      "cap": 1024,
+      "key": null,
+      "unexamined_children": false
+    },
+    "archive/revisions/*/command:creator_batch/operations/*": {
+      "supported_tags": [
+        "create_system",
+        "edit_system"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:create_system": {
+      "fields": [
+        "type",
+        "local",
+        "name"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:create_system/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:create_system/local": {
+      "primitive": "u16"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:create_system/name": {
+      "primitive": "Name"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system": {
+      "fields": [
+        "type",
+        "target",
+        "name"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target": {
+      "supported_tags": [
+        "existing",
+        "local"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing": {
+      "fields": [
+        "type",
+        "id"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing/id": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local": {
+      "fields": [
+        "type",
+        "local"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local/local": {
+      "primitive": "u16"
+    },
+    "archive/revisions/*/command:creator_batch/operations/*:edit_system/name": {
+      "primitive": "Name"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": false
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*": {
+      "fields": [
+        "operation_index",
+        "collection",
+        "key",
+        "before",
+        "after",
+        "resources",
+        "passenger_delta"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/operation_index?": {
+      "primitive": "u32"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/collection": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/key": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems": {
+      "fields": [
+        "type",
+        "id"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems/id": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems": {
+      "fields": [
+        "type",
+        "value"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value/id": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value/name": {
+      "primitive": "Name"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems": {
+      "fields": [
+        "type",
+        "value"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/type": {
+      "primitive": "tag"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value/id": {
+      "primitive": "ID"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value/name": {
+      "primitive": "Name"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/resources": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/resources/*": {
+      "primitive": "unsupported"
+    },
+    "archive/revisions/*/command:creator_batch/reviewed_effects/*/passenger_delta": {
+      "primitive": "score"
+    },
+    "archive/branches": {
+      "cap": 128,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "archive/branches/*": {
+      "fields": [
+        "id",
+        "parent",
+        "fork_revision",
+        "fork_tick",
+        "fork_state_digest",
+        "ordinal",
+        "head",
+        "tip_tick"
+      ]
+    },
+    "archive/branches/*/id": {
+      "primitive": "ID"
+    },
+    "archive/branches/*/parent?": {
+      "primitive": "ID"
+    },
+    "archive/branches/*/fork_revision?": {
+      "primitive": "Digest"
+    },
+    "archive/branches/*/fork_tick": {
+      "primitive": "u64"
+    },
+    "archive/branches/*/fork_state_digest": {
+      "primitive": "Digest"
+    },
+    "archive/branches/*/ordinal": {
+      "primitive": "u64"
+    },
+    "archive/branches/*/head?": {
+      "primitive": "Digest"
+    },
+    "archive/branches/*/tip_tick": {
+      "primitive": "u64"
+    },
+    "archive/active_view": {
+      "fields": [
+        "branch",
+        "revision",
+        "tick"
+      ]
+    },
+    "archive/active_view/branch": {
+      "primitive": "ID"
+    },
+    "archive/active_view/revision?": {
+      "primitive": "Digest"
+    },
+    "archive/active_view/tick": {
+      "primitive": "u64"
+    },
+    "archive/final_tick": {
+      "primitive": "u64"
+    },
+    "archive/final_digest": {
+      "primitive": "Digest"
+    },
+    "archive/accepted_sequence_high_water": {
+      "primitive": "u64"
+    },
+    "archive/branch_sequence_high_water": {
+      "primitive": "u64"
+    },
+    "archive/anchors": {
+      "cap": 16384,
+      "key": "anchor",
+      "unexamined_children": false
+    },
+    "archive/anchors/*": {
+      "fields": [
+        "domain",
+        "catalog_hash",
+        "branch",
+        "revision",
+        "tick",
+        "state_digest",
+        "receipt_digest",
+        "event"
+      ]
+    },
+    "archive/anchors/*/domain": {
+      "primitive": "u32"
+    },
+    "archive/anchors/*/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "archive/anchors/*/branch": {
+      "primitive": "ID"
+    },
+    "archive/anchors/*/revision?": {
+      "primitive": "Digest"
+    },
+    "archive/anchors/*/tick": {
+      "primitive": "u64"
+    },
+    "archive/anchors/*/state_digest": {
+      "primitive": "Digest"
+    },
+    "archive/anchors/*/receipt_digest": {
+      "primitive": "Digest"
+    },
+    "archive/anchors/*/event?": {
+      "primitive": "unsupported"
+    },
+    "archive/integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "notebook": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "genesis_digest",
+        "archive_integrity_sha256",
+        "next_ordinal",
+        "bookmarks",
+        "experiments",
+        "evidence",
+        "integrity_sha256"
+      ]
+    },
+    "notebook/kind": {
+      "primitive": "tag"
+    },
+    "notebook/format_version": {
+      "primitive": "u32"
+    },
+    "notebook/rules_version": {
+      "primitive": "u32"
+    },
+    "notebook/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "notebook/genesis_digest": {
+      "primitive": "Digest"
+    },
+    "notebook/archive_integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "notebook/next_ordinal": {
+      "primitive": "u64"
+    },
+    "notebook/bookmarks": {
+      "cap": 1024,
+      "key": [
+        "ordinal"
+      ],
+      "unexamined_children": false
+    },
+    "notebook/bookmarks/*": {
+      "fields": [
+        "ordinal",
+        "label",
+        "view",
+        "digest"
+      ]
+    },
+    "notebook/bookmarks/*/ordinal": {
+      "primitive": "u64"
+    },
+    "notebook/bookmarks/*/label": {
+      "primitive": "Name"
+    },
+    "notebook/bookmarks/*/view": {
+      "fields": [
+        "branch",
+        "revision",
+        "tick"
+      ]
+    },
+    "notebook/bookmarks/*/view/branch": {
+      "primitive": "ID"
+    },
+    "notebook/bookmarks/*/view/revision?": {
+      "primitive": "Digest"
+    },
+    "notebook/bookmarks/*/view/tick": {
+      "primitive": "u64"
+    },
+    "notebook/bookmarks/*/digest": {
+      "primitive": "Digest"
+    },
+    "notebook/experiments": {
+      "cap": 256,
+      "key": null,
+      "unexamined_children": true
+    },
+    "notebook/experiments/*": {
+      "primitive": "unsupported"
+    },
+    "notebook/evidence": {
+      "cap": 4096,
+      "key": null,
+      "unexamined_children": true
+    },
+    "notebook/evidence/*": {
+      "primitive": "unsupported"
+    },
+    "notebook/integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "transfer": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog",
+        "archive",
+        "notebook",
+        "selected_view",
+        "integrity_sha256"
+      ]
+    },
+    "transfer/kind": {
+      "primitive": "tag"
+    },
+    "transfer/format_version": {
+      "primitive": "u32"
+    },
+    "transfer/rules_version": {
+      "primitive": "u32"
+    },
+    "transfer/catalog": {
+      "primitive": "dependency_catalog"
+    },
+    "transfer/archive": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "genesis",
+        "revisions",
+        "branches",
+        "active_view",
+        "final_tick",
+        "final_digest",
+        "accepted_sequence_high_water",
+        "branch_sequence_high_water",
+        "anchors",
+        "integrity_sha256"
+      ]
+    },
+    "transfer/archive/kind": {
+      "primitive": "tag"
+    },
+    "transfer/archive/format_version": {
+      "primitive": "u32"
+    },
+    "transfer/archive/rules_version": {
+      "primitive": "u32"
+    },
+    "transfer/archive/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/genesis": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "seed",
+        "generator",
+        "allocations",
+        "state"
+      ]
+    },
+    "transfer/archive/genesis/kind": {
+      "primitive": "tag"
+    },
+    "transfer/archive/genesis/format_version": {
+      "primitive": "u32"
+    },
+    "transfer/archive/genesis/rules_version": {
+      "primitive": "u32"
+    },
+    "transfer/archive/genesis/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/genesis/seed": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/genesis/generator": {
+      "fields": [
+        "generator_id",
+        "generator_version"
+      ]
+    },
+    "transfer/archive/genesis/generator/generator_id": {
+      "primitive": "Slug"
+    },
+    "transfer/archive/genesis/generator/generator_version": {
+      "primitive": "u32"
+    },
+    "transfer/archive/genesis/allocations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/allocations/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state": {
+      "fields": [
+        "tick",
+        "branch_sequence",
+        "next_sequence",
+        "systems",
+        "stars",
+        "worlds",
+        "lanes",
+        "civilizations",
+        "deposits",
+        "colonies",
+        "facilities",
+        "construction_jobs",
+        "hull_jobs",
+        "fleets",
+        "routes",
+        "shipments",
+        "relations",
+        "agreements",
+        "wars",
+        "observations",
+        "hazards",
+        "settlement_claims",
+        "occupations",
+        "offers",
+        "demand_requests",
+        "commitments",
+        "defense_requests",
+        "shared_intelligence",
+        "stellar_events",
+        "counters"
+      ]
+    },
+    "transfer/archive/genesis/state/tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/genesis/state/branch_sequence": {
+      "primitive": "u64"
+    },
+    "transfer/archive/genesis/state/next_sequence": {
+      "primitive": "u64"
+    },
+    "transfer/archive/genesis/state/systems": {
+      "cap": 64,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "transfer/archive/genesis/state/systems/*": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "transfer/archive/genesis/state/systems/*/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/genesis/state/systems/*/name": {
+      "primitive": "Name"
+    },
+    "transfer/archive/genesis/state/stars": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/stars/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/worlds": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/worlds/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/lanes": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/lanes/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/civilizations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/civilizations/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/deposits": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/deposits/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/colonies": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/colonies/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/facilities": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/facilities/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/construction_jobs": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/construction_jobs/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/hull_jobs": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/hull_jobs/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/fleets": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/fleets/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/routes": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/routes/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/shipments": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/shipments/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/relations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/relations/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/agreements": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/agreements/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/wars": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/wars/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/observations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/observations/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/hazards": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/hazards/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/settlement_claims": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/settlement_claims/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/occupations": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/occupations/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/offers": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/offers/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/demand_requests": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/demand_requests/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/commitments": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/commitments/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/defense_requests": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/defense_requests/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/shared_intelligence": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/shared_intelligence/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/stellar_events": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/genesis/state/stellar_events/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/genesis/state/counters": {
+      "fields": []
+    },
+    "transfer/archive/revisions": {
+      "cap": 10000,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "transfer/archive/revisions/*": {
+      "fields": [
+        "id",
+        "branch",
+        "parent",
+        "tick",
+        "ordinal",
+        "mode",
+        "capture",
+        "command"
+      ]
+    },
+    "transfer/archive/revisions/*/id": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/branch": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/parent?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/revisions/*/ordinal": {
+      "primitive": "u64"
+    },
+    "transfer/archive/revisions/*/mode": {
+      "closed_enum": [
+        "paused",
+        "running"
+      ]
+    },
+    "transfer/archive/revisions/*/capture": {
+      "fields": [
+        "domain",
+        "catalog_hash",
+        "branch",
+        "revision",
+        "tick",
+        "state_digest",
+        "phase",
+        "permitted_snapshot_digest"
+      ]
+    },
+    "transfer/archive/revisions/*/capture/domain": {
+      "primitive": "u32"
+    },
+    "transfer/archive/revisions/*/capture/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/capture/branch": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/capture/revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/capture/tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/revisions/*/capture/state_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/capture/phase": {
+      "primitive": "u16"
+    },
+    "transfer/archive/revisions/*/capture/permitted_snapshot_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/revisions/*/command": {
+      "supported_tags": [
+        "creator_batch"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch": {
+      "fields": [
+        "type",
+        "operations",
+        "reviewed_effects"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations": {
+      "cap": 1024,
+      "key": null,
+      "unexamined_children": false
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*": {
+      "supported_tags": [
+        "create_system",
+        "edit_system"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:create_system": {
+      "fields": [
+        "type",
+        "local",
+        "name"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:create_system/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:create_system/local": {
+      "primitive": "u16"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:create_system/name": {
+      "primitive": "Name"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system": {
+      "fields": [
+        "type",
+        "target",
+        "name"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target": {
+      "supported_tags": [
+        "existing",
+        "local"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing": {
+      "fields": [
+        "type",
+        "id"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:existing/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local": {
+      "fields": [
+        "type",
+        "local"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/target:local/local": {
+      "primitive": "u16"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/operations/*:edit_system/name": {
+      "primitive": "Name"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": false
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*": {
+      "fields": [
+        "operation_index",
+        "collection",
+        "key",
+        "before",
+        "after",
+        "resources",
+        "passenger_delta"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/operation_index?": {
+      "primitive": "u32"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/collection": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/key": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems": {
+      "fields": [
+        "type",
+        "id"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/key:systems/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems": {
+      "fields": [
+        "type",
+        "value"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/before?:systems/value/name": {
+      "primitive": "Name"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?": {
+      "supported_tags": [
+        "systems"
+      ],
+      "other_tags_unexamined": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems": {
+      "fields": [
+        "type",
+        "value"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/type": {
+      "primitive": "tag"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value": {
+      "fields": [
+        "id",
+        "name"
+      ]
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/after?:systems/value/name": {
+      "primitive": "Name"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/resources": {
+      "cap": null,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/resources/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/revisions/*/command:creator_batch/reviewed_effects/*/passenger_delta": {
+      "primitive": "score"
+    },
+    "transfer/archive/branches": {
+      "cap": 128,
+      "key": [
+        "id"
+      ],
+      "unexamined_children": false
+    },
+    "transfer/archive/branches/*": {
+      "fields": [
+        "id",
+        "parent",
+        "fork_revision",
+        "fork_tick",
+        "fork_state_digest",
+        "ordinal",
+        "head",
+        "tip_tick"
+      ]
+    },
+    "transfer/archive/branches/*/id": {
+      "primitive": "ID"
+    },
+    "transfer/archive/branches/*/parent?": {
+      "primitive": "ID"
+    },
+    "transfer/archive/branches/*/fork_revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/branches/*/fork_tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/branches/*/fork_state_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/branches/*/ordinal": {
+      "primitive": "u64"
+    },
+    "transfer/archive/branches/*/head?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/branches/*/tip_tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/active_view": {
+      "fields": [
+        "branch",
+        "revision",
+        "tick"
+      ]
+    },
+    "transfer/archive/active_view/branch": {
+      "primitive": "ID"
+    },
+    "transfer/archive/active_view/revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/active_view/tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/final_tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/final_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/accepted_sequence_high_water": {
+      "primitive": "u64"
+    },
+    "transfer/archive/branch_sequence_high_water": {
+      "primitive": "u64"
+    },
+    "transfer/archive/anchors": {
+      "cap": 16384,
+      "key": "anchor",
+      "unexamined_children": false
+    },
+    "transfer/archive/anchors/*": {
+      "fields": [
+        "domain",
+        "catalog_hash",
+        "branch",
+        "revision",
+        "tick",
+        "state_digest",
+        "receipt_digest",
+        "event"
+      ]
+    },
+    "transfer/archive/anchors/*/domain": {
+      "primitive": "u32"
+    },
+    "transfer/archive/anchors/*/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/anchors/*/branch": {
+      "primitive": "ID"
+    },
+    "transfer/archive/anchors/*/revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/anchors/*/tick": {
+      "primitive": "u64"
+    },
+    "transfer/archive/anchors/*/state_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/anchors/*/receipt_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/archive/anchors/*/event?": {
+      "primitive": "unsupported"
+    },
+    "transfer/archive/integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook": {
+      "fields": [
+        "kind",
+        "format_version",
+        "rules_version",
+        "catalog_hash",
+        "genesis_digest",
+        "archive_integrity_sha256",
+        "next_ordinal",
+        "bookmarks",
+        "experiments",
+        "evidence",
+        "integrity_sha256"
+      ]
+    },
+    "transfer/notebook/kind": {
+      "primitive": "tag"
+    },
+    "transfer/notebook/format_version": {
+      "primitive": "u32"
+    },
+    "transfer/notebook/rules_version": {
+      "primitive": "u32"
+    },
+    "transfer/notebook/catalog_hash": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook/genesis_digest": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook/archive_integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook/next_ordinal": {
+      "primitive": "u64"
+    },
+    "transfer/notebook/bookmarks": {
+      "cap": 1024,
+      "key": [
+        "ordinal"
+      ],
+      "unexamined_children": false
+    },
+    "transfer/notebook/bookmarks/*": {
+      "fields": [
+        "ordinal",
+        "label",
+        "view",
+        "digest"
+      ]
+    },
+    "transfer/notebook/bookmarks/*/ordinal": {
+      "primitive": "u64"
+    },
+    "transfer/notebook/bookmarks/*/label": {
+      "primitive": "Name"
+    },
+    "transfer/notebook/bookmarks/*/view": {
+      "fields": [
+        "branch",
+        "revision",
+        "tick"
+      ]
+    },
+    "transfer/notebook/bookmarks/*/view/branch": {
+      "primitive": "ID"
+    },
+    "transfer/notebook/bookmarks/*/view/revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook/bookmarks/*/view/tick": {
+      "primitive": "u64"
+    },
+    "transfer/notebook/bookmarks/*/digest": {
+      "primitive": "Digest"
+    },
+    "transfer/notebook/experiments": {
+      "cap": 256,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/notebook/experiments/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/notebook/evidence": {
+      "cap": 4096,
+      "key": null,
+      "unexamined_children": true
+    },
+    "transfer/notebook/evidence/*": {
+      "primitive": "unsupported"
+    },
+    "transfer/notebook/integrity_sha256": {
+      "primitive": "Digest"
+    },
+    "transfer/selected_view": {
+      "fields": [
+        "branch",
+        "revision",
+        "tick"
+      ]
+    },
+    "transfer/selected_view/branch": {
+      "primitive": "ID"
+    },
+    "transfer/selected_view/revision?": {
+      "primitive": "Digest"
+    },
+    "transfer/selected_view/tick": {
+      "primitive": "u64"
+    },
+    "transfer/integrity_sha256": {
+      "primitive": "Digest"
+    }
+  },
+  "trace_binding_count": 10,
+  "positive_predicates": [
+    "Immutable independently admitted core Catalog and exact empty Genesis; no initial Receipt.",
+    "Pre-command paused phase1 captures and stale-check envelopes use exact completed parent/digest/empty queue.",
+    "One creator System issuance flag2/sequence/op/kind/local; edit retains same live ID and origin.",
+    "Exact full direct Changes with resources[]/passenger_delta0 and no orchestration header Change.",
+    "Revision parent chronology authenticated independently of RevisionID-sorted portable array.",
+    "State next_sequence updates after each operation; ordinary1 preserves branch0/next2 and has no authored revision/event.",
+    "Three ID-free Receipt payloads sealed before Event IDs, no self-Receipt Anchor in state/Revision/payload.",
+    "Full-key sorted exact whole-Receipt Anchors authenticate their original published views, not current head replacement.",
+    "Bookmark State digest and common positive ordinal/mark plus exact attached Archive integrity authenticate.",
+    "Transfer inner versions/Catalog/history/Notebook/selected retained view and all domain integrity links authenticate."
+  ]
+}

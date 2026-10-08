@@ -218,7 +218,7 @@ fn browser_builds_are_pinned_backend_specific_and_emit_exact_paths() {
     let webgl = project_file("tools/build-web-webgl.sh");
 
     for script in [&webgpu, &webgl] {
-        assert!(script.contains("nightly-2026-09-01"));
+        assert!(script.contains("nightly-2026-10-08"));
         assert!(script.contains("WASM_BINDGEN_VERSION=\"0.2.127\""));
         assert!(script.contains("rustup target add"));
         assert!(script.contains("--no-default-features"));

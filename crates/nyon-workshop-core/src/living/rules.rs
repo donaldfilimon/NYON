@@ -933,6 +933,11 @@ pub(crate) fn advance_lifecycles(
         ctx.tick,
     );
     let map_error = |error| match error {
+        LivingLifecycleJobErrorV2::PreparationCapacity => {
+            // Explicit noninteractive compatibility boundary retains legacy
+            // process-level capacity failure, never a canonical gameplay fault.
+            panic!("Living lifecycle synchronous preparation capacity exceeded")
+        }
         LivingLifecycleJobErrorV2::Fault(fault) => fault,
         _ => LivingDeterministicFaultV2::Invariant,
     };
@@ -960,6 +965,9 @@ pub(crate) fn resolve_arrivals(
         ctx.tick,
     );
     let map_error = |error| match error {
+        LivingLifecycleJobErrorV2::PreparationCapacity => {
+            panic!("Living arrival synchronous preparation capacity exceeded")
+        }
         LivingLifecycleJobErrorV2::Fault(fault) => fault,
         _ => LivingDeterministicFaultV2::Invariant,
     };
@@ -1000,8 +1008,12 @@ pub(crate) fn complete_jobs_and_run_recipes(
         ctx.tick,
         ctx.genesis_seed,
         ctx.branch,
-    );
+    )
+    .with_repair_exclusions(std::mem::take(&mut ctx.repair_exclusions));
     let map_error = |error| match error {
+        LivingLifecycleJobErrorV2::PreparationCapacity => {
+            panic!("Living production synchronous preparation capacity exceeded")
+        }
         LivingLifecycleJobErrorV2::Fault(fault) => fault,
         _ => LivingDeterministicFaultV2::Invariant,
     };
@@ -1216,6 +1228,7 @@ pub(crate) fn update_diplomacy(
         state: &mut snapshot,
         events: &mut proposal_events,
         arrivals: Vec::new(),
+        repair_exclusions: Default::default(),
     };
     let wars: Vec<_> = civs
         .iter()
@@ -1361,6 +1374,7 @@ fn generate_and_reserve_intents_with_disclosure(
             state: &mut original,
             events: &mut ignored_events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let economic_candidates = if civ.status == LivingCivilizationStatusV2::Active {
             reserve_economy_proposals(
@@ -1540,6 +1554,7 @@ fn generate_and_reserve_intents_with_disclosure(
                     state: &mut original,
                     events: &mut ignored_events,
                     arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
                 };
                 apply_economic_proposal(&original_ctx, actor, ordinal, candidate)?
             }
@@ -2462,32 +2477,66 @@ fn reference_scheduled_forecast(
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         advance_lifecycles(&mut forecast)?;
         resolve_arrivals(&mut forecast)?;
-        // Scheduled economic phases retain their real ordering. New conflict
-        // decisions and speculative ownership changes are outside this forecast.
-        let repairs: Vec<_> = forecast
-            .state
-            .fleets
-            .as_slice()
-            .iter()
-            .filter(|fleet| fleet.owner == actor)
-            .flat_map(|fleet| {
-                let world = match fleet.location {
-                    LivingFleetLocationV2::Docked { world } => Some(world),
-                    _ => None,
-                };
-                fleet
-                    .hulls
-                    .as_slice()
-                    .iter()
-                    .filter(|hull| hull.next_repair.is_some_and(|due| due.0 <= tick.0))
-                    .filter_map(move |hull| {
-                        world.map(|world| (fleet.id, hull.id, world, hull.hit_points))
-                    })
-            })
-            .collect();
+        // Independent admission reference runs the original conflict kernels on
+        // a detached test snapshot, retaining only world exclusions.
+        let mut projected = forecast.state.clone();
+        let mut ignored = super::receipt::LivingPendingEventsV2::for_forecast();
+        let mut admission = LivingStepContextV2 {
+            catalog: forecast.catalog,
+            genesis_seed: forecast.genesis_seed,
+            branch: forecast.branch,
+            tick,
+            state: &mut projected,
+            events: &mut ignored,
+            arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
+        };
+        retreat_noncombatants(&mut admission)?;
+        if tick.0.is_multiple_of(COMBAT_PERIOD_TICKS) {
+            resolve_combat(&mut admission)?;
+        }
+        forecast.repair_exclusions = admission.repair_exclusions;
+        let mut repairs = Vec::new();
+        for f in forecast.state.fleets.as_slice() {
+            let LivingFleetLocationV2::Docked { world } = f.location else {
+                continue;
+            };
+            if f.owner != actor
+                || !owned_by(forecast.state, world, actor)
+                || forecast.repair_exclusions.contains(&world)
+            {
+                continue;
+            }
+            for h in f.hulls.as_slice() {
+                if h.hit_points > 0
+                    && h.next_repair.is_some_and(|d| d <= tick)
+                    && h.hit_points
+                        < forecast
+                            .catalog
+                            .hull(h.definition.as_str())
+                            .map_or(1, |d| d.hit_points)
+                {
+                    repairs.push((h.id, Some(f.id), world, h.hit_points));
+                }
+            }
+        }
+        for f in forecast.state.facilities.as_slice() {
+            if f.hit_points > 0
+                && f.next_repair.is_some_and(|d| d <= tick)
+                && owned_by(forecast.state, f.world, actor)
+                && !forecast.repair_exclusions.contains(&f.world)
+                && let Some(d) = forecast.catalog.industry(f.definition.as_str())
+                && let LivingIndustryEffectV2::Defense { hit_points, .. } = d.effect
+                && f.hit_points < hit_points
+            {
+                repairs.push((f.id, None, f.world, f.hit_points));
+            }
+        }
+        repairs.sort_by_key(|r| r.0);
         let due: Vec<_> = forecast
             .state
             .facilities
@@ -2503,15 +2552,25 @@ fn reference_scheduled_forecast(
                     facility.id == *id && facility.status == LivingFacilityStatusV2::Operational
                 })
         });
-        for (fleet, hull, world, previous_hp) in repairs {
-            if forecast
-                .state
-                .fleets
-                .as_slice()
-                .iter()
-                .find(|row| row.id == fleet)
-                .and_then(|fleet| fleet.hulls.as_slice().iter().find(|row| row.id == hull))
-                .is_some_and(|hull| hull.hit_points == previous_hp && hull.next_repair.is_some())
+        for (id, fleet, world, previous_hp) in repairs {
+            let after = match fleet {
+                Some(fleet) => forecast
+                    .state
+                    .fleets
+                    .as_slice()
+                    .iter()
+                    .find(|f| f.id == fleet)
+                    .and_then(|f| f.hulls.as_slice().iter().find(|h| h.id == id))
+                    .map(|h| (h.hit_points, h.next_repair)),
+                None => forecast
+                    .state
+                    .facilities
+                    .as_slice()
+                    .iter()
+                    .find(|f| f.id == id)
+                    .map(|f| (f.hit_points, f.next_repair)),
+            };
+            if after.is_some_and(|(hp, next)| hp == previous_hp && next.is_some())
                 && !deficits.contains(&(world, LivingResourceV2::Energy))
             {
                 deficits.push((world, LivingResourceV2::Energy));
@@ -4155,6 +4214,7 @@ fn retreat_noncombatants(
             departure_tick: ctx.tick,
             arrival_tick: add_ticks(ctx.tick, duration)?,
         };
+        ctx.repair_exclusions.insert(world);
         emit(
             ctx,
             LivingPhaseV2::ResolveConflict,
@@ -4247,6 +4307,7 @@ fn resolve_combat(ctx: &mut LivingStepContextV2<'_>) -> Result<(), LivingDetermi
         }
         hostiles.sort_by(|left, right| left.class.cmp(&right.class).then(left.id.cmp(&right.id)));
         let target = hostiles[0];
+        ctx.repair_exclusions.insert(attacker.world);
         any = true;
         if let Some(entry) = harm.iter_mut().find(|entry| entry.0 == target.id) {
             entry.1 = entry.1.saturating_add(attacker.damage);
@@ -5025,6 +5086,103 @@ fn run_facilities(
 fn run_repairs_reference(
     ctx: &mut LivingStepContextV2<'_>,
 ) -> Result<(), LivingDeterministicFaultV2> {
+    // Independent test oracle: collect IDs, sort once, then resolve by ID.
+    // No cursor, retained index or production repair implementation is shared.
+    let mut assets = Vec::new();
+    for fleet in ctx.state.fleets.as_slice() {
+        let LivingFleetLocationV2::Docked { world } = fleet.location else {
+            continue;
+        };
+        if !owned_by(ctx.state, world, fleet.owner) || ctx.repair_exclusions.contains(&world) {
+            continue;
+        }
+        for hull in fleet.hulls.as_slice() {
+            if hull.hit_points > 0
+                && let Some(due) = hull.next_repair.filter(|due| *due <= ctx.tick)
+            {
+                let max = ctx
+                    .catalog
+                    .hull(hull.definition.as_str())
+                    .map_or(1, |d| d.hit_points);
+                assets.push((hull.id, Some(fleet.id), world, due, max));
+            }
+        }
+    }
+    for battery in ctx.state.facilities.as_slice() {
+        if battery.hit_points == 0
+            || world_owner(ctx.state, battery.world).is_none()
+            || ctx.repair_exclusions.contains(&battery.world)
+        {
+            continue;
+        }
+        if let Some(due) = battery.next_repair.filter(|due| *due <= ctx.tick)
+            && let Some(definition) = ctx.catalog.industry(battery.definition.as_str())
+            && let LivingIndustryEffectV2::Defense { hit_points, .. } = definition.effect
+        {
+            assets.push((battery.id, None, battery.world, due, hit_points));
+        }
+    }
+    assets.sort_by_key(|row| row.0);
+    for (id, fleet, world, due, max) in assets {
+        let current = match fleet {
+            Some(fleet) => {
+                ctx.state
+                    .fleets
+                    .as_slice()
+                    .iter()
+                    .find(|f| f.id == fleet)
+                    .unwrap()
+                    .hulls
+                    .as_slice()
+                    .iter()
+                    .find(|h| h.id == id)
+                    .unwrap()
+                    .hit_points
+            }
+            None => {
+                ctx.state
+                    .facilities
+                    .as_slice()
+                    .iter()
+                    .find(|f| f.id == id)
+                    .unwrap()
+                    .hit_points
+            }
+        };
+        let paid = current < max && spend(ctx.state, world, LivingResourceV2::Energy, 1);
+        let (hp, next) = match fleet {
+            Some(fleet) => {
+                let h = ctx
+                    .state
+                    .fleets
+                    .find_mut(&fleet)
+                    .unwrap()
+                    .hulls
+                    .find_mut(&id)
+                    .unwrap();
+                (&mut h.hit_points, &mut h.next_repair)
+            }
+            None => {
+                let f = ctx.state.facilities.find_mut(&id).unwrap();
+                (&mut f.hit_points, &mut f.next_repair)
+            }
+        };
+        if paid {
+            *hp += 1;
+        }
+        *next = if *hp >= max {
+            None
+        } else {
+            Some(add_ticks(due, REPAIR_PERIOD_TICKS)?)
+        };
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn old_run_repairs_reference(
+    ctx: &mut LivingStepContextV2<'_>,
+) -> Result<(), LivingDeterministicFaultV2> {
     let fleet_ids: Vec<_> = ctx
         .state
         .fleets
@@ -5125,7 +5283,7 @@ fn produce(
     deposit_units: u32,
 ) -> Result<LivingSortedVecV2<LivingBlockedReasonV2>, LivingDeterministicFaultV2> {
     use super::step_job::{
-        LivingLifecycleJobErrorV2, LivingLifecycleProgressV2, LivingRecipeJobV2,
+        LivingLifecycleJobErrorV2, LivingLifecycleProgressV2, recipe_legacy_oracle::Recipe,
     };
     let inventory = state
         .worlds
@@ -5142,7 +5300,7 @@ fn produce(
     // The surrounding production phase still owns its entity cursor. This
     // component already slices individual amount/reason records and reserves
     // all resources before applying any private recipe payment.
-    let mut job = LivingRecipeJobV2::begin(
+    let mut job = Recipe::begin(
         inventory,
         remaining,
         deposit_units,
@@ -6308,6 +6466,7 @@ mod intent_reservation_tests {
                 state: &mut candidate,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             match emission {
                 0 => reserve_settlement(&mut ctx, actor.id, actor.policy.0.as_str()),
@@ -7846,6 +8005,7 @@ mod intent_reservation_tests {
         let mut index = 0;
         let mut totals = [0; 3];
         let mut calls = 0;
+        let mut saw_multi_visit = false;
         loop {
             let budget = budgets[calls % budgets.len()];
             assert!((1..=1024).contains(&budget));
@@ -7864,7 +8024,7 @@ mod intent_reservation_tests {
                             }
                             index += 1;
                             totals[0] += 1;
-                            true
+                            1
                         } else {
                             let (Some(origin), Some(destination)) = mappings else {
                                 return (None, totals);
@@ -7874,7 +8034,7 @@ mod intent_reservation_tests {
                             }
                             index = 0;
                             stage = 1;
-                            false
+                            0
                         }
                     }
                     1 => {
@@ -7882,11 +8042,11 @@ mod intent_reservation_tests {
                             Arc::get_mut(&mut graph).unwrap().systems.push(row.id);
                             index += 1;
                             totals[1] += 1;
-                            true
+                            1
                         } else {
                             index = 0;
                             stage = 2;
-                            false
+                            0
                         }
                     }
                     2 => {
@@ -7899,7 +8059,7 @@ mod intent_reservation_tests {
                             ));
                             index += 1;
                             totals[1] += 1;
-                            true
+                            1
                         } else {
                             search = Some(RetreatPathJob::begin(
                                 Arc::clone(&graph),
@@ -7907,7 +8067,7 @@ mod intent_reservation_tests {
                                 mappings.1.unwrap(),
                             ));
                             stage = 3;
-                            false
+                            0
                         }
                     }
                     3 => {
@@ -7915,7 +8075,8 @@ mod intent_reservation_tests {
                         assert_eq!(Arc::strong_count(&graph), 2);
                         if job.ready() {
                             assert_eq!(job.scratch_path_lengths(), (0, 0, 0, 0));
-                            assert!(!job.visit());
+                            job.poll(1).unwrap();
+                            assert_eq!(job.last_poll_visits(), 0);
                             let result = job.take_ready_result().unwrap();
                             assert_eq!(
                                 job.take_ready_result(),
@@ -7923,6 +8084,12 @@ mod intent_reservation_tests {
                             );
                             assert_eq!(Arc::strong_count(&graph), 2);
                             assert_eq!(job.scratch_path_lengths(), (0, 0, 0, 0));
+                            if budgets.iter().any(|budget| *budget > 1) {
+                                assert!(
+                                    saw_multi_visit,
+                                    "actual child must receive multi-visit allowance"
+                                );
+                            }
                             return (result, totals);
                         }
                         let before = job.scratch_path_lengths();
@@ -7931,13 +8098,18 @@ mod intent_reservation_tests {
                             Err(LivingLifecycleJobErrorV2::NotReady)
                         );
                         assert_eq!(job.scratch_path_lengths(), before);
-                        let charged = job.visit();
-                        totals[2] += usize::from(charged);
+                        let remaining = budget - visits;
+                        let result = job.poll(remaining);
+                        let charged = job.last_poll_visits();
+                        assert!(charged <= remaining);
+                        totals[2] += charged;
+                        saw_multi_visit |= charged > 1;
+                        result.unwrap();
                         charged
                     }
                     _ => unreachable!(),
                 };
-                visits += usize::from(charged);
+                visits += charged;
                 assert!(visits <= budget);
             }
         }
@@ -7960,6 +8132,95 @@ mod intent_reservation_tests {
             totals = Some(visits);
         }
         totals.unwrap()
+    }
+
+    #[test]
+    fn bounded_path_public_admitted_travel_cases_match_independent_reference() {
+        // These are admitted public genesis states. Malformed/missing graph
+        // cases stay in separate private characterization tests.
+        let mut cases = vec![
+            (3, vec![(0, 1, 100)]),
+            (4, vec![(0, 2, 100), (0, 1, 100), (1, 3, 100), (2, 3, 100)]),
+            (
+                5,
+                vec![
+                    (0, 1, 100),
+                    (1, 2, 100),
+                    (2, 4, 400),
+                    (0, 3, 400),
+                    (3, 4, 100),
+                ],
+            ),
+            (3, vec![(0, 1, 1), (1, 2, 101)]),
+            (4, vec![(0, 1, 100), (0, 2, 400), (1, 2, 100), (1, 3, 100)]),
+        ];
+        let mut long: Vec<_> = (0..20).map(|index| (index, index + 1, 100)).collect();
+        long.extend([(20, 21, 100), (20, 22, 100), (21, 23, 100), (22, 23, 100)]);
+        cases.push((24, long));
+        for legs in [9, 11] {
+            cases.push((
+                legs + 1,
+                (0..legs)
+                    .map(|index| (index, index + 1, u64::MAX))
+                    .collect(),
+            ));
+        }
+        for (systems, lanes) in cases {
+            let private = exact_path_state(systems, &lanes);
+            let catalog = living_core_pack_v2().unwrap();
+            let worlds = LivingSortedVecV2::new(
+                private
+                    .worlds
+                    .as_slice()
+                    .iter()
+                    .cloned()
+                    .map(|mut world| {
+                        world.archetype = catalog.world_archetypes()[0].id.clone();
+                        world
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            let state = LivingGalaxyStateV2 {
+                systems: private.systems,
+                lanes: private.lanes,
+                worlds,
+                ..Default::default()
+            };
+            let genesis = validate_living_genesis_manifest_v2(
+                LivingGenesisManifestV2 {
+                    kind: LIVING_GENESIS_KIND_V2.into(),
+                    format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+                    rules_version: LIVING_RULES_VERSION,
+                    state,
+                },
+                &catalog,
+            )
+            .unwrap();
+            let authority = LivingGalaxyAuthorityV2::from_genesis(
+                catalog,
+                [0xD5; 32],
+                LivingGenesisGeneratorV2 {
+                    generator_id: slug("bounded_path_public").unwrap(),
+                    generator_version: 1,
+                },
+                genesis,
+            )
+            .unwrap();
+            if lanes == [(0, 1, 100), (0, 2, 400), (1, 2, 100), (1, 3, 100)] {
+                // Same graph as the original-buffer every-cut proof, with remapped IDs.
+                assert_eq!(
+                    travel(authority.state(), eid(200), eid(201)),
+                    Some((20, vec![eid(100), eid(103)]))
+                );
+            }
+            assert_exact_path_budgets(authority.state(), eid(200), eid(201));
+            assert_eq!(
+                travel(authority.state(), eid(200), eid(202)),
+                Some((10, vec![]))
+            );
+            assert_exact_path_budgets(authority.state(), eid(200), eid(202));
+        }
     }
 
     #[test]
@@ -8051,18 +8312,10 @@ mod intent_reservation_tests {
             job.take_ready_result(),
             Err(LivingLifecycleJobErrorV2::NotReady)
         );
-        assert!(job.visit()); // One initialization row.
-        assert_eq!(job.scratch_path_lengths(), (1, 0, 0, 0));
-        assert!(!job.visit()); // Initialize -> Choose has no row.
-        assert!(job.visit()); // One choice row.
-        assert!(!job.visit()); // Choose -> Select has no row.
-        assert!(!job.visit()); // Moving the selected result does not visit a row.
-        assert_eq!(
-            job.take_ready_result(),
-            Err(LivingLifecycleJobErrorV2::NotReady)
-        );
-        assert!(job.visit()); // One retired distance row.
-        assert!(!job.visit()); // Retire -> Ready has no row.
+        while !job.ready() {
+            job.poll(1).unwrap();
+        }
+        assert_eq!(job.total_visits(), 37);
         assert!(job.ready());
         assert_eq!(job.scratch_path_lengths(), (0, 0, 0, 0));
         // This primitive operates on systems. The counted world caller above
@@ -8075,6 +8328,174 @@ mod intent_reservation_tests {
         assert_eq!(Arc::strong_count(&graph), 2);
         drop(job);
         assert_eq!(Arc::strong_count(&graph), 1);
+    }
+
+    #[test]
+    fn bounded_path_rules_parents_defer_extraction_until_counted_handoff() {
+        use super::super::step_job::{
+            LivingLifecycleProgressV2 as Progress, LivingPhaseRetirementJobV2, RetreatGraph,
+            RetreatPathJob,
+        };
+        use std::sync::Arc;
+        let (authority, state) = fleet_enumeration_fixture();
+        for is_fleet in [false, true] {
+            let graph = Arc::new(RetreatGraph {
+                systems: vec![eid(1), eid(2)],
+                lanes: vec![(eid(7), eid(1), eid(2), 100)],
+            });
+            let mut path = RetreatPathJob::begin(graph.clone(), eid(1), eid(2));
+            path.poll(76).unwrap();
+            assert!(!path.ready());
+            if is_fleet {
+                let mut parent = fleet_test_job(&authority, &state, 1);
+                parent.graph = graph.clone().into();
+                parent.path = Some(path);
+                parent.stage = FleetEnumerationStage::Path;
+                parent.poll(1).unwrap();
+                assert_eq!(parent.last_poll_visits, 1);
+                assert!(parent.path.as_ref().unwrap().ready());
+                assert!(parent.duration.is_none());
+                parent.poll(1).unwrap();
+                assert!(parent.path.is_none());
+                assert_eq!(parent.duration, Some(10));
+                assert!(!parent.retirement.is_empty());
+                assert_eq!(Arc::strong_count(&graph), 3);
+                while !parent.retirement.is_empty() {
+                    parent.poll(1).unwrap();
+                }
+                assert_eq!(Arc::strong_count(&graph), 2);
+                let mut retired = LivingPhaseRetirementJobV2::begin(
+                    parent,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                while retired.poll(64).unwrap() != Progress::Ready {}
+            } else {
+                let inputs = economic_test_inputs(&authority, Arc::new(state.clone()));
+                let mut parent = LivingEconomicEnumerationJobV2::begin(
+                    authority.catalog_snapshot(),
+                    inputs,
+                    LivingTickV2(50),
+                );
+                parent.graph = graph.clone().into();
+                parent.path = Some(path);
+                parent.stage = EconomicEnumerationStage::Path;
+                parent.poll(1).unwrap();
+                assert_eq!(parent.last_poll_visits, 1);
+                assert!(parent.path.as_ref().unwrap().ready());
+                assert!(!parent.path_found);
+                parent.poll(1).unwrap();
+                assert!(parent.path.is_none());
+                assert!(parent.path_found);
+                assert!(!parent.retirement.is_empty());
+                assert_eq!(Arc::strong_count(&graph), 3);
+                while !parent.retirement.is_empty() {
+                    parent.poll(1).unwrap();
+                }
+                assert_eq!(Arc::strong_count(&graph), 2);
+                let mut retired = LivingPhaseRetirementJobV2::begin(
+                    parent,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                while retired.poll(64).unwrap() != Progress::Ready {}
+            }
+            assert_eq!(Arc::strong_count(&graph), 1);
+        }
+    }
+
+    #[test]
+    fn bounded_path_economic_fleet_failures_retain_real_parents_and_owners() {
+        use super::super::step_job::{
+            LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+            LivingPhaseRetirementJobV2, RetreatGraph, RetreatPathJob,
+        };
+        use std::sync::Arc;
+        // Private stage injection; source Arc allocations are the actual retained owners.
+        let (authority, state) = fleet_enumeration_fixture();
+        for extraction in [false, true] {
+            for trigger in [1, 64, 7, 1024] {
+                for schedule in [&[1][..], &[64], &[1024], &[1, 64, 7, 1024, 3]] {
+                    let graph = Arc::new(RetreatGraph {
+                        systems: vec![eid(1), eid(2)],
+                        lanes: vec![(eid(7), eid(1), eid(2), 100)],
+                    });
+                    let make_path = || {
+                        let mut path = RetreatPathJob::begin(graph.clone(), eid(1), eid(2));
+                        if extraction {
+                            while path.poll(1024).unwrap() != Progress::Ready {}
+                            path.inject_extraction_failure();
+                        } else {
+                            path.inject_capacity_failure();
+                        }
+                        path
+                    };
+                    let error = if extraction {
+                        Error::Fault(LivingDeterministicFaultV2::Invariant)
+                    } else {
+                        Error::PreparationCapacity
+                    };
+                    let inputs = economic_test_inputs(&authority, Arc::new(state.clone()));
+                    let mut economic = LivingEconomicEnumerationJobV2::begin(
+                        authority.catalog_snapshot(),
+                        inputs,
+                        LivingTickV2(50),
+                    );
+                    economic.graph = graph.clone().into();
+                    economic.path = Some(make_path());
+                    economic.stage = EconomicEnumerationStage::Path;
+                    let source = Arc::as_ptr(&economic.inputs.as_ref().unwrap().snapshot);
+                    assert_eq!(economic.poll(trigger), Err(error.clone()));
+                    assert_eq!(economic.last_poll_visits, 1);
+                    assert_eq!(
+                        Arc::as_ptr(&economic.inputs.as_ref().unwrap().snapshot),
+                        source
+                    );
+                    assert!(economic.path.is_some());
+                    assert_eq!(economic.finish().err(), Some(error.clone()));
+                    assert_eq!(economic.poll(1024), Err(error.clone()));
+                    assert_eq!(economic.last_poll_visits, 0);
+                    economic.cancel();
+                    assert_eq!(economic.poll(1), Err(error.clone()));
+                    let mut retired = LivingPhaseRetirementJobV2::begin(
+                        economic,
+                        LivingStateRetirementPolicyV2::ReleaseHandle,
+                    );
+                    let mut index = 0;
+                    while retired.poll(schedule[index % schedule.len()]).unwrap() != Progress::Ready
+                    {
+                        index += 1;
+                        assert!(index < 100000);
+                    }
+                    let mut fleet = fleet_test_job(&authority, &state, 1);
+                    fleet.graph = graph.clone().into();
+                    fleet.path = Some(make_path());
+                    fleet.stage = FleetEnumerationStage::Path;
+                    let source = Arc::as_ptr(&fleet.economics.as_ref().unwrap().inputs.snapshot);
+                    assert_eq!(fleet.poll(trigger), Err(error.clone()));
+                    assert_eq!(fleet.last_poll_visits, 1);
+                    assert_eq!(
+                        Arc::as_ptr(&fleet.economics.as_ref().unwrap().inputs.snapshot),
+                        source
+                    );
+                    assert!(fleet.path.is_some());
+                    assert_eq!(fleet.finish().err(), Some(error.clone()));
+                    assert_eq!(fleet.poll(1024), Err(error.clone()));
+                    assert_eq!(fleet.last_poll_visits, 0);
+                    fleet.cancel();
+                    assert_eq!(fleet.poll(1), Err(error));
+                    let mut retired = LivingPhaseRetirementJobV2::begin(
+                        fleet,
+                        LivingStateRetirementPolicyV2::ReleaseHandle,
+                    );
+                    let mut index = 0;
+                    while retired.poll(schedule[index % schedule.len()]).unwrap() != Progress::Ready
+                    {
+                        index += 1;
+                        assert!(index < 100000);
+                    }
+                    assert_eq!(Arc::strong_count(&graph), 1);
+                }
+            }
+        }
     }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8281,6 +8702,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         generate_and_reserve_intents(&mut ctx).unwrap();
         let adjusted = ctx
@@ -8337,6 +8759,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             generate_and_reserve_intents_with_disclosure(&mut ctx, full_disclosure).unwrap();
             let receipt = super::super::receipt::seal_living_tick_receipt_v2(
@@ -8407,6 +8830,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         generate_and_reserve_intents(&mut ctx).unwrap();
         assert!(ctx.events.decisions.iter().any(|decision| {
@@ -8521,6 +8945,7 @@ mod intent_reservation_tests {
             state: &mut reference,
             events: &mut expected_events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         })
         .unwrap();
         let mut expected_visits = None;
@@ -8529,7 +8954,16 @@ mod intent_reservation_tests {
         let catalog_owner = std::sync::Arc::new(authority.catalog().clone());
         let branch = authority.branch();
         for owned in [false, true] {
-            for budget in [1, 64, 1024] {
+            // Complete forward parity, including every rotation of mixed polls.
+            for schedule in [
+                &[1][..],
+                &[64][..],
+                &[1024][..],
+                &[1, 64, 7, 1024][..],
+                &[64, 7, 1024, 1][..],
+                &[7, 1024, 1, 64][..],
+                &[1024, 1, 64, 7][..],
+            ] {
                 let mut job = if owned {
                     let catalog = std::sync::Arc::clone(&catalog_owner);
                     LivingProductionJobV2::begin_owned(
@@ -8550,8 +8984,13 @@ mod intent_reservation_tests {
                         branch,
                     )
                 };
+                let mut poll_index = 0;
                 loop {
+                    let budget = schedule[poll_index % schedule.len()];
+                    poll_index += 1;
+                    let before = job.total_visits();
                     let progress = job.poll(budget).unwrap();
+                    assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
                     assert!(job.last_poll_visits() <= budget);
                     if progress == LivingLifecycleProgressV2::Ready {
                         break;
@@ -8709,6 +9148,7 @@ mod intent_reservation_tests {
             state: &mut reference,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         })
         .unwrap();
         assert!(
@@ -8897,6 +9337,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let rejected = LivingEconomicCandidateV2 {
             tier: 0,
@@ -9009,6 +9450,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         reserve_exploration(&mut ctx, eid(3)).unwrap();
         let dispatched = ctx
@@ -9120,6 +9562,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let observed = observe_world(&ctx, eid(3), eid(6), LivingTickV2(0)).unwrap();
         put(&mut ctx.state.observations, observed).unwrap();
@@ -9239,8 +9682,13 @@ mod intent_reservation_tests {
             state: &mut expected,
             events: &mut ignored,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         run_repairs_reference(&mut context).unwrap();
+        let mut old_state = source.clone();
+        context.state = &mut old_state;
+        old_run_repairs_reference(&mut context).unwrap();
+        assert_eq!(old_state, expected, "unchanged on-time hull-only policy");
         let mut visit_count = None;
         for budget in [1, 64, 1_024] {
             let mut job =
@@ -9409,6 +9857,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             for target in [home, eid(5)] {
                 let observation = observe_world(&ctx, actor, target, ctx.tick).unwrap();
@@ -9471,6 +9920,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let observation = observe_world(&ctx, actor, eid(5), ctx.tick).unwrap();
         put(&mut ctx.state.observations, observation).unwrap();
@@ -9536,6 +9986,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let retained = forecast_scheduled_economy_with_explanations(&ctx, actor, true).unwrap();
         let discarded = forecast_scheduled_economy_with_explanations(&ctx, actor, false).unwrap();
@@ -9586,6 +10037,7 @@ mod intent_reservation_tests {
                     state: &mut state,
                     events: &mut events,
                     arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
                 };
                 let expected = reference_scheduled_forecast(&ctx, actor, false).unwrap();
                 let catalog = authority.catalog_snapshot();
@@ -9624,7 +10076,20 @@ mod intent_reservation_tests {
                         assert_scheduled_forecast_retryable_budget(&mut job);
                     }
                     production = true;
-                    assert!(catalog.strong_count() >= 2);
+                    // Production now retires its original catalog during normal
+                    // cleanup, before its exhausted Box is handed back.
+                    let minimum = if job.production.as_ref().unwrap().retains_catalog_for_test() {
+                        2
+                    } else {
+                        1
+                    };
+                    assert!(catalog.strong_count() >= minimum);
+                    let super::super::step_job::LivingPhaseCatalogV2::Owned(parent_catalog) =
+                        &*job.catalog
+                    else {
+                        panic!("owned forecast catalog anchor");
+                    };
+                    assert!(catalog.ptr_eq(&std::sync::Arc::downgrade(parent_catalog)));
                 }
                 if job.dispatch.is_some() {
                     if !dispatch {
@@ -9678,6 +10143,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let forecasts = source
             .civilizations
@@ -10094,6 +10560,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let expected = reference_scheduled_forecast(&ctx, actor, false).unwrap();
         let begin = |owned| {
@@ -10379,6 +10846,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let expected = reference_scheduled_forecast(&ctx, actor, false).unwrap();
         let begin = |owned| {
@@ -10632,6 +11100,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let forecast = forecast_scheduled_economy(&ctx, actor).unwrap();
         let at = |tick| {
@@ -10683,6 +11152,7 @@ mod intent_reservation_tests {
                 state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             forecast_scheduled_economy(&ctx, eid(3)).unwrap()
         };
@@ -10745,6 +11215,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             for target in [eid(6), eid(7)] {
                 let observation = observe_world(&ctx, eid(3), target, ctx.tick).unwrap();
@@ -10826,6 +11297,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let observation = observe_world(&ctx, eid(3), eid(7), ctx.tick).unwrap();
         put(&mut ctx.state.observations, observation).unwrap();
@@ -10895,6 +11367,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         reserve_guard(&mut ctx, eid(3), true).unwrap();
         assert_eq!(
@@ -10958,6 +11431,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let observation = observe_world(&ctx, eid(3), eid(5), ctx.tick).unwrap();
             assert_eq!(
@@ -11028,6 +11502,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let observation = observe_world(&ctx, eid(3), eid(7), ctx.tick).unwrap();
             put(&mut ctx.state.observations, observation).unwrap();
@@ -11099,6 +11574,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             generate_and_reserve_intents(&mut ctx).unwrap();
             let route = ctx
@@ -11147,6 +11623,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let forecast = forecast_scheduled_economy(&ctx, eid(3)).unwrap();
             assert_eq!(
@@ -11190,6 +11667,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             for (world, observed) in [(eid(5), 50), (eid(6), 10), (eid(7), 1), (eid(8), 50)] {
                 let observation = observe_world(
@@ -11262,6 +11740,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         generate_and_reserve_intents(&mut ctx).unwrap();
         let routes: Vec<_> = ctx
@@ -11320,6 +11799,7 @@ mod intent_reservation_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let observation = observe_world(&ctx, eid(3), eid(5), ctx.tick).unwrap();
             put(&mut ctx.state.observations, observation).unwrap();
@@ -11448,6 +11928,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         reserve_guard(&mut ctx, eid(3), true).unwrap();
         let retained = ctx
@@ -11542,6 +12023,7 @@ mod intent_reservation_tests {
                     state: &mut left,
                     events: &mut events,
                     arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
                 };
                 let observation = observe_world(&ctx, eid(3), eid(6), ctx.tick).unwrap();
                 put(&mut ctx.state.observations, observation).unwrap();
@@ -11559,6 +12041,7 @@ mod intent_reservation_tests {
                     state,
                     events: &mut events,
                     arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
                 };
                 forecast_scheduled_economy(&ctx, eid(3)).unwrap()
             };
@@ -11606,6 +12089,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let observation = observe_world(&ctx, eid(3), eid(7), ctx.tick).unwrap();
         put(&mut ctx.state.observations, observation).unwrap();
@@ -11704,6 +12188,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         let mut observation = observe_world(&ctx, eid(3), eid(6), ctx.tick).unwrap();
         observation.owner = None;
@@ -11771,6 +12256,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         resolve_arrivals(&mut ctx).unwrap();
         assert!(ctx.state.shipments.as_slice().is_empty());
@@ -11814,6 +12300,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         resolve_arrivals(&mut ctx).unwrap();
         let waiting = &ctx.state.shipments.as_slice()[0];
@@ -11873,6 +12360,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         resolve_arrivals(&mut ctx).unwrap();
         assert!(ctx.state.shipments.as_slice().is_empty());
@@ -11918,6 +12406,7 @@ mod intent_reservation_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         decay_relations(&mut ctx).unwrap();
         let reasons = relation_reasons(ctx.state, eid(4), eid(3));
@@ -11969,6 +12458,7 @@ mod intent_reservation_tests {
                 state: &mut reference_state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let expected = inputs
                 .forecasts
@@ -12539,6 +13029,7 @@ mod intent_reservation_tests {
                 state: &mut ref_state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             };
             let expected = inputs
                 .forecasts
@@ -13526,6 +14017,7 @@ mod corridor_restriction_producer_tests {
             state: &mut state,
             events: &mut events,
             arrivals: vec![],
+            repair_exclusions: Default::default(),
         };
         dispatch_routes(&mut ctx).unwrap();
         (
@@ -14008,6 +14500,8 @@ struct LivingScheduledForecastJobV2<'a> {
     branch: super::ids::LivingBranchIdV2,
     preparation: Option<LivingForecastInputJobV2>,
     scheduled: Option<Box<super::step_job::LivingScheduledPhasesJobV2>>,
+    projection: Option<super::step_job::RepairEligibilityProjection>,
+    repair_exclusions: std::collections::BTreeSet<LivingEntityIdV2>,
     production: Option<Box<super::step_job::LivingProductionJobV2<'a>>>,
     dispatch: Option<Box<super::step_job::LivingDispatchJobV2<'a>>>,
     state: LivingGalaxyStateV2,
@@ -14022,9 +14516,8 @@ struct LivingScheduledForecastJobV2<'a> {
     idle: std::collections::BTreeSet<LivingEntityIdV2>,
     idle_output: Vec<LivingEntityIdV2>,
     due: std::collections::BTreeSet<LivingEntityIdV2>,
-    repairs: Vec<(LivingEntityIdV2, LivingEntityIdV2, LivingEntityIdV2, u32)>,
-    repair_input: std::vec::IntoIter<(LivingEntityIdV2, LivingEntityIdV2, LivingEntityIdV2, u32)>,
-    hulls: std::collections::BTreeMap<(LivingEntityIdV2, LivingEntityIdV2), (u32, bool)>,
+    repairs: std::collections::BTreeMap<LivingEntityIdV2, (LivingEntityIdV2, u32)>,
+    hulls: std::collections::BTreeMap<LivingEntityIdV2, (u32, bool)>,
     worlds: std::collections::BTreeMap<
         LivingEntityIdV2,
         (
@@ -14044,6 +14537,8 @@ struct LivingScheduledForecastJobV2<'a> {
     deficits: Vec<(LivingEntityIdV2, LivingResourceV2)>,
     deficit_set: std::collections::BTreeSet<(LivingEntityIdV2, LivingResourceV2)>,
     retired_edges: Vec<(LivingEntityIdV2, u64)>,
+    production_fault: Option<super::step_job::ProductionFailure>,
+    production_preparation_capacity: bool,
     delivered: bool,
     cancelled: bool,
     fault: Option<super::step_job::LivingLifecycleJobErrorV2>,
@@ -14060,13 +14555,17 @@ enum ScheduledForecastStage {
     Start,
     BeginScheduled,
     Scheduled,
+    Projection,
+    RepairWorlds,
     RepairFleets,
     RepairHulls,
+    RepairBatteries,
     DueFacilities,
     Production,
     Worlds,
     FleetIndex,
     HullIndex,
+    FacilityIndex,
     Repairs,
     Facilities,
     Reasons,
@@ -14127,6 +14626,8 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
             seed,
             branch,
             scheduled: None,
+            projection: None,
+            repair_exclusions: Default::default(),
             production: None,
             dispatch: None,
             state: Default::default(),
@@ -14141,8 +14642,7 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
             idle: Default::default(),
             idle_output: Vec::new(),
             due: Default::default(),
-            repairs: Vec::new(),
-            repair_input: Vec::new().into_iter(),
+            repairs: Default::default(),
             hulls: Default::default(),
             worlds: Default::default(),
             graph: Default::default(),
@@ -14159,6 +14659,8 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
             delivered: false,
             cancelled: false,
             fault: None,
+            production_fault: None,
+            production_preparation_capacity: false,
             last_poll_visits: 0,
             total_visits: 0,
         }
@@ -14197,6 +14699,12 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
         if budget == 0 || budget > 1024 {
             return Err(Error::Budget);
         }
+        if self.production_preparation_capacity {
+            return Err(Error::PreparationCapacity);
+        }
+        if let Some(fault) = self.production_fault {
+            return Err(Error::Fault(fault.public()));
+        }
         if let Some(error) = &self.fault {
             return Err(error.clone());
         }
@@ -14216,6 +14724,13 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                 Scheduled => {
                     let job = self.scheduled.as_mut().ok_or(Error::NotReady)?;
                     Some((job.poll(remaining), job.last_poll_visits()))
+                }
+                Projection => {
+                    let job = self.projection.as_mut().ok_or(Error::NotReady)?;
+                    Some((
+                        job.poll(&self.state, &self.catalog, remaining),
+                        job.last_poll_visits(),
+                    ))
                 }
                 Production => {
                     let job = self.production.as_mut().ok_or(Error::NotReady)?;
@@ -14248,6 +14763,24 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                 self.visit().map_err(Error::Fault)
             };
             if let Err(error) = result {
+                if self.stage == Production {
+                    return Err(match error {
+                        Error::PreparationCapacity => {
+                            self.production_preparation_capacity = true;
+                            Error::PreparationCapacity
+                        }
+                        error => {
+                            let cause = match error {
+                                Error::Fault(fault) => {
+                                    super::step_job::ProductionFailure::capture(&fault)
+                                }
+                                _ => super::step_job::ProductionFailure::Invariant,
+                            };
+                            self.production_fault = Some(cause);
+                            Error::Fault(cause.public())
+                        }
+                    });
+                }
                 self.fault = Some(error.clone());
                 return Err(error);
             }
@@ -14289,7 +14822,19 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                 self.events = events;
                 self.fleet_index = 0;
                 self.hull_index = 0;
-                self.advance(RepairFleets);
+                self.projection = Some(super::step_job::RepairEligibilityProjection::begin(
+                    self.tick,
+                ));
+                self.advance(Projection);
+            }
+            Projection => {
+                self.repair_exclusions = self
+                    .projection
+                    .as_mut()
+                    .ok_or(Error::NotReady)?
+                    .take_ready_result()?;
+                self.retirement.start(self.projection.take());
+                self.advance(RepairWorlds);
             }
             Production => {
                 let (state, events) = self
@@ -14328,7 +14873,7 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
     fn visit(&mut self) -> Result<(), LivingDeterministicFaultV2> {
         use ScheduledForecastStage::*;
         match self.stage {
-            Preparation | Scheduled | Production | Dispatch | Ready => {
+            Preparation | Scheduled | Projection | Production | Dispatch | Ready => {
                 return Err(LivingDeterministicFaultV2::Invariant);
             }
             Idle => {
@@ -14388,10 +14933,19 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                 ));
                 self.advance(Scheduled);
             }
+            RepairWorlds => {
+                if let Some(row) = self.state.worlds.as_slice().get(self.index) {
+                    self.worlds
+                        .insert(row.id, (row.owner, row.system, row.inventory));
+                    self.index += 1;
+                } else {
+                    self.advance(RepairFleets);
+                }
+            }
             RepairFleets => {
                 if let Some(fleet) = self.state.fleets.as_slice().get(self.fleet_index) {
                     if fleet.owner == self.actor
-                        && matches!(fleet.location, LivingFleetLocationV2::Docked { .. })
+                        && matches!(fleet.location, LivingFleetLocationV2::Docked { world } if self.worlds.get(&world).is_some_and(|row| row.0 == Some(self.actor)) && !self.repair_exclusions.contains(&world))
                     {
                         self.hull_index = 0;
                         self.advance(RepairHulls);
@@ -14399,22 +14953,51 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                         self.fleet_index += 1;
                     }
                 } else {
-                    self.advance(DueFacilities);
+                    self.advance(RepairBatteries);
                 }
             }
             RepairHulls => {
                 let fleet = &self.state.fleets.as_slice()[self.fleet_index];
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
-                    if hull.next_repair.is_some_and(|due| due <= self.tick)
+                    if hull.hit_points > 0
+                        && hull.next_repair.is_some_and(|due| due <= self.tick)
+                        && hull.hit_points
+                            < super::step_job::repair_hull_definition(
+                                &self.catalog,
+                                hull.definition.as_str(),
+                            )
+                            .map_or(1, |d| d.hit_points)
                         && let LivingFleetLocationV2::Docked { world } = fleet.location
                     {
-                        self.repairs
-                            .push((fleet.id, hull.id, world, hull.hit_points));
+                        self.repairs.insert(hull.id, (world, hull.hit_points));
                     }
                     self.hull_index += 1;
                 } else {
                     self.fleet_index += 1;
                     self.advance(RepairFleets);
+                }
+            }
+            RepairBatteries => {
+                if let Some(row) = self.state.facilities.as_slice().get(self.index) {
+                    if row.hit_points > 0
+                        && row.next_repair.is_some_and(|due| due <= self.tick)
+                        && self
+                            .worlds
+                            .get(&row.world)
+                            .is_some_and(|row| row.0 == Some(self.actor))
+                        && !self.repair_exclusions.contains(&row.world)
+                        && let Some(d) = super::step_job::repair_industry_definition(
+                            &self.catalog,
+                            row.definition.as_str(),
+                        )
+                        && let LivingIndustryEffectV2::Defense { hit_points, .. } = d.effect
+                        && row.hit_points < hit_points
+                    {
+                        self.repairs.insert(row.id, (row.world, row.hit_points));
+                    }
+                    self.index += 1;
+                } else {
+                    self.advance(DueFacilities);
                 }
             }
             DueFacilities => {
@@ -14425,24 +15008,31 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                     self.index += 1;
                 } else {
                     use super::step_job::{LivingPhaseCatalogV2, LivingProductionJobV2};
-                    self.production = Some(Box::new(match &*self.catalog {
-                        LivingPhaseCatalogV2::Borrowed(catalog) => LivingProductionJobV2::begin(
-                            catalog,
-                            std::mem::take(&mut self.state),
-                            std::mem::take(&mut self.events),
-                            self.tick,
-                            self.seed,
-                            self.branch,
-                        ),
-                        LivingPhaseCatalogV2::Owned(catalog) => LivingProductionJobV2::begin_owned(
-                            std::sync::Arc::clone(catalog),
-                            std::mem::take(&mut self.state),
-                            std::mem::take(&mut self.events),
-                            self.tick,
-                            self.seed,
-                            self.branch,
-                        ),
-                    }));
+                    self.production = Some(Box::new(
+                        match &*self.catalog {
+                            LivingPhaseCatalogV2::Borrowed(catalog) => {
+                                LivingProductionJobV2::begin(
+                                    catalog,
+                                    std::mem::take(&mut self.state),
+                                    std::mem::take(&mut self.events),
+                                    self.tick,
+                                    self.seed,
+                                    self.branch,
+                                )
+                            }
+                            LivingPhaseCatalogV2::Owned(catalog) => {
+                                LivingProductionJobV2::begin_owned(
+                                    std::sync::Arc::clone(catalog),
+                                    std::mem::take(&mut self.state),
+                                    std::mem::take(&mut self.events),
+                                    self.tick,
+                                    self.seed,
+                                    self.branch,
+                                )
+                            }
+                        }
+                        .with_repair_exclusions(std::mem::take(&mut self.repair_exclusions)),
+                    ));
                     self.advance(Production);
                 }
             }
@@ -14461,31 +15051,36 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
                     self.hull_index = 0;
                     self.advance(HullIndex);
                 } else {
-                    self.repair_input = std::mem::take(&mut self.repairs).into_iter();
-                    self.advance(Repairs);
+                    self.advance(FacilityIndex);
                 }
             }
             HullIndex => {
                 let fleet = &self.state.fleets.as_slice()[self.fleet_index];
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
-                    self.hulls.insert(
-                        (fleet.id, hull.id),
-                        (hull.hit_points, hull.next_repair.is_some()),
-                    );
+                    self.hulls
+                        .insert(hull.id, (hull.hit_points, hull.next_repair.is_some()));
                     self.hull_index += 1;
                 } else {
                     self.fleet_index += 1;
                     self.advance(FleetIndex);
                 }
             }
+            FacilityIndex => {
+                if let Some(row) = self.state.facilities.as_slice().get(self.index) {
+                    self.hulls
+                        .insert(row.id, (row.hit_points, row.next_repair.is_some()));
+                    self.index += 1;
+                } else {
+                    self.advance(Repairs);
+                }
+            }
             Repairs => {
-                if let Some((fleet, hull, world, hp)) = self.repair_input.next() {
-                    if self.hulls.get(&(fleet, hull)) == Some(&(hp, true)) {
+                if let Some((id, (world, hp))) = self.repairs.pop_first() {
+                    if self.hulls.get(&id) == Some(&(hp, true)) {
                         self.deficit(world, LivingResourceV2::Energy);
                     }
                 } else {
-                    self.retirement
-                        .start(std::mem::take(&mut self.repair_input));
+                    self.retirement.start(std::mem::take(&mut self.repairs));
                     self.advance(Facilities);
                 }
             }
@@ -14720,7 +15315,13 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
         ),
         super::step_job::LivingLifecycleJobErrorV2,
     > {
-        self.take_ready_result()
+        let result = self.take_ready_result();
+        let mut retirement =
+            self.into_rules_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(1024).expect("valid retirement budget")
+            != super::step_job::LivingLifecycleProgressV2::Ready
+        {}
+        result
     }
     fn take_ready_result(
         &mut self,
@@ -14734,6 +15335,12 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
         use super::step_job::LivingLifecycleJobErrorV2 as Error;
         if self.cancelled {
             return Err(Error::Cancelled);
+        }
+        if self.production_preparation_capacity {
+            return Err(Error::PreparationCapacity);
+        }
+        if let Some(fault) = self.production_fault {
+            return Err(Error::Fault(fault.public()));
         }
         if let Some(error) = &self.fault {
             return Err(error.clone());
@@ -14807,11 +15414,17 @@ fn forecast_scheduled_economy_with_explanations(
         match job.poll(1024) {
             Ok(super::step_job::LivingLifecycleProgressV2::Pending) => {}
             Ok(super::step_job::LivingLifecycleProgressV2::Ready) => break,
+            Err(super::step_job::LivingLifecycleJobErrorV2::PreparationCapacity) => {
+                panic!("Living scheduled synchronous preparation capacity exceeded")
+            }
             Err(super::step_job::LivingLifecycleJobErrorV2::Fault(fault)) => return Err(fault),
             Err(_) => return Err(LivingDeterministicFaultV2::Invariant),
         }
     }
     let (output, _retired_source) = job.finish().map_err(|error| match error {
+        super::step_job::LivingLifecycleJobErrorV2::PreparationCapacity => {
+            panic!("Living scheduled synchronous preparation capacity exceeded")
+        }
         super::step_job::LivingLifecycleJobErrorV2::Fault(fault) => fault,
         _ => LivingDeterministicFaultV2::Invariant,
     })?;
@@ -15353,6 +15966,7 @@ struct LivingEconomicEnumerationJobV2 {
     batches: Vec<LivingEconomicBatchV2>,
     cancelled: bool,
     delivered: bool,
+    path_fault: Option<super::step_job::RetreatPathFailure>,
     fault: Option<super::step_job::LivingLifecycleJobErrorV2>,
     last_poll_visits: usize,
     total_visits: u64,
@@ -15435,6 +16049,7 @@ impl LivingEconomicEnumerationJobV2 {
             batches: Vec::new(),
             cancelled: false,
             delivered: false,
+            path_fault: None,
             fault,
             last_poll_visits: 0,
             total_visits: 0,
@@ -15529,6 +16144,9 @@ impl LivingEconomicEnumerationJobV2 {
             LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
         };
         self.last_poll_visits = 0;
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(Error::Cancelled);
         }
@@ -15544,6 +16162,46 @@ impl LivingEconomicEnumerationJobV2 {
             if self.retirement.visit() {
                 self.last_poll_visits += 1;
                 self.total_visits += 1;
+                continue;
+            }
+
+            if self.stage == EconomicEnumerationStage::Path {
+                let child = self.path.as_mut().expect("retained path child");
+                let progress = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                match progress {
+                    Err(error) => {
+                        let failure = super::step_job::RetreatPathFailure::from_public(error);
+                        self.path_fault = Some(failure);
+                        return Err(failure.public());
+                    }
+                    Ok(Progress::Pending) => {}
+                    Ok(Progress::Ready) if self.last_poll_visits < budget => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        let result = match self.path.as_mut().unwrap().take_ready_result() {
+                            Ok(result) => result,
+                            Err(error) => {
+                                let failure =
+                                    super::step_job::RetreatPathFailure::from_public(error);
+                                self.path_fault = Some(failure);
+                                return Err(failure.public());
+                            }
+                        };
+                        self.path_found = result.is_some();
+                        if let Some((_, lanes)) = result {
+                            self.retired_path = lanes;
+                        }
+                        self.retirement.start((
+                            self.path.take().unwrap(),
+                            std::mem::take(&mut self.retired_path),
+                        ));
+                        self.stage = EconomicEnumerationStage::RetirePath;
+                    }
+                    Ok(Progress::Ready) => {}
+                }
                 continue;
             }
             match self.visit() {
@@ -16005,25 +16663,7 @@ impl LivingEconomicEnumerationJobV2 {
                 }
                 self.stage = Hulls;
             }
-            Path => {
-                let path = self.path.as_mut().expect("active path");
-                if !path.ready() {
-                    return Ok(path.visit());
-                }
-                let result = path
-                    .take_ready_result()
-                    .map_err(|_| LivingDeterministicFaultV2::Invariant)?;
-                self.path_found = result.is_some();
-                if let Some((_, lanes)) = result {
-                    self.retired_path = lanes;
-                }
-                self.retirement.start((
-                    self.path.take().expect("ready path"),
-                    std::mem::take(&mut self.retired_path),
-                ));
-                self.stage = RetirePath;
-                return Ok(true);
-            }
+            Path => unreachable!("path handled by poll"),
             RetirePath => {
                 if self.retired_path.pop().is_some() {
                     return Ok(true);
@@ -16413,6 +17053,9 @@ impl LivingEconomicEnumerationJobV2 {
         &mut self,
     ) -> Result<LivingEconomicEnumerationV2, super::step_job::LivingLifecycleJobErrorV2> {
         use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(Error::Cancelled);
         }
@@ -17166,6 +17809,7 @@ struct LivingFleetEnumerationJobV2 {
     retire_index: u8,
     cancelled: bool,
     delivered: bool,
+    path_fault: Option<super::step_job::RetreatPathFailure>,
     fault: Option<super::step_job::LivingLifecycleJobErrorV2>,
     last_poll_visits: usize,
     total_visits: u64,
@@ -17241,6 +17885,7 @@ impl LivingFleetEnumerationJobV2 {
             retire_index: 0,
             cancelled: false,
             delivered: false,
+            path_fault: None,
             fault,
             last_poll_visits: 0,
             total_visits: 0,
@@ -17363,6 +18008,9 @@ impl LivingFleetEnumerationJobV2 {
             LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
         };
         self.last_poll_visits = 0;
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(Error::Cancelled);
         }
@@ -17407,6 +18055,46 @@ impl LivingFleetEnumerationJobV2 {
                         self.fault = Some(error.clone());
                         return Err(error);
                     }
+                }
+                continue;
+            }
+
+            if self.stage == FleetEnumerationStage::Path {
+                let child = self.path.as_mut().expect("retained path child");
+                let progress = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                match progress {
+                    Err(error) => {
+                        let failure = super::step_job::RetreatPathFailure::from_public(error);
+                        self.path_fault = Some(failure);
+                        return Err(failure.public());
+                    }
+                    Ok(Progress::Pending) => {}
+                    Ok(Progress::Ready) if self.last_poll_visits < budget => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        let result = match self.path.as_mut().unwrap().take_ready_result() {
+                            Ok(result) => result,
+                            Err(error) => {
+                                let failure =
+                                    super::step_job::RetreatPathFailure::from_public(error);
+                                self.path_fault = Some(failure);
+                                return Err(failure.public());
+                            }
+                        };
+                        if let Some((duration, path)) = result {
+                            self.duration = Some(duration);
+                            self.retired_path = path;
+                        }
+                        self.retirement.start((
+                            self.path.take().unwrap(),
+                            std::mem::take(&mut self.retired_path),
+                        ));
+                        self.stage = FleetEnumerationStage::RetirePath;
+                    }
+                    Ok(Progress::Ready) => {}
                 }
                 continue;
             }
@@ -17763,25 +18451,7 @@ impl LivingFleetEnumerationJobV2 {
                 }
                 return Ok(true);
             }
-            Path => {
-                let path = self.path.as_mut().expect("path child");
-                if !path.ready() {
-                    return Ok(path.visit());
-                }
-                if let Some((duration, path)) = path
-                    .take_ready_result()
-                    .map_err(|_| LivingDeterministicFaultV2::Invariant)?
-                {
-                    self.duration = Some(duration);
-                    self.retired_path = path;
-                }
-                self.retirement.start((
-                    self.path.take().expect("ready path"),
-                    std::mem::take(&mut self.retired_path),
-                ));
-                self.stage = RetirePath;
-                return Ok(true);
-            }
+            Path => unreachable!("path handled by poll"),
             RetirePath => {
                 if self.retired_path.pop().is_some() {
                     return Ok(true);
@@ -18162,6 +18832,9 @@ impl LivingFleetEnumerationJobV2 {
         &mut self,
     ) -> Result<LivingFleetEnumerationV2, super::step_job::LivingLifecycleJobErrorV2> {
         use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(Error::Cancelled);
         }
@@ -18328,6 +19001,7 @@ impl<'a> RetirementFields<'a> for RulesFleetKey {
             .then(|| retirement_node(RulesByteBuffer(std::mem::take(&mut self.0.2)), policy))
     }
 }
+#[allow(dead_code)]
 struct RulesFleetCanonical(std::collections::BTreeMap<FleetCanonicalKey, LivingFleetCandidateV2>);
 impl<'a> RetirementFields<'a> for RulesFleetCanonical {
     fn retirement_child(
@@ -18340,6 +19014,7 @@ impl<'a> RetirementFields<'a> for RulesFleetCanonical {
             .map(|(key, value)| retirement_node((RulesFleetKey(key), value), policy))
     }
 }
+#[allow(dead_code)]
 struct RulesFleetRanking(std::collections::BTreeMap<FleetRankingKey, LivingFleetCandidateV2>);
 impl<'a> RetirementFields<'a> for RulesFleetRanking {
     fn retirement_child(
@@ -18511,7 +19186,7 @@ impl<'a> RetirementFields<'a> for LivingScheduledForecastJobV2<'a> {
             10 => Some(retirement_node(std::mem::take(&mut self.due), policy)),
             11 => Some(retirement_node(std::mem::take(&mut self.repairs), policy)),
             12 => Some(retirement_node(
-                std::mem::take(&mut self.repair_input),
+                std::mem::take(&mut self.projection),
                 policy,
             )),
             13 => Some(retirement_node(std::mem::take(&mut self.hulls), policy)),
@@ -18539,6 +19214,10 @@ impl<'a> RetirementFields<'a> for LivingScheduledForecastJobV2<'a> {
             )),
             24 => Some(retirement_node(self.source.0.take(), policy)),
             25 => Some(retirement_node(self.catalog.0.take(), policy)),
+            26 => Some(retirement_node(
+                std::mem::take(&mut self.repair_exclusions),
+                policy,
+            )),
             _ => None,
         }
     }
@@ -18728,6 +19407,71 @@ impl<'a> RetirementFields<'a> for LivingEconomicEnumerationJobV2 {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        // Exhaustive inventory: owner slots below, fixed controls remain in the root.
+        let Self {
+            retirement: _,
+            catalog: _,
+            inputs: _,
+            tick: _,
+            graph: _,
+            worlds: _,
+            industries: _,
+            hull_costs: _,
+            wars: _,
+            trade: _,
+            observations: _,
+            projected: _,
+            deficits: _,
+            idle: _,
+            actors: _,
+            counts: _,
+            escorts: _,
+            stage: _,
+            index: _,
+            nested: _,
+            forecast_index: _,
+            actor_index: _,
+            colony_index: _,
+            world_index: _,
+            colony_count: _,
+            facilities: _,
+            has: _,
+            enabled: _,
+            shipyard: _,
+            construction_job: _,
+            hull_job: _,
+            deposit: _,
+            threatened: _,
+            scrap: _,
+            building_free: _,
+            hull_index: _,
+            ark: _,
+            resource_index: _,
+            source_index: _,
+            request_index: _,
+            adjacent: _,
+            adjacent_home: _,
+            supply: _,
+            first_route: _,
+            working_route: _,
+            path: _,
+            retired_path: _,
+            path_found: _,
+            path_resume: _,
+            emission: _,
+            canonical: _,
+            ranking: _,
+            previous: _,
+            failed_candidate: _,
+            batch: _,
+            batches: _,
+            cancelled: _,
+            delivered: _,
+            path_fault: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
                 std::mem::take(&mut self.retirement),
@@ -18959,6 +19703,63 @@ impl<'a> RetirementFields<'a> for LivingFleetEnumerationJobV2 {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        // Exhaustive inventory: owner slots below, fixed controls remain in the root.
+        let Self {
+            retirement: _,
+            economics: _,
+            economic_batches: _,
+            tick: _,
+            seed: _,
+            branch: _,
+            graph: _,
+            worlds: _,
+            colonies: _,
+            actors: _,
+            fleet_indexes: _,
+            summaries: _,
+            targeted: _,
+            wars: _,
+            escorts: _,
+            attacked: _,
+            threat_cursor: _,
+            observations: _,
+            known: _,
+            pending_fleets: _,
+            stage: _,
+            index: _,
+            nested: _,
+            actor_index: _,
+            alternative: _,
+            target_index: _,
+            fleet_index: _,
+            target: _,
+            choice: _,
+            explore: _,
+            explore_fleet: _,
+            explore_key: _,
+            pending_pair: _,
+            duration: _,
+            path: _,
+            retired_path: _,
+            copy: _,
+            assembly: _,
+            candidate: _,
+            decision_cursor: _,
+            canonical: _,
+            ranking: _,
+            working: _,
+            delta: _,
+            ordinal_index: _,
+            batch: _,
+            batches: _,
+            retire_index: _,
+            cancelled: _,
+            delivered: _,
+            path_fault: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
                 std::mem::take(&mut self.retirement),
@@ -19058,4 +19859,233 @@ fn rules_ensure_append<T: super::wire::LivingKeyedV2>(
         return Err(super::wire::LivingWireErrorV2::KeyedOrder.into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod corrected_repair_forecast_tests {
+    use super::*;
+    #[test]
+    fn corrected_repair_forecast_battery_demand_and_eligibility_are_independent() {
+        let a = crate::living::builtin_living_sandbox_v2().unwrap();
+        for mode in 0..5 {
+            let mut source = a.state().clone();
+            let colony = source.colonies.as_slice()[0].clone();
+            let home = colony.world;
+            let other = source
+                .civilizations
+                .as_slice()
+                .iter()
+                .find(|c| c.id != colony.owner)
+                .unwrap()
+                .id;
+            source.routes = Default::default();
+            source.shipments = Default::default();
+            let mut fleet = source.fleets.as_slice()[0].clone();
+            source.fleets = Default::default();
+            source.worlds.find_mut(&home).unwrap().inventory.energy = 0;
+            let world = if mode == 2 {
+                source
+                    .worlds
+                    .as_slice()
+                    .iter()
+                    .find(|w| w.owner.is_none())
+                    .unwrap()
+                    .id
+            } else {
+                home
+            };
+            source.facilities = LivingSortedVecV2::new(vec![LivingFacilityV2 {
+                id: LivingEntityIdV2([230; 16]),
+                world,
+                definition: LivingSlugV2::new("defense_battery").unwrap(),
+                status: LivingFacilityStatusV2::Operational,
+                paid_alloy: 40,
+                hit_points: if mode == 3 { 40 } else { 39 },
+                next_due: None,
+                next_repair: Some(LivingTickV2(if mode == 4 { 1000 } else { 0 })),
+                blocked_reasons: Default::default(),
+                disabled: true,
+            }])
+            .unwrap();
+            if mode == 1 {
+                fleet.owner = other;
+                fleet.location = LivingFleetLocationV2::Docked { world: home };
+                fleet.order = None;
+                let mut hull = fleet.hulls.as_slice()[0].clone();
+                hull.definition = LivingSlugV2::new("scout").unwrap();
+                hull.hit_points = 2;
+                hull.return_credit = true;
+                hull.next_repair = None;
+                fleet.hulls = LivingSortedVecV2::new(vec![hull]).unwrap();
+                source.fleets = LivingSortedVecV2::new(vec![fleet]).unwrap();
+                source.wars = LivingSortedVecV2::new(vec![LivingWarV2 {
+                    participant_a: colony.owner.min(other),
+                    participant_b: colony.owner.max(other),
+                    declarer: colony.owner,
+                    start_tick: LivingTickV2(0),
+                    end_tick: LivingTickV2(1000),
+                }])
+                .unwrap();
+            }
+            source.validate(a.catalog()).unwrap();
+            let immutable = source.canonical_bytes().unwrap();
+            let mut state = source.clone();
+            let mut events = super::super::receipt::LivingPendingEventsV2::new();
+            let ctx = LivingStepContextV2 {
+                catalog: a.catalog(),
+                genesis_seed: [0; 32],
+                branch: a.branch(),
+                tick: LivingTickV2(0),
+                state: &mut state,
+                events: &mut events,
+                arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
+            };
+            // Normalized input intentionally omits foreign colonies; mode1's
+            // foreign scout cannot retreat there and creates ordinary demand.
+            if mode == 1 {
+                let (normalized, _) =
+                    reference_forecast_input(&source, colony.owner, LivingTickV2(0)).unwrap();
+                assert!(
+                    normalized
+                        .colonies
+                        .as_slice()
+                        .iter()
+                        .all(|c| c.owner == colony.owner)
+                );
+                // Separately exercise the actual post-scheduled snapshot seam,
+                // where a valid foreign destination remains visible.
+                let mut direct = LivingScheduledForecastJobV2::begin(
+                    a.catalog(),
+                    std::sync::Arc::new(source.clone()),
+                    colony.owner,
+                    LivingTickV2(0),
+                    [0; 32],
+                    a.branch(),
+                );
+                direct.retirement.start(direct.preparation.take());
+                direct.state = source.clone();
+                direct.tick = LivingTickV2(1);
+                direct.projection = Some(
+                    super::super::step_job::RepairEligibilityProjection::begin(direct.tick),
+                );
+                direct.stage = ScheduledForecastStage::Projection;
+                while direct.stage != ScheduledForecastStage::Facilities {
+                    direct.poll(1).unwrap();
+                }
+                assert_eq!(direct.state.facilities.as_slice()[0].hit_points, 39);
+                assert!(direct.deficits.is_empty());
+                direct.cancel();
+                let mut retired = direct.into_rules_retirement(
+                    super::super::step_job::LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                while retired.poll(64).unwrap()
+                    != super::super::step_job::LivingLifecycleProgressV2::Ready
+                {}
+            }
+            let expected = reference_scheduled_forecast(&ctx, colony.owner, false).unwrap();
+            assert_eq!(
+                expected
+                    .deficits
+                    .contains(&(home, LivingResourceV2::Energy)),
+                mode <= 1,
+                "independent battery demand mode {mode}"
+            );
+            for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+                let mut job = LivingScheduledForecastJobV2::begin(
+                    a.catalog(),
+                    std::sync::Arc::new(source.clone()),
+                    colony.owner,
+                    LivingTickV2(0),
+                    [0; 32],
+                    a.branch(),
+                );
+                let mut n = 0;
+                loop {
+                    let b = schedule[n % schedule.len()];
+                    n += 1;
+                    let before = job.total_visits;
+                    let p = job.poll(b).unwrap();
+                    assert_eq!(job.total_visits - before, job.last_poll_visits as u64);
+                    assert!(job.last_poll_visits <= b);
+                    if p == super::super::step_job::LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(n < 1000000);
+                }
+                let (actual, _) = job.finish().unwrap();
+                assert_eq!(actual, expected, "mode {mode}");
+            }
+            assert_eq!(source.canonical_bytes().unwrap(), immutable);
+        }
+    }
+}
+
+#[cfg(test)]
+mod general_production_forecast_tests {
+    use super::super::step_job::{
+        LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+        ProductionFailure,
+    };
+    use super::*;
+    #[test]
+    fn scheduled_forecast_cursor_production_rejected_extraction_retains_box_and_finite_cause() {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        for trigger in [1, 64, 7, 1024] {
+            let source = authority.state_snapshot();
+            let mut job = LivingScheduledForecastJobV2::begin(
+                authority.catalog(),
+                source.clone(),
+                source.civilizations.as_slice()[0].id,
+                LivingTickV2(1),
+                [0; 32],
+                authority.branch(),
+            );
+            for _ in 0..100_000 {
+                if job.stage == ScheduledForecastStage::Production && job.retirement.is_empty() {
+                    break;
+                }
+                assert_eq!(job.poll(1).unwrap(), Progress::Pending);
+            }
+            let child = job.production.as_mut().expect("actual forecast production");
+            for _ in 0..100_000 {
+                if child.poll(64).unwrap() == Progress::Ready {
+                    break;
+                }
+            }
+            let output = child.take_ready_result().unwrap();
+            let original = std::ptr::from_ref(child.as_ref());
+            let before = job.total_visits();
+            assert_eq!(
+                job.poll(trigger),
+                Err(Error::Fault(LivingDeterministicFaultV2::Invariant))
+            );
+            assert_eq!(job.total_visits() - before, 1);
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(job.production_fault, Some(ProductionFailure::Invariant));
+            assert!(job.fault.is_none() && job.stage == ScheduledForecastStage::Production);
+            assert_eq!(
+                std::ptr::from_ref(job.production.as_ref().unwrap().as_ref()),
+                original
+            );
+            assert_eq!(job.poll(0), Err(Error::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+            assert!(matches!(
+                job.take_ready_result(),
+                Err(Error::Fault(LivingDeterministicFaultV2::Invariant))
+            ));
+            assert!(std::sync::Arc::ptr_eq(&job.source, &source));
+            assert!(job.state.worlds.as_slice().is_empty());
+            assert!(!output.0.worlds.as_slice().is_empty());
+            job.cancel();
+            assert!(matches!(job.take_ready_result(), Err(Error::Cancelled)));
+            let mut r = job.into_rules_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+            for _ in 0..100_000 {
+                if r.poll(64).unwrap() == Progress::Ready {
+                    break;
+                }
+            }
+            assert_eq!(r.poll(1).unwrap(), Progress::Ready);
+        }
+    }
 }

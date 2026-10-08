@@ -1,0 +1,45 @@
+{
+  "authority_manifest_sha256": "55ca0ede26a284142f6d1208fa57ebe83ecd6bcce59a99751751332d42d6d1eb",
+  "sources": {
+    "2026-10-01-living-expansion-architecture.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-architecture.md",
+      "bytes": 15023,
+      "sha256": "55905f9c45ff32bfe645d79ee450ab6330a1793ad3590588549c6d8a7b5b1087"
+    },
+    "2026-10-01-living-societies-rules.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-societies-rules.md",
+      "bytes": 16833,
+      "sha256": "1b79c491dc38122c410bcb1a3157ffdcc3208a37478bdae1c1bb5182a60ce2bb"
+    },
+    "2026-10-01-living-ecology-rules.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-ecology-rules.md",
+      "bytes": 18964,
+      "sha256": "7219bbbf35b3ee50ce8b1f270584e0b05445ab20f944703d4e037d54059a9acf"
+    },
+    "2026-10-01-living-diplomacy-expansion.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-diplomacy-expansion.md",
+      "bytes": 27289,
+      "sha256": "350badd8e5197df1f8d30991401dd950a5d2efbcd2aa8eb6f273d85063abb97a"
+    },
+    "2026-10-01-living-expansion-wire.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-wire.md",
+      "bytes": 27883,
+      "sha256": "1fba0ff89f795c3cdf4df970ec7e5728bc82b2ea250e9f803450d87eaa2f74e7"
+    },
+    "2026-10-01-living-expansion-experience.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-experience.md",
+      "bytes": 16562,
+      "sha256": "7e12c533085af8f67de9523902b547b307c0dd023134817e3553367704828980"
+    },
+    "2026-10-01-living-v3-complete-schema.md": {
+      "source_path": "docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md",
+      "bytes": 339293,
+      "sha256": "bf77dc1237e4f8717143a3ca04c6d20db4632cf8cbe4645a00d21f3de023339a"
+    },
+    "2026-10-02-living-v3-scoring.md": {
+      "source_path": "docs/superpowers/specs/2026-10-02-living-v3-scoring.md",
+      "bytes": 110834,
+      "sha256": "911410cee5f10229e4471c18154a2e7f821aff2d6645fba1222cc41091fa487f"
+    }
+  }
+}

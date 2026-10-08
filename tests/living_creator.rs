@@ -555,8 +555,31 @@ fn route_hazard_and_scrapping_forms_preserve_existing_manifests() {
     apply_tool(&mut session, LivingCreatorTool::CancelHazard);
     assert!(session.state().hazards.as_slice().is_empty());
     let facilities = session.state().facilities.as_slice().len();
+    let draft = LivingCreatorDraft::new(LivingCreatorTool::ScrapFacility, session.state(), None);
+    let review = nyon::living_creator::removal_review_lines(&draft.operations().unwrap());
+    assert!(
+        review
+            .iter()
+            .any(|line| line.contains("no economic refund"))
+    );
+    assert!(!review.iter().any(|line| line.contains("half of recorded")));
+    let alloy_before: u64 = session
+        .state()
+        .worlds
+        .as_slice()
+        .iter()
+        .map(|world| u64::from(world.inventory.alloy))
+        .sum();
     apply_tool(&mut session, LivingCreatorTool::ScrapFacility);
     assert_eq!(session.state().facilities.as_slice().len(), facilities - 1);
+    let alloy_after: u64 = session
+        .state()
+        .worlds
+        .as_slice()
+        .iter()
+        .map(|world| u64::from(world.inventory.alloy))
+        .sum();
+    assert_eq!(alloy_after, alloy_before);
 }
 
 #[test]

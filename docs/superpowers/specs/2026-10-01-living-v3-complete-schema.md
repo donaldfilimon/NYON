@@ -1,6 +1,6 @@
 # Living V3 complete schema and compatibility supplement
 
-Date: 2026-10-02. Status: **PROPOSED; independent review and vectors required**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `2026-10-01-living-expansion-wire.md`. This document is a written design,
 not codec code, V2 changes, or acceptance. Existing society/ecology/diplomacy
 numerical formulas remain in their respective Proposed specifications.
@@ -332,6 +332,7 @@ record LivingHullV3 {
     hit_points: u32,
     return_credit: bool,
     next_repair: Option<Tick>,
+    passengers: Passengers,
 }
 
 enum LivingFleetLocationV3 {
@@ -353,6 +354,7 @@ enum LivingFleetOrderKindV3 {
     Move,
     Return,
     Settle,
+    Blockade,
 }
 
 record LivingFleetOrderV3 {
@@ -360,6 +362,8 @@ record LivingFleetOrderV3 {
     target_world: Option<ID>,
     not_before_tick: Tick,
     lane_path: Vec<ID>,
+    objective: Option<ObjectiveKey>,
+    defense_request: Option<DefenseActionBinding>,
 }
 
 record LivingFleetV3 {
@@ -368,6 +372,8 @@ record LivingFleetV3 {
     location: LivingFleetLocationV3,
     order: Option<LivingFleetOrderV3>,
     hulls: Sorted<LivingHullV3>,
+    supply: Supply,
+    blockade: Option<Blockade>,
 }
 
 enum LivingRouteKindV3 {
@@ -389,6 +395,7 @@ record LivingFreightRouteV3 {
     receiver_owner: ID,
     next_due: Tick,
     suspended: bool,
+    commitment: Option<ID>,
 }
 
 enum LivingShipmentDispositionV3 {
@@ -407,9 +414,12 @@ record LivingShipmentV3 {
     units: u32,
     departure_tick: Tick,
     arrival_tick: Tick,
+    original_travel_ticks: Tick,
     disposition: LivingShipmentDispositionV3,
     dispatch_kind: Option<LivingRouteKindV3>,
     returning_to_source: bool,
+    dispatch_provenance: ManifestProvenance,
+    creator_disposition_override: Option<CreatorCapture>,
 }
 
 record LivingRelationReasonsV3 {
@@ -633,6 +643,7 @@ enum LivingCreatorOperationV3 {
         definition: Slug,
         hit_points: u32,
         return_credit: bool,
+        passengers: PassengerCountInput,
     },
     CreateRoute {
         local: u16,
@@ -657,7 +668,10 @@ enum LivingCreatorOperationV3 {
         units: u32,
         departure_tick: Tick,
         arrival_tick: Tick,
+        original_travel_ticks: Tick,
         disposition: LivingShipmentDispositionV3,
+        dispatch_kind: Option<LivingRouteKindV3>,
+        returning_to_source: bool,
     },
     CreateHazard {
         local: u16,
@@ -723,6 +737,8 @@ enum LivingCreatorOperationV3 {
         target_world: Option<LivingCommandTargetV3>,
         not_before_tick: Tick,
         lane_path: Vec<LivingCommandTargetV3>,
+        objective: Option<ObjectiveKey>,
+        defense_request: Option<DefenseActionBinding>,
     },
     SetShipmentDisposition {
         shipment: LivingCommandTargetV3,
@@ -989,7 +1005,8 @@ TechnologyProgress { technology:Slug, points:u32 }
 RecipeFacts { evaluated_tick:Tick, staffed:bool, inputs:Sorted<ResourceAmount>,
               outputs:Sorted<ResourceAmount>, fertility_spent:u32,
               stress_added:u32, blocked:Sorted<LivingBlockedReasonV3> }
-Passengers { count:u32 }
+Passengers { count:u32, voyage_origin:Option<ID> }
+PassengerCountInput { count:u32 }
 Supply { last_success:Option<SupplyPayment>, last_attempt:Option<SupplyAttempt>,
          readiness:SupplyReadiness }
 SupplyPayment { tick:Tick, world:ID, supplies_paid:u32, deadline:Tick }
@@ -998,7 +1015,12 @@ SupplyAttempt { tick:Tick, world:ID, required:u32, paid:u32,
 SupplyAttemptOutcome = paid | unavailable
 SupplyReadiness = supplied | supply_unavailable | never_supplied
 Blockade { world:ID, war_a:ID, war_b:ID, accepted_tick:Tick }
+ObjectiveKey { war_a:ID, war_b:ID, actor:ID }
+DefenseActionBinding { request:ID, request_created_tick:Tick, commitment:ID,
+                       commitment_created_tick:Tick, threat_observation_digest:Digest }
+SecureEndpoints { world_a:ID, world_b:ID }
 WarObjective { actor:ID, kind:ObjectiveKind, target:ID,
+               secure_endpoints:Option<SecureEndpoints>,
                consecutive_witness_count:u32, status:ObjectiveStatus,
                last_evaluated_tick:Option<Tick>, witness:Option<Anchor> }
 ObjectiveKind = defend | secure_access | occupy
@@ -1033,7 +1055,9 @@ ObligationStatus = ready | fulfilled | waiting | suspended
 ObligationReason = capacity_unavailable | own_needs_reserve | no_supply |
                    endpoint_changed | war_incompatible | no_eligible_fleet |
                    prior_obligation | request_expired | target_invalid | relations_below_threshold |
-                   no_connection | no_known_demand | expired | recipient_refused
+                   no_connection | no_known_demand | expired | recipient_refused |
+                   resource_reserved | missing_intelligence | stale_intelligence |
+                   declaration_required
 DefenseRequest { id:ID, commitment:ID, requester:ID, defender:ID,
                  target_world:ID, created_tick:Tick, expires_tick:Tick,
                  disposition:RequestDisposition, originating_observer:ID,
@@ -1099,20 +1123,32 @@ by facility ID; reasons sort by (tag,canonical payload bytes), with no duplicate
 - Facility appends `recipe_facts:Option<RecipeFacts>` after disabled; workforce
   availability is represented once in RecipeFacts and Society, not a second
   independently editable assignment. Passive facilities have null recipe facts.
-- Hull appends `passengers:Passengers`; non-ark hulls require count zero.
-- Fleet appends `supply:Supply, blockade:Option<Blockade>` after hulls.
-- Route appends `commitment:Option<ID>`; treaty supply requires exact binding.
-- Shipment appends `dispatch_provenance:ManifestProvenance,
-  creator_disposition_override:Option<CreatorCapture>`. Immutable paid dispatch
+- Hull, Fleet, Route and Shipment declarations above include their complete V3
+  passenger, Supply, Blockade, Commitment, immutable-duration and provenance fields.
+  Non-ark Hulls require count0/voyage_origin null. Treaty Supply requires exact binding.
+  Shipment.original_travel_ticks is immutable, positive and at most u64::MAX;
+  actual paid dispatch sets it to the checked original arrival-minus-departure duration.
+  Active return clocks may change; neither current graph distance nor those changed
+  clocks replace this original duration. The required scalar survives bounded archive
+  retirement without retaining a capacity-sized dispatch owner merely for duration. Immutable paid dispatch
   bindings survive route/commitment removal as authenticated historical references.
   No current matching route can replace them. The override records a creator
   disposition intervention and remains set thereafter; it is not dispatch credit.
 - War appends `objectives:Sorted<WarObjective>, peace:Option<Peace>` after end_tick.
   Objectives sort by actor, with exactly one per participant. Secure-access target
-  is a lane; other targets are worlds. Deadline is end_tick. Witness counts are
-  0..3; Occupy uses count0/1. Invalid targets retain their typed ID plus invalid
-  status until the war ends. A removed target is valid only in this explicitly
-  invalid record or an authenticated historical Anchor.
+  is a Lane with required nonnull secure_endpoints; other targets are Worlds
+  with secure_endpoints=null. Deadline is end_tick. Witness counts are0..3;
+  Occupy uses0/1. Formation and pending rows require live correctly typed targets.
+  Secure world_a belongs to Lane.system_a and world_b to Lane.system_b, in Lane
+  declaration direction, not sorted World-ID order. The Worlds are live/distinct.
+  Terminal invalid AND succeeded rows retain the exact original target IDs;
+  Secure terminal rows retain their nonnull original pair even after deletion or
+  relocation. Only these terminal objective positions may resolve historically:
+  stage8 uses original typed issuance, stage10 authenticates original formation
+  topology, exact instance and true invalidation/success plus later edits. No
+  pending/command/candidate/World/Fleet/Shipment/Request reference gains this waiver.
+  Terminal historical IDs grant no current movement or ownership. Explicit
+  replacement requires live new targets/pair and resets the original instance.
 - Observation replaces optional operational_defense_batteries with required u16
   and appends `environment:EnvironmentObservation, threats:Sorted<ObservedThreat>,
   hazard_scopes:Sorted<HazardScopeObservation>`.
@@ -1122,8 +1158,12 @@ by facility ID; reasons sort by (tag,canonical payload bytes), with no duplicate
 - BlockedReason adds `workforce_unavailable { required:u32, available:u32 }`,
   `environmental_limit { effective_habitability:u32, fertility:u32 }`,
   `missing_research_target` and `technology_ineligible { technology:Slug }`.
-- FleetOrderKind adds `blockade`; FleetOrder appends `objective:Option<ObjectiveKey>`;
-  `ObjectiveKey { war_a:ID, war_b:ID, actor:ID }` names exact sorted war pair.
+- FleetOrderKind and FleetOrder above are complete. ObjectiveKey names the exact
+  sorted War pair and actor; defense_request follows objective in every order carrier.
+  Both options are required explicit null when absent. A nonnull defense_request is
+  legal only for Defend and names the original accepted Request/C/threat instance;
+  null orders and all other order kinds require null. No target resemblance creates
+  a binding and no omitted-field default or cross-version conversion is permitted.
 - Routes, deposits, paid jobs, hull repair, relation counters, settlement and
   occupation retain the frozen fields. No growth/cargo/passenger quantity is
   created by an omitted field.
@@ -1134,7 +1174,11 @@ attempt has last_success=null and a nonnull unavailable attempt with paid0;
 readiness=supply_unavailable. A subsequent failed attempt retains the previous
 last_success unchanged and records its new required/paid0 attempt. Paid attempts
 have paid=required=the live hull count and create last_success with that exact
-world/tick/amount and deadline=tick+100. Empty fleets reject as structural state.
+world/tick/amount and deadline=tick+100. Empty Fleets reject in Genesis, completed
+State, selected HistoryViews and ordinary autonomous sources. The sole nonempty
+roster exception is a genuine unfinished creator operation prefix or its exact
+operation-indexed Change endpoint, authenticated by the creator construction
+contract below; no supplied flag or standalone imported State selects it.
 Between attempts readiness is supplied only while tick<last_success.deadline;
 at or after that deadline it becomes supply_unavailable, even without a new
 attempt. Thus expired success with a prior paid attempt is representable.
@@ -1145,11 +1189,27 @@ last_success and the current tick: supplied while a prior success deadline remai
 in the future, supply_unavailable after expiry or when an attempt exists without
 a success, and never_supplied only when both records are null. The unavailable
 attempt remains visible even if an earlier payment has not yet expired.
-A failed renewal never creates or extends a deadline. An old supplying world may remain as a historical reference
-validated at the payment tick; creator clearing/removal may reset the record to
-never_supplied with an explicit change fact, preserving paid travel/return credits.
-Creator SetFleetSupply submits these exact combinations with Creator provenance;
-it cannot produce an actor-paid fulfillment witness.
+A failed renewal never creates or extends a deadline. Supply.last_success.world
+and Supply.last_attempt.world are independently authenticated historical World
+positions. This is a NEW V3 reference exception covering an original paid success,
+a genuine ordinary unavailable paid0 attempt, and an exact creator-set component.
+At ordinary formation the World must be live at the actual supply source; at a
+creator replacement the changed component's World must be live at that actual
+CreatorCapture. Byte-identical retained components preserve their own original
+source. A new absent-World template cannot claim retention by resembling old
+bytes. Stage5 checks the full Supply shape/domains; stage8 resolves a live typed
+World or this exact retained-component exception; stage10 replays its actual
+formation, component replacements and deletion ancestry. Wrong-kind or never-issued
+IDs have no exception. Prior success W1 and failed renewal W2 retain separate
+sources even when either or both Worlds are deleted. An unavailable attempt is
+not authenticated at W1's payment tick. Deleted World alone changes neither
+component nor readiness, deadline, credits or payment. Explicit SetFleetSupply
+clearing submits both options=null/readiness=never_supplied and emits its real
+full Fleet Change; it is never inserted automatically. Creator paid-shaped
+components remain Creator evidence and grant no actor-paid fulfillment.
+Save, reopen, import and fork preserve these exact components and eligible original
+ancestry without read-time migration, reset or timestamp refresh. History cache
+retirement may regenerate authentic sources; it cannot prune required proof.
 
 StellarEvent.provenance names the most recent authored edit or automatic creation,
 not a recursive RevisionID. For creation/edit by operation i at accepted sequence S,
@@ -1181,7 +1241,7 @@ No gcd reduction, decimal conversion, denominator default or omitted zero field.
 | --- | --- |
 | `CreatorOperation.create_stellar_event.freight_factor.{numerator,denominator}` and `edit_stellar_event.freight_factor.*`; `State.stellar_events[i].freight_factor.*` | General nonamplifying pair above, including0; this creator freedom remains Proposed for human approval. Exact warning<=start<end, target/provenance,128-family cap and checked clocks still apply. |
 | `Catalog.hazard_definitions[i].effect` tagged `freight_batch_scale`, inline `.numerator/.denominator` | Same structural pair predicate, then exact finite-profile equality: reviewed ion_storm is literal1/2. Neither0/1,2/4 nor any other mechanically equal spelling becomes a valid fixed Catalog row. |
-| `Catalog.technology_definitions[i].effect` tagged `habitability_penalty_scale` or `departure_energy_scale`, inline `.numerator/.denominator` | Same pair predicate, then literal fixed equality: Resilient habitation1/2 and Efficient logistics3/4. No general Catalog permission for free departures or amplified effects follows. |
+| `Catalog.technology_definitions[i].effect` tagged `carrying_capacity_penalty_scale` or `departure_energy_scale`, inline `.numerator/.denominator` | Same pair predicate, then literal fixed equality: Resilient habitation1/2 and Efficient logistics3/4. No general Catalog permission for free departures or amplified effects follows. |
 | `KnownEnvironmentEvent.freight_factor.*` in selected events/scopes, Observation.environment.stellar_scope.events, ObservationFacts.environment.stellar_scope.events and copied shared/request records | Domain above plus byte-exact source event fraction at original observed_tick. Replaying a source event1/2 cannot authenticate copied2/4, even if outputs coincide. Stale genuine2/4 stays2/4; hidden edits do not normalize/refresh it. |
 | `KnownLaneHazard.freight_factor.*` in selected hazards/scopes, Observation.hazard_scopes.events, ObservationFacts.hazard_scopes.events and copied shared/request records | Domain above plus exact resolved hazard-definition fraction at original observation. Current fixed Catalog gives1/2. CreateHazard/EditHazard have no arbitrary fraction field; do not invent one to admit0 or2/4 lane hazards. |
 | `Facts.dispatch.modifiers[i].numerator/.denominator` | Domain above, with exact source event/definition and complete applicable event-ID order authenticated by replay. This is an explanatory copy, not editable terms. |
@@ -1325,6 +1385,83 @@ an optional receipt-omission feature. A list representing absent ResourceAmount
 payments is[]; a zero payment entry is rejected even where a separate typed
 SupplyAttempt.paid or ResourceFact legitimately records0.
 
+## Exact ordinary Fleet dispatch
+
+Freeze installed Fleet IDs at phase10 entry (max256), visit ascending once, then
+Routes ascending. Travelling, absent order, not_before>T, target=null or target
+current Docked World is NOT a departure attempt: emit0, change no credit/clock/
+stock/location, retain undue supported self holds until publication. Same-World
+standing action belongs its real combat/settlement/blockade phase. Dormant is no
+implicit traversal filter. Newly admitted ordinary motion has not_before=T+1.
+Only Docked due nonnull different-target order attempts actual departure.
+
+For that attempt stop at the first failed guard, with no second explanation:
+
+1. Actual typed owner/origin/target/full nonempty Hull definitions and exact
+   objective/Request instance/order. Invalid installed shape/reference is an
+   executor/decoder fault, not a blocked gameplay reason. Whole roster max16.
+2. Return requires actual OwnedColony target; credited Dormant recovery requires
+   Dormant→unowned target→Ark present→retained eligible target knowledge in that
+   exact predicate order. Ordinary nonReturn launch requires actual owned local
+   account unless this exact recovery. Then destination-purpose ownership precedes
+   topology: Settle unowned, unbound Defend own, original Request-bound Defend
+   requester-owned, Attack/Blockade foreign enemy. Preserve real owner Some even
+   when Colony absent. Pure-scout Explore has no destination-owner requirement.
+3. Compute current shortest public topology, no_route if absent; then current
+   destination treaty/offensive/duty permission with the exact closed witness.
+   Active Truce precedes missing active War; Transit is not offense. No longer
+   graph path cures destination denial. Original old path is not guaranteed.
+4. Attack/Blockade and travelling Defend require current supplied; Return/credited
+   recovery/paid travel and ordinary nonoffensive Move/Explore/Settle keep their
+   explicit exceptions. No departure Supply payment or deadline refresh.
+5. Lowest actual paid HullJob targeting this Fleet blocks before live declaration
+   structural lock. Either blocks even Return0/self funding. No invented winner,
+   no private defender lock or fake standing order to exercise an unreachable case.
+6. Return/recovery requires every Hull credit, lowest missing Hull ID first.
+   Ordinary owned nonReturn pays base2+2 iff missing credit, Efficient Logistics
+   ceil3/4 PER positive Hull (minimum1), checked Hull-ID sum. Actual physical Energy
+   P<D gives physical_energy_unavailable; no held stock is labeled missing.
+   Checked duration and T+duration arithmetic faults, never wraps or blocks falsely.
+7. Shared resource availability D<=max(P-O-B,0) follows genuine physical funding;
+   held-only failure uses solely dispatch_reservation_blocked/full witness.
+8. Prepare all final source/cap/collision/event/byte/success operands before committing;
+   these are complete unpublished faults, never gameplay capacity reasons.
+
+Guards2–6 gameplay failure emits exactly fleet_dispatch_blocked with unchanged
+complete order/location/Hulls/Supply/stocks and first finite reason; release own due
+claim after complete attempt. No fresh intent_decided, CandidateAudit, paid motion,
+AUTO ID, fake identical Change or ResourceFact. Guard7 has its sole separate carrier.
+Silent classifier visits create no source/fact. Event-producing groups use actual
+full pre-operation W/T/phase10, latest actually applied logical creator cursor,
+actor-null original SnapshotReference (both digests full prefix), not H7 or future
+Receipt. Replay reconstructs that unique Fleet-ID position under current ledger.
+
+Success debits EnergyD once (paid ResourceFact only in motion, [] iffD0), grants
+whole credits true on owned nonReturn or consumes false on Return/recovery, sets
+Travelling original origin→FINAL target with checked T+wholePathDuration and actual
+selected lane_path. All other order/binding/Supply/HP/repair/passenger counts persist.
+First positive-passenger nonReturn Hull with voyage_origin null sets actual origin;
+Return never creates origin, Some persists. Emit fleet_departed first, then full
+containing-Fleet operation_changed iff ANY nested Hull credit/origin changes;
+Change.resources[]/passenger_delta0. Location/order mutation appears in that full
+Change but never duplicates payment. If no nested Hull changes, motion plus exact
+source replay authenticates actual location/path transition with no fake Change.
+No boarding/unload/workforce/contribution/fulfillment occurs at departure.
+
+One paid final itinerary completes despite later graph/War/owner/technology edits;
+no waypoint/account cursor or repeated payment exists. Future-order creator edits
+cannot rewrite original departure history. Paid phase3 arrival emits fleet_arrived
+THEN full Fleet operation_changed ALWAYS for its real location/order/binding result,
+both sharing I3, resources[]/delta0. Unbound completion map and exact live bound
+Defend exception are defined above and in scoring; genuine prior cleanup cannot
+be resurrected. Actual endpoint deletion requires explicit traveller closure,
+never a terminal-objective historical waiver for live paid location.
+
+All nested classifier/guard/roster/path/source/hash/Hull/event/witness/cleanup work
+shares remaining1–1024 visits. Public0/>1024 consumes0 invalid, internal0 yields.
+No full State copy is one nominal visit. Fault/cancel/stale/premature finish retains
+capacity owners and publishes no partial debit/credit/location/release; Ready0.
+
 ## Exact zero-freight transition
 
 Retain route batch1..10/cadence10 and existing ownership, permission, reserve,
@@ -1363,18 +1500,29 @@ suspension and path guards. At an actual due route attempt in phase10:
    increasing decoded event ID, preserving each literal numerator/denominator in
    Modifier order. Expired/unrelated events do not enter the list. No strongest-
    hazard V2 reduction, fraction-product shortcut or deduplicated equal-ratio rule.
-5. Compute `quantity=min(modified_batch, actual_stock_above_required_source_floor)`.
-   Since P>F passed, a resulting0 is exclusively evaluated restriction-zero.
-   If the resulting quantity is0, emit the due route_attempted with
-   actual_dispatched=0 and the authentic modifiers/blockers. A pure modifier-zero
-   case uses reason=null: no new reason tag or false `no_supply`/capacity denial.
-   Preserve suspended=false; temporary freight suppression does not invalidate
-   participants. No stock withdrawal, Shipment owner/ID, paid manifest, new
-   shipment-capacity reservation, delivery/return clock or dispatch credit exists.
-6. If quantity>0, check actual shipment capacity and all remaining atomic dispatch
-   invariants before withdrawing stock/issuing the shipment. Freeze exactly that
-   positive withdrawn amount in paid provenance. On capacity denial, no debit or
-   shipment exists and route_attempted uses existing capacity_unavailable.
+5. Compute unchanged physical `Qp=min(modified_batch,P-F)`. If Qp=0,
+   this is exclusively evaluated restriction-zero: reason=null, authentic complete
+   modifiers/blockers, no Shipment-capacity visit/ID/debit. Release this due
+   consumer's own cargo/floor claim after its complete attempt. Preserve suspension.
+   Hold checks cannot legalize an earlier physical/floor/permission failure.
+6. For Qp>0 apply the PRIVATE competing-hold guard BEFORE positive Shipment capacity.
+   Let H be checked sum of all active cargo/payment quantities on this physical
+   account, B their MAX linked source floor, S own consumer quantity, O=H-S.
+   Require the retained invariant H+B<=P. Let G=max(current F,B) and
+   `available=max(P-O-G,0)`, `Qa=min(Qp,available)`. This is an explicit NEW
+   V3 competition equation; true physical P and numerical nominal/factors stay
+   unchanged. Own cargo is not subtracted twice and own floor is not paid cost.
+   Qa=0 has reason=resource_reserved and full DispatchReservation; no capacity visit,
+   ID/debit. Smaller positive Qa carries that witness with reason=null. Equal Qa/Qp
+   has reservation=null. Witness required=Qp, physical=P, floor=F, protected_floor=B,
+   self_held=S/self_floor=max own floor; all actual other holders are retained in
+   causal order. Blockade and route facts carry the same final Qa/witness.
+7. For Qa>0 check actual Shipment capacity and remaining atomic operands. Failure
+   releases own claim, debits/issues nothing and uses capacity_unavailable.
+   Success withdraws exactly Qa once, issues the full genuine paid Shipment,
+   consumes min(Qa,S) of self quantity in causal order and releases ALL remaining
+   self entries/floor. Other entries survive. P'=P-Qa>=O+B guarantees remaining
+   H'+B'<=P'. Original clocks advance once even on denial/zero, no retry.
 
 Thus full4096 shipment capacity does not turn an otherwise valid0-result attempt
 into a capacity failure: it needs no slot. A positive attempt still cannot bypass
@@ -1405,8 +1553,7 @@ Accepted treaty capacity/Route ownership can persist through a temporary zero
 event. For admission's transient first-batch hold, derive the known scheduled
 first eligible attempt boundary d from the exact candidate/installed Route clock
 and phase availability, not the acceptance tick or an assumed immediately due
-batch. Keep the existing new-route next_due construction and an adjusted route's
-retained clock; do not rewrite either to make suppression apply. A due attempt is
+batch. New Route next_due=checked(T+10); an adjusted Route retains old.next_due exactly; do not rewrite either to make suppression apply. A due attempt is
 processed once at its first available phase10 boundary with next_due<=d; overdue
 clock arithmetic remains old_due+cadence, not d+cadence. No guessed future resume,
 permission, endpoint change or catch-up is an eligible scheduled dispatch.
@@ -1426,6 +1573,30 @@ an existing-route adjustment uses its retained Route token. No positive feasible
 recovery/paid delivery is inferred. Unknown first eligibility/time/permission or
 required future source fact remains held under the coordinated forecast rules;
 known0 is not a legalizer and cannot remove an earlier failed funding guard.
+
+One shared private ledger survives the complete admission-to-dispatch handoff.
+Positive Route cargo holds have linked F=max(reserve,supported next Need) floor;
+other payment holds floor0. Distinct cargo sums H, floors MAX B, never summed paid
+cost. Creation/replacement checks H_new+B_new<=P before committing; genuine other
+accepted competition fails central stage9 target_reserved on affected World with
+its earliest causal contributing holder actor, never stage8 physical stock=free.
+Stage8 uses true physical P. Immediate payment converts its own provisional hold
+once; paid job occupancy replaces its token, never doubles it. Structural declaration
+Fleet locks independently forbid departure/split/merge until publication even
+Return0; resource self entitlement cannot waive that guard.
+
+A future undue next-batch hold (new RouteT+10) stays through this T dispatch and
+releases at publication without persisted escrow or guaranteed future cargo.
+A genuinely due earlier-guard failure/zero/capacity denial releases only its own
+cargo AND floor after its completed attempt; MAX is recomputed incrementally.
+Changed current F may reduce its actual attempt but never rewrites admitted floor
+or steals another claim. Earlier blocked operations are not retried after release.
+Actual Fleet Energy D physically funded by P must additionally satisfy
+D<=max(P-O-B,0); a held-only failure emits ONLY dispatch_reservation_blocked,
+full witness floor0/requiredD/availableP-O-B, no false MissingResource, fresh
+Decision, fleet_departed or duplicate fleet_dispatch_blocked. D0 passes resources
+but still obeys earlier structural lock. Fault/cancel/stale/premature finish retains
+ledger graph for bounded cleanup and publishes no partial release/payment.
 
 This calculation reserves at most the one exact next batch against today's
 physical ledger, not forecast production or1200 ticks of inventory. The transient
@@ -1525,7 +1696,7 @@ The frozen catalog records apply with these required overrides:
 TechnologyDefinition { id:Slug, name:Name, prerequisites:Sorted<Slug>,
                        point_cost:u32, effect:TechnologyEffect }
 TechnologyEffect = farm_base_output { units:u32 }
-                 | habitability_penalty_scale { numerator:u32, denominator:u32 }
+                 | carrying_capacity_penalty_scale { numerator:u32, denominator:u32 }
                  | departure_energy_scale { numerator:u32, denominator:u32 }
 IndustryEffect adds habitation { base_capacity:u32 }
                    research { period_ticks:u32, inputs:Sorted<ResourceAmount>,
@@ -1547,7 +1718,12 @@ these fill previously undeclared catalog fields and require written review. All 
 worker; habitation/defense require zero. Extractor/foundry stress values are1/2,
 others zero. Hull roles follow explicit definitions, never name guessing.
 Initial technologies are exactly agronomy100, resilient_habitation150 requiring
-agronomy, efficient_logistics100; effects exactly society §Research. Only these
+agronomy, efficient_logistics100; effects exactly society §Research. The V3 required
+override carrying_capacity_penalty_scale has numerator1 then denominator2 and
+applies only to the integer capacity penalty D in ecology §World environment and
+conservation Formula A: Cbase-floor(D/2). It never changes effective habitability
+or Farm Food; base habitability still caps capacity. This renamed V3 tag requires
+fresh Catalog bytes/digest derivation; the frozen V2 snapshot below is unchanged. Only these
 reviewed effect kinds are allowed, costs/periods positive, graphs acyclic and
 within64 nodes. A differently balanced catalog needs its own reviewed rules
 version, not an arbitrary pack modifying fixed rules under rules_version3.
@@ -1685,7 +1861,8 @@ CreateCommitment { local:u16, parties:Pair, kind:TreatyKind, terms:Terms,
 EditCommitment { target:Target, terms:Terms, expires_tick:Tick }
 RemoveCommitment { target:Target }
 SetWarObjective { war_a:Target, war_b:Target, actor:Target,
-                  kind:ObjectiveKind, target:Target }
+                  kind:ObjectiveKind, target:Target,
+                  secure_endpoints:Option<SecureEndpoints> }
 SetFleetSupply { fleet:Target, supply:Supply }
 SetBlockade { fleet:Target, blockade:Option<Blockade> }
 CreateStellarEvent { local:u16, star:Target, warning_tick:Tick, start_tick:Tick,
@@ -1703,22 +1880,150 @@ followed by a fresh exact preview. No untyped reference resolution is allowed.
 
 CreateStar appends next_activity_tick; CreateWorld appends environment;
 CreateCivilization appends research; CreateColony appends society;
-CreateHull appends passengers; CreateHazard/EditHazard insert warning_tick before
+CreateHull submits its declared count-only PassengerCountInput; creator creation
+initializes voyage_origin=null, never submits paid origin. Non-Ark count must0; CreateHazard/EditHazard insert warning_tick before
 start_tick. ForceWar appends `objectives:Sorted<WarObjective>`; the two objectives
 start pending/count0/witness null and its end_tick obeys proposed diplomacy1200.
 CreateFacility appends `disabled:bool, next_repair:Option<Tick>`; derived staffing
 and RecipeFacts are recomputed rather than submitted. CreateFleet initializes
 never_supplied and no blockade, explicitly and with a Creator intervention event.
-CreateShipment appends `dispatch_kind:Option<LivingRouteKindV3>,
-returning_to_source:bool`; dispatch_provenance is creator with the current computed
-CreatorCapture, and creator_disposition_override is null. It cannot claim a paid
-delivery witness when fabricated. SetShipmentDisposition sets the override to the
-current CreatorCapture without changing original dispatch fields/provenance.
-CreateRoute/EditRoute append commitment. SetFleetOrder appends
-`objective:Option<ObjectiveKey>` after lane_path. All other inherited fields remain
+CreateShipment's declaration above includes explicit original_travel_ticks,
+dispatch_kind and returning_to_source. Its provenance is Creator with the actual
+computed CreatorCapture and override=null; null override never makes authored
+cargo paid. Require positive units/duration, arrival>departure and checked
+arrival−departure=original_travel_ticks at this creation. Exact initial profiles
+are Outbound/false, Returning/true and WaitingForStorage with either submitted leg
+flag. Authored Returning/true and returned Waiting are legitimate Creator profiles,
+not proof of a preceding paid outbound return. No codec supplies flags or clocks.
+
+SetShipmentDisposition preserves every current clock, immutable duration, endpoint,
+unit, party, kind and original dispatch-provenance byte. Let O=(Outbound,false),
+R=(Returning,true), W_O=(WaitingForStorage,false), W_R=(WaitingForStorage,true).
+These are the only valid prior combinations; malformed Outbound/true or
+Returning/false rejects under local semantics and cannot be repaired by this tool.
+
+| Actual prior | Request Outbound | Request Returning | Request WaitingForStorage |
+| --- | --- | --- | --- |
+| O | O + current capture | R + current capture | W_O + current capture |
+| W_O | O + current capture | R + current capture | W_O + current capture |
+| R | invalid_range return reset | R + current capture | W_R + current capture |
+| W_R | invalid_range return reset | R + current capture | W_R + current capture |
+
+For each of the ten successful cells set only disposition, returning_to_source
+and creator_disposition_override to the genuine current pre-operation capture.
+The two reset failures name disposition at the actual operation index and reject
+the whole candidate. Repeated same-tag setters are real capture-stamping effects,
+not value-only no-ops: accepted sequence/index/source distinguish each intervention.
+Replay verifies the original accepted effect and never creates a new stamp.
+One full direct Shipment Change records original/result with resources[] and
+passenger_delta0; only aggregate creator events report it, with no autonomous
+shipment_returned/waiting, inventory, Relation, C-attempt or witness companion.
+
+O/W_O→R selects original source at the EXISTING active clock, never T+duration.
+Future arrival waits to that same clock; due/overdue resolves on the next ordinary
+phase3 visit. Waiting selects a storage retry at each advancing phase3 even before
+its unchanged future clock, as an explicitly NEW creator intervention consequence.
+Selecting O/R from Waiting reinstates the old traveling due predicate, no restart.
+No cargo moves during paused application/save/fork; the next ordinary boundary
+uses the recorded result. Running phase1 precedes the phase3 I3 capture and visits
+each Shipment at most once. Missing endpoints require explicit reviewed traveller
+resolution; the setter cannot relocate, repair references or reset one return.
+
+At phase3 O/W_O chooses current destination ownership BEFORE War/storage: changed
+owner including null resolves capture/unowned delivery; unchanged intended party
+at War initiates its one genuine automatic return with current departure=T and
+arrival=checked(T+original_travel_ticks), retaining the override. R/W_R chooses
+original source and never bounces. Full endpoint storage produces Waiting with
+retained leg flag and unchanged clocks; enough room transfers all units once and
+removes the manifest with its exact normalized O/R outcome. No second same-phase
+visit occurs after return initiation. Undue O/R emits nothing; Waiting always retries.
+
+Paid relationship/Commitment credit requires genuine original paid provenance AND
+override=null plus all original-party/outbound/binding guards. Every successful
+setter permanently disqualifies this parcel from that credit, including O→O.
+Actual transfer remains real; no fake zero fulfillment/attempt or prior Anchor
+rewrite follows from nonqualification. Earlier genuinely sealed fulfillment remains
+historical truth. Stage7 validates combinations/clocks, stage8 live endpoints and
+original historical manifest linkage, stage9 integrity, stage10 the actual creator
+matrix/capture/full effects plus original paid producer. Unaccepted failures consume
+no published marks; accepted execution faults preserve queue/marks diagnostically
+and abort the unpublished boundary. All replay/copy/hash/effects/cleanup share the
+remaining1–1024 visits; no capacity owner drops or partial stamp publishes.
+CreateRoute/EditRoute append commitment. SetFleetOrder declares
+`objective:Option<ObjectiveKey>, defense_request:Option<DefenseActionBinding>`
+after lane_path. Both options are mandatory and validated against their original
+instances; creator association grants no payment, contribution or fulfillment. All other inherited fields remain
 required. Hub clocks from CreateColony are specified by the accepted application
 tick plus the fixed10/100/100 periods; initial last_needs null requires a future
 needs boundary and zero assignments until immediate assignment recomputation.
+
+### Creator Fleet construction context
+
+In declaration-order execution of one CreatorBatch, derive a private set E of
+Fleet IDs genuinely born empty by CreateFleet and not yet populated or removed.
+An existing Fleet never enters E. The real creation inserts exactly
+`{id,owner,location:Docked{submitted live world},order:null,hulls:[],
+supply:{last_success:null,last_attempt:null,readiness:never_supplied},blockade:null}`.
+It consumes the ordinary Fleet slot and genuine creator identity immediately;
+there is no implicit Hull, credit, payment, passenger, objective or Request.
+
+An E row must remain byte-identical to this initialized row, with live typed
+owner/World, no paid job/declaration reservation or other live authored reference.
+Only its first CreateHull or explicit Fleet removal may target it. Unrelated
+operations may intervene only while every E predicate remains valid. SetFleetOrder,
+EditFleet, SetFleetSupply, SetBlockade, target HullJob, split/merge, passenger tools
+or any other new reference to E reject at that operation with invalid_range at
+its operand/record path. Earlier Local resolution, unknown/forward/self/wrong-kind
+checks, ordinary cap and issuer/collision checks remain unchanged. A same-batch
+resolved ID has no greater permission than its Local spelling.
+
+First CreateHull checks all submitted/catalog/HP/credit/passenger/cap predicates,
+inserts the genuine sorted Hull into the complete containing Fleet, then removes
+that Fleet from E. Its full Change is empty-before to singleton-after, never a
+new top-level Hull Record. Removal has complete empty before/null after,
+resources[]/passenger_delta0, deletes E membership and preserves issued identity
+in actual history. Endpoint/owner removal must include this exact Fleet in its
+normal direct/indirect closure. Later reference to the removed local rejects;
+creation identity/local cannot be reused. Once populated a Fleet never reenters E:
+subsequent last-Hull deletion uses containing-Fleet removal.
+
+After the last operation require E empty and ordinary full State validity.
+Surviving empty Fleet fails invalid_range at the lowest schema-array-index
+Fleet.hulls path, with originating CreateFleet operation index in diagnostics
+where available. An earlier actual operation/preflight failure keeps its existing
+precedence; do not prescan planned later population to displace it. Every running
+revision closes independently before the next accepted envelope, so separate
+CreateFleet and CreateHull revisions cannot cooperate. Paused save/fork likewise
+never persists a shell. Genuine create-plus-remove is real accepted history,
+not a no-op, refunded allocator mark or recycled identity.
+
+Direct effects and captures retain null→empty→singleton/removal chronological
+full rows with their true operation_index and actual passenger/resource deltas.
+Only aggregate creator_intervention and actual indirect creator_cascade report
+these effects; no fleet_created or extra operation_changed event is added.
+CreatorCapture hashes the exact original pre-operation prefix, including E where
+present, retaining genuine sequence/index/tick/mode/phase1 source and parent.
+Batch-entry capture has E empty. No Actor32/phase7 source claims this context.
+
+Stage5 checks full field shape/scalars even for empty embedded Records. Stage7
+checks nonempty in every completed State and ordinary Fleet Record, narrowly
+deferring only cardinality for exact initialized creator Change endpoints or
+registered creator prefix sources pending stage10 reconstruction. Stage8 retains
+typed links/high-water and original enclosing command/capture/index linkage.
+Stage9 integrity is unchanged. Stage10 starts from the valid original pre-batch
+State, replays actual accepted operations and allocations through the named index,
+derives E, compares exact prefix/capture/full effects, and proves final E empty.
+Forged source/context or autonomous empty Change fails its owning invalid_range,
+missing_reference or replay_mismatch stage; no context skips historical transient
+identity scanning. The exception cannot be proved from an incomplete scan.
+
+All context/source/copy/hash/effect/cap/final-validation/cleanup work shares the
+remaining1–1024 visits. Failed/unaccepted preview publishes no State, Revision,
+mark, event or partial identity. Accepted running execution faults preserve its
+accepted queue/marks for diagnosis and discard the complete unpublished boundary,
+without rewinding durable acceptance. Retain candidate/context/effect owners for
+bounded retirement on cancellation, failure, stale publication or premature finish;
+Ready exposes only complete valid output and repeated Ready consumes0.
 
 CreatorBatch replaces its payload with `operations:Vec<CreatorOperation>,
 reviewed_effects:Vec<Change>`. Each mutation's cascade, refund, discarded resource,
@@ -1928,6 +2233,707 @@ MutualDefense, supply route or settlement entitlement. NoOffense here names the
 permission predicate, not a new wire field or persistent flag. Creator overrides
 remain explicit exceptions with reviewed provenance.
 
+
+## Phase2 clocks, lifecycle facts and stellar issuance
+
+Use the twelve phase2 subpasses specified by ecology in that exact order. Each
+subpass freezes current entry roster; ended rows cannot warn/start later, and
+new automatic stellar warns only within its Star operation. Each independent
+operation saves one actor-null phase2 full current pre-operation State source,
+latest actual applied creator cursor, authentic historical counters and tickT;
+its complete group shares that source. Agreement expiry emits1 agreement_expired.
+Natural War deadline converts its already reserved typed Truce key to exact
+[T,T+300), sharing source for war_ended then agreement_formed; it allocates no
+entity or extra treaty unit. Existing exact timed War-start producer has no fake
+primary event and applies real Request/Fleet/C effects only at genuine crossing.
+
+Hazard end_tick<=T removes latest full row and emits1 hazard_ended/Facts.hazard.
+Retained start_tick==T emits1 hazard_started with unchanged full row; warning-only
+emits0, no hazard_warning. Stellar ended row emits1 stellar_ended; retained
+warning_tick==T/start_tick==T emit respective stellar_warning/started, warning
+first when equal, same source/full record. No retroactive marker for endpoint<T,
+no persisted announcement bit or identical mutation Change. Phase1 edited latest
+schedule controls; canceled row emits no later marker. Backdated scope bytes are
+not knowledge refresh. Authority uses one latest row; actor environmental winner
+selects newest retained child per event identity BEFORE applying expiry, preserving
+negative coverage and no resurrection of older moved record.
+
+Due World environment advances oldclock+100 once, fertility+=min(50,max-current),
+stress-=min(10,stress), base/max unchanged; emit1 environment_updated including
+clock-only full-fertility/stress0, no catch-up/deposit/population/needs event.
+Due Star oldclock<=T advances oldclock+1000 once, actual selection E=T. Stream
+SHA256(non-NUL ASCII NYON_LIVING_V3_STELLAR_ACTIVITY || authenticated Genesis
+seed32 || StarID16 || E:u64LE); first little-endian u16<6554 selects. Seed remains
+authority Genesis evidence, never Actor32 clock foresight or new Snapshot field.
+Every due attempt emits1 operation_changed containing complete Star clock Change.
+Unselected performs no flare clock/cap/allocation checks. Selected computes checked
+E+100/E+200 then literal impact2000/freight1/2 before current stellar occupancy.
+At128 after prior endings/creations, emit environment_capacity_omission
+{star,due_tick:E,proposed_kind:solar_flare,capacity:128}; no ID/success ordinal.
+Hazard cap128 is separate. Successful selected creates one kind18 StellarEvent
+using AUTO root/branch/lifecycleflag0/zeroactor/E/phase2/kind18/successordinal/
+subjectkind2/StarID/original pre-Star full digest. Successful ordinals contiguous
+per exact namespace in StarID order; unselected/full consumes none. Full digest
+collision faults without salt/retry. Record is id,star,warningE,startE+100,endE+200,
+impact2000,Fraction{numerator:1,denominator:2},autonomous provenance with same
+source/phase2/nullactor/subjectkind2/StarID/allocationordinal. Emit exactly1
+stellar_warning after clock event, no duplicate creation/start event. Both
+selected-full and selected-success groups have2 events. All checked arithmetic,
+source/event/byte cap and identity faults abort unpublished boundary; ordinary
+stellar occupancy omission is its explicit separate result. Common remaining
+visits include full sources, hashes/rosters/collision/history/cleanup; no partial
+expiry/clock/Truce/flare publishes or large-owner drop occurs in poll.
+
+## Central accepted-record literals and current reservations
+
+Central traverses immutable original candidates in the exact Q total/local-head
+order. Original identity/score/capture never changes after a preceding acceptance.
+Revalidate ten stages reference/definition/order, intelligence, permission/path,
+supply, workforce, protected needs, structural capacity, true physical funding,
+incompatible reservations, private defender selection; stop first actual cause.
+Stage8 sees true physical stock/refund, never hold-subtracted synthetic P; stage9
+uses complete causal shared holds/floors/structural locks, with no extra physical
+debit. Failure releases only this candidate's private prospective owners and
+consumes no entity/AUTO/material success ordinal/lane. Accepted private promise
+is ephemeral boundary ledger ownership, not persistent escrow or entitlement.
+
+ConstructionJob full after={id:allocated kind8,world:terms.world,owner:actor,
+definition:terms.definition,accepted_tick:T,completion_tick:T+catalog.build_ticks,
+paid_alloy:catalog.alloy_cost}. HullJob kind9 has the same full fields then exact
+target_fleet; null iff reserve_new_fleet. Construction owns industrial slot,
+per-definition and queue reservations; Hull owns actual shipyard concurrency,
+global Hull/Fleet-if-new and target<=16 reservations, not an industrial slot.
+Acceptance creates no completed Facility/Hull/Fleet or initialization/credit.
+Optional actual Facility scrap refunds floor(old.paid_alloy/2), usable only up to
+actual storage room, discarded remainder; gross new cost remains catalog Alloy
+and exact terms paid. Transaction checks every guard/collision before committing
+scrap/refund/debit/reservations; failure preserves all originals.
+
+New Route full after copies exact terms id/kind/source/destination/resource/batch
+1..10/cadence10/reserve/source_owner=actor/receiver_owner, next_due=T+10,
+suspended=false,commitment exactoption. Adjustment preserves old ID/next_due,
+uses submitted exact validated terms and false only after current validation.
+No Route.owner exists. Reserve formula is20 for Ore/Alloy and max(20,supported
+next own due need) for Food/Energy. No acceptance-time cargo/debit/Shipment.
+New undue positive cargo/floor hold remains until finalization, then releases;
+no T+1 persistent guarantee. Adjusted overdue Route attempts once phase10,
+old_due+10; no catch-up or normalization. Zero modifier consumes no cargo/floor/
+Shipment slot but actual Route/treaty structural units remain. Old paid Shipments
+never adopt adjusted terms or resembling replacement C.
+
+Accepted existing Fleet motion copies complete id/owner/location/Hulls/Supply;
+installs exact captured kind/target/path/objective/DefenseActionBinding and
+not_before=T+1. Terms departure_not_before must equal that checked value.
+Admission does not depart, pay Energy, consume credits, set voyage origin or
+reset readiness. Captured objective/Request formation explicitly chooses binding;
+current target resemblance cannot infer it. Non-Blockade motion clears Blockade.
+Blockade installs exact {world:target,war_a:min(actor,currentEnemy),war_b:max(...),
+accepted_tick:T} and kindBlockade/path/T+1/bothbindingsnull; actual standing effect
+requires due clock and real Docked endpoint/War predicates. Travelling/nonidle
+or incompatible whole-roster reservation rejects before replacement.
+
+Board100 requires actual Ark in actor-owned Docked Colony, population>=200 and
+ordinary ordered guards. Selected NEW physical per-Ark maximum is u32::MAX via
+checked count addition only, no invented passenger capacity account/rejection.
+Reached overflow faults whole boundary; earlier guards retain precedence. Copy
+all Hull fields except count+=100; original voyage_origin is unchanged until its
+first genuine paid nonReturn departure. Colony population-=100, other Society
+clock/needs/specialization preserved, immediate exact workforce recomputation.
+Complete group intent_decided→passengers_boarded→operation_changed Fleet/Colony
+(fullChanges resources=[],passenger_delta +100/-100)→workforce_changed iff
+actual assignment changed. Facts/Changes witness one conserved transfer, never
+apply it twice. Creator Board uses actual intervention/cascade, not this group.
+
+Prospective AUTO uses exact successful actor phase9 kind namespace and permitted
+original H7 digest/subject, not later current-State recapture; actual C/Route/
+Offer/Job full allocation order and successful counters must match their owning
+production operators. Actor null lifecycle completion separately uses phase5.
+Source registration uses full actual pre-group working State where required,
+original actor H7 where declared, latest real logical creator cursor and no future
+publication digest/Event/Receipt. Mixed final partition does not reorder causal
+ledger/mutations/first fault. One shared remaining1..1024 charges every enumeration,
+reservation/refund/copy/hash/source/fact/journal/cleanup child; invalidpublic0/>1024
+consumes0, exhaustedinternal0 yields, Ready repeats0, fault/cancel/premature finish
+retains capacity owners and no partial publication. Freshness swap installs only
+one complete validated/sealed/journal-prepared result.
+
+## Arrivals phase3 immutable entry and exact disposition
+
+Capture one actor-null phase3 immutable full working State I3 after phases1/2,
+with latest actual creator cursor and authentic original historical counters.
+Every phase3 event uses this entry source; actual before/after rows are replayed
+in Fleet-ID then nested Hull-ID arrival/unload order, then Shipment-ID order.
+Original paid producer sources remain separate historical bindings, not I3 or
+currentReceipt. Fleet final arrival applies its original paid whole-itinerary
+clock and endpoint independent of later topology/technology. Emit fleet_arrived
+then one full Fleet operation_changed for actual Docked/order result, resources=[]
+and passenger_delta0. Move/Return clear; Explore and ordinary unbound Defend clear iff their target
+is absent or equals the actual arrival World, otherwise retain; genuine
+same original accepted Request/C/threat bound Defend retains only at matching
+requester-owned target while current duty valid. Attack/Settle clear iff their
+target differs from arrived endpoint, otherwise retain; Blockade retains its
+separately bound standing action. No target resemblance rebinds an instance.
+Arrival allocates no entity/credit/payment/contribution. Conditional forecast may
+hold unsupported order consequence while completing known paid location.
+
+Return passenger unloading only follows genuine eligible arrival and authentic
+positive original voyage_origin matching current own Colony World. Transfer
+actual supported amount from Hull to Colony, retaining remainder/origin, checked
+population/physical count conservation; clear origin at count0. No stationary
+retry, stale/unknown origin substitution or population from creator relocation.
+Emit exact passengers_unloaded (which owns the actual Colony population change),
+then exactly one operation_changed with the full containing Fleet Change only,
+resources=[], passenger_delta=-actual unloaded count; actual workforce companion
+follows iff changed. No duplicate Colony Change represents that same transfer. Every Hull transfer occurs once; old paid/source proof
+survives bounded history retirement and fork ancestry.
+
+Shipment original_travel_ticks is immutable positive original paid duration,
+not reconstructed from changed active schedule. Genuine War return resets active
+departure=T/arrival=T+original duration once and never another return/payment.
+Outbound=false flag; Returning=true; Waiting retains whether outbound or returned
+leg. Active travelling arrival<=T is due; Waiting retries every phase3 including
+early creator Waiting, clocks unchanged. Choose endpoint/current ownership before
+storage: outbound changed owner (includingnull) chooses captured/unowned recipient
+first; unchanged intended owner plus active War starts one return without storage
+read, otherwise ordinary delivery. Returning uses original source current owner
+and never bounces. No missing-endpoint workaround; explicit creator closure must
+already resolve it. Storage requires entire units or none. Full storage preserves
+cargo/binding, sets Waiting retained flag, emits shipment_waiting each genuine
+retry even equal manifest bytes. Return initiation emits shipment_returned,
+recipient=null,resources=[],full AFTER Returning/new clocks; no same-phase return
+arrival. No storage or resource debit on that initiation.
+
+Atomic unload transfers all units once and removes manifest. Outbound intended
+owner→shipment_delivered; differentnonnull→shipment_captured; unowned→delivered
+recipientnull. Returning dispatch_owner→shipment_returned; differentnonnull→
+captured; unowned→delivered recipientnull with returned leg explicit. Terminal
+Facts.shipment contains full row normalized Waiting→actual active leg immediately
+before removal; one transferred ResourceFact(resource,positive units), actual
+recipient. Waiting/return-initiation contain full post-transition row, no resources.
+No input/output/refund/paid role double-counts historical withdrawal. Override,
+original duration, endpoint/parties/paid provenance remain unchanged.
+
+Only genuine paid outbound with override=null, actual recipient original intended
+foreign party and original admissible Trade/Aid binding grants relationship:
+Aid+10 per100 real delivered units capped20; Trade+1 per100 capped20; preserve
+remainders, absent relation starts base0/other counters0. Returning/captured/
+unowned/creator override grants0. C delivery belongs exact original same surviving
+C/Route source instance and real actual attempt; no C2 matching terms substitutes.
+Set last_attempt=T on real attempt, preserve prior Anchor; genuine fulfillment
+source is installed only at next ordinary phase3 through prior sealed history,
+never this Receipt's future Anchor. Creator-only, paused/save/read/fork performs
+no handoff or payment. Original paid delivery remains historical after later
+same-T capture; current rights may immediately suspend under their own adapter.
+Source/resource/arithmetic/capacity/fault aborts full unpublished boundary; common
+remaining visits include nested sources, copies/hashes, events and retirement.
+
+## Creator semantic instances, constructors and value no-ops
+
+Every valid SetWarObjective is a genuine replacement, including equal submitted
+kind/target/endpoints. Resolve ascending current War parties and actor exactly
+one party through typed existing/earlier-local Target rules. Construct full named
+objective with submitted kind/target/pair,count0,pending,last_evaluated_tick=null,
+witness=null. Defend formation requires live actor-owned Colony World and pair
+null; Occupy live OTHER-party Colony World and pair null; Secure live Lane and
+distinct plain World IDs in its exact declared System direction. No threat is
+required for creator Defend, and creator selection grants no current permission
+or success. New pending formation cannot reuse terminal historical target waiver.
+Preserve other actor objective/War parties/declarer/clocks; clear entire Peace on
+every replacement. Cancel exact previous-instance future Fleet orders, preserving
+already-paid motion/credits/passengers/Supply, with exact Blockade dependencies.
+Original instance locator is authenticated RevisionID/operation_index/War/actor,
+not tuple equality or new nonce. Paused replacement reruns no completed sample;
+queued phase1 replacement may genuinely evaluate at that boundary's later100
+phase. Newly phase9-admitted War cannot retroactively evaluate phase8.
+
+ForceWar required objectives contain exactly both parties sorted, each constructor
+above with explicitly submitted count0/pending/evaluationnull/witnessnull; other
+values reject rather than normalize. Full resulting War.peace=null. Require
+end=start+1200,end>applicationT and checked end+300. Valid past/current/future
+start follows actual capacity/deadline contract. Every ForceWar replaces War and
+both instances even byte-equal, removes incompatible actual legacy keys and
+cancels exact old-instance actions. start<=T executes actual Request→Fleet→C
+active effects once; future start does not suspend early and receives only its
+later genuine crossing. Phase1 replacement supersedes old inherited crossing.
+No autonomous declaration/negotiation, Energy cost/refund, offense contribution,
+force escrow or success marker is fabricated.
+
+SetFleetOrder is a revalidated value setter, with both required bindings explicit.
+Equal bytes and unchanged valid dependencies emit no full Change/new paid action;
+changed bytes/dependencies produce real containing Fleet effects. Earlier genuine
+instance replacement must already cancel the old binding; resemblance cannot
+reattach it. A later creator attachment uses its actual operation source and
+still grants no presence-only negotiated credit. SetRouteSuspended(false)
+revalidates actual endpoint/participant/permission before equality. Only genuine
+true→false original bound Route transition with C suspended/[endpoint_changed]
+can clear C to ready/[] under complete current first causes, preserving other
+fields; that actual C Change is indirect. Repeated already-false is no latch-clear
+cause. Other operations retain their own exact semantics, not a blanket equal
+setter replacement or bypass. Missing-target removal is not a no-op.
+
+Compute semantic effects first; omit full Record Change only when bytes equal
+AND no actual resource/passenger disposition. Row-equal replacement stays in
+actual indexed immutable Revision; legal empty reviewed_effects still advances
+accepted sequence once and emits one creator_intervention with empty direct
+Changes, cascade iff genuine indirect effects. No equal War marker or fake header
+Change is added. Repeated replacement operations have separate original locators;
+last survives, earlier cancellation occurs once. Effects remain operation-indexed,
+not batch-net differences. Authentic history/ancestry, not State digest equality,
+authenticates instances through fork/save/import. No implicit version default.
+
+Same-instance ordinary pending progress preserves Peace byte-identically.
+Ordinary terminal success/invalid and creator geometry invalidation preserve
+existing Peace and original objective instance; creator invalidation does not
+negotiate while paused. Pointer-only next ordinary handoff changes no semantic
+Peace/proposal. SetWarObjective and ForceWar clear it as above. Actual expiry,
+accepted Peace and ForcePeace remove War/Peace under explicit Truce conversion;
+generic participant/War removal creates no implicit Truce. Read/save/fork performs
+no proposal, response or handoff. At ordinary100 logical K freeze actual War-pair
+roster and entry Peace: none=fresh, prior proposed(created<T)=one response,
+created==T=no response, refused=retry under exact semantic-change rule. Newly
+refused is not retried in same K; only active same-instance intervals negotiate.
+Known supported counter-objective achievable=true refuses; false may accept;
+unknown defers rather than assert false. Strict recovery outranks discretionary
+objective expenditure. Full proposed/refused Peace is recorded as the complete Peace leaf in
+Facts.peace.record; Facts.peace.war_a and war_b identify the exact canonical War
+pair. Authenticated execution/replay updates and checks that exact War's embedded
+Peace; the sealed State authenticates the resulting full War. Emit exactly one
+existing peace_proposed/peace_refused event with this pair and complete Peace leaf;
+no additional War Change carrier or companion event is required or permitted for
+this producer. Peace.reason is objective_complete/objective_invalid
+on the corresponding proposals; no additional independent Facts.reason field is added. Refused retry uses authenticated declined baseline
+and semantic objective/eligible-force/knowledge changes, ignoring pointer/
+transport/time-only changes; no Receipt-being-built Anchor or hidden force shortcut.
+
+### Peace retry finite semantic comparison
+
+Fresh K proposal requires authentic terminal same-instance objective; pending
+force_unachievable does not originate one. Choose lowest eligible actor ID,
+install proposer/createdT/considerednull/proposed/reason objective_complete or
+objective_invalid. Retained pending proposal is never overwritten by another
+terminal actor. Refused retry locates the exact latest peace_refused matching
+original War/objective instances, pair/proposer/created/considered and authentic
+ancestry. Reconstruct BOTH original H7 inputs and same-boundary evaluated own
+objectives, never current root or sibling/parent future. A current terminal actor
+is retry-eligible only when its own finite semantic comparison differs from that
+baseline; choose lowest eligible actor. New proposed replaces refused with
+createdT/considerednull, exactly one peace_proposed and no War ID/cancel event.
+Conflicting purported baseline faults replay; cache eviction regenerates ancestry.
+
+Stream private PeaceRetryInput in order: actor,kind,target,secure_endpoints,status,
+consecutive_witness_count,reference_state,observations,force_choices. Reference
+entries visit exact target then fixed world_a/world_b: typed ID, live, permitted
+System/Lane geometry option, own-or-known owner tagged known/unknown with value.
+Observation entries visit required goal Worlds in same endpoint order: absent/
+stale/fresh knowledge, known/unknown owner, permitted hostile Escort count,
+operational batteries, Occupation, hostile Fleet IDs and enemy threats. Unknown
+quantities remain unknown. Normalize threat semantic enemy/target/count/occupation/
+hostile IDs; exclude authenticated observer/timestamp/digest transport identity.
+Freshness class uses age<=300; only class crossing changes semantics, not raw
+observed/received tick. Force choices visit own Fleet ID then exact endpoint:
+complete Hull IDs, live Escort count, location, readiness class, known reference
+compatibility/path support, selected Lane path option/travel ticks, known required
+payment, physical fundability/needs compatibility/objective strength. Known empty
+path/cost0 differ from unknown. Exclude unrelated HP unless live roster/strength/
+eligibility changes, foreign HP/stock, later private R/O/M holders, last_evaluation,
+witness, Peace fields, Event/Receipt IDs, caller clock and unrelated resource/
+environment/name metadata. Lists stream in stable order under shared visits;
+no retained Cartesian list, persistent fingerprint field/hash or new ID/domain.
+Replacement clears Peace and never compares across obsolete instances. Counter
+change alone on pending actor cannot qualify a proposal. This complete comparison
+rather than time/pointer/rehashed identical threat drives retry.
+
+## Production phase5 actual ownership and reports
+
+Process due retained paid jobs by ID once (completion_tick<=T); no catch-up or
+second Alloy/worker payment. Resolve actual owner/World/catalog/target before
+allocation. Missing reference faults; proven ownership, retained shipyard or
+Docked target incompatibility cancels with floor(paid_alloy/2) actual World
+refund capped by storage, removed-job discarded excess fact and reservation
+release. Construction cancellation emits one construction_cancelled; Hull job
+cancellation one operation_changed, no duplicate refund_discarded. Missing World
+cannot teleport a refund. Successful completion converts exact paid reservation
+to occupancy. AUTO lifecycle flag0/zero actor/T/phase5 uses original pre-job full
+State digest, World-kind3 subject, independent successful kind counters: Facility7,
+Hull11 then Fleet10 iff new Fleet. Rejection/cancellation consumes no ordinal;
+collision faults, never salts/retries. Facility initializes full catalog HP
+(defense max, otherwise0), operational/enabled, paid_alloy preserved, next_due
+T+period for periodic effect else null, next_repair=null,reasons=[],facts=null.
+Hull initializes catalog-max HP, return_credit=false,next_repair=null,passengers
+{count:0,voyage_origin:null}. New Fleet is owned/Docked/singleton/order=null,
+Supply both null/never_supplied,blockade=null. Existing Fleet preserves fields and
+adds one Hull. Primary completion emits one construction_completed/hull_completed
+with full job/asset Changes, resources=[]; immediate workforce recomputation emits
+one workforce_changed iff changed under its own pre-assignment source, before
+next job. Completion itself grants no automatic departure or supply payment.
+The later Supply subpass freezes its then-current Fleet roster including newly
+completed Fleets, so an eligible new singleton at T%100=0 receives its genuine
+later Supply attempt under that subpass, not a completion grant.
+
+Due-needs Food/Energy hold equals min(actual prefix stock,due need based on
+phase5-entry population/needs); recompute before every guarded debit and after
+local stock mutation including outputs/refunds. Nonlife consumers use unheld
+stock; only exact positive Farm Food waiver applies. Hubs process due clocks once
+as oldclock+period. Energy2/Ore1 outputs are silent; fallback below Alloy120
+requires physical Energy4/Ore4/output room first, then Energy hold, and outputs
+Alloy1. Threshold skip advances100 with no guard. Energy attempt replaces shared
+Hub reasons; Ore only when shared empty; fallback only with its own nonempty
+reasons. Ordinary Hub attempt emits0; held fallback emits exactly one denied
+needs_reserved hub_fallback{world}, no RecipeFacts or generic duplicate.
+
+Current completed periodic Solar/Extractor/Foundry/Farm/Lab attempts require
+owned habitable Colony and next_due<=T; passive/inapplicable/non-due emits0 and
+preserves fields. Due disabled advances oldclock+period and blocks disabled,
+no staff/funding/environment read. Enabled missing one worker blocks exactly
+workforce_unavailable{required:1,available:0}. Otherwise physical inputs in resource
+order, matching Deposit, output room are collected/sorted before Needs hold.
+Extractor selects lowest-ID Ore Deposit with>=4, not residue aggregation; none
+reports max matching residue or0. Success SolarEnergy8; ExtractorEnergy2/Deposit4
+→Ore4/stress contribution1; FoundryEnergy4/Ore4→Alloy2/stress2. Real stress_added
+is min(10000,checked(old+contribution))-old; contribution remains fixed even at
+cap. Farm retains its exact q/environment/full-physical/waiver operator. All due
+attempts advance once; actual RecipeFacts inputs/outputs/blocked/staffed are
+complete, Facility reasons equal facts, unrelated repair fields unchanged.
+Ordinary block/success emits one facility_blocked/produced; held denial or real
+Farm waiver emits its needs_reserved immediately before that event, exactly2.
+Recipe ResourceFacts describe actual applied inputs/outputs once; Deposit is not
+invented Inventory input. Only genuine Farm q0 carries Food0; other blocks empty.
+
+Lab after common staff checks target then prerequisite/incomplete/progress<cost,
+then physical Energy2/Alloy1 then Energy hold. Each due clock advances20. Failed
+Lab emits only facility_blocked, with preceding Needs guard iff held. Successful
+Lab adds exactly1 point; terminal point installs completion and clears target
+before next Lab. Emit facility_produced with resources=[], then exactly one
+research_progress OR terminal technology_completed carrying complete Research
+before/after, lab=Some(id), actual Energy2/Alloy1 facts. No duplicate target-change,
+point/payment or generic Civilization event. Free F selection never pays a point.
+
+Repair traverses actual entity IDs globally. Eligible due living Hull requires
+own Docked World; battery requires owned World/Defense effect. Exclude actual
+phase4 CombatWorlds and current hostile live Hull/battery co-location including
+disabled battery. Unknown private forecast guard remains held, never root-read.
+Noneligible emits0. Full-HP due clears clock and emits one full operation_changed
+without debit. Damaged due computes oldclock+10 before funding: physicalEnergy1,
+then hold, then HP+1 capped and clear clock iff full. Denial still advancesclock.
+One primary operation_changed contains exact selected Hull's containing Fleet or
+battery Facility Change and World inventory Change iff paid. No other Hull/Fleet
+or production facts/status change. Held guard repair{fleet}/battery_repair{facility}
+precedes primary event with same source. The exact changed Hull and traversal
+bind repair{fleet}; no per-Fleet aggregate guard. No combat/refund/worker cost.
+
+Supply visits every Fleet ID under its actual pre-operation source. Derived
+readiness supplied iff T<original deadline, unavailable when any component exists
+otherwise never_supplied. Off100 or travelling/foreign Dock only refreshes
+readiness via one operation_changed iff changed; no fake attempt. Owned Dock at
+T%100=0 requires exact live Hull count. Physical shortage installs unavailable
+paid0 attempt, preserves original success and emits one fleet_supply_unavailable;
+held shortage prepends one needs_reserved supply{fleet}. Paid success debits
+Energy=count once, records matching paid attempt/success deadline=T+100/readiness
+supplied and emits one fleet_supplied with full Supply before/after and actual
+input ResourceFact. No separate readiness event or invented supply clock.
+All operation events share actual actor-null phase5 pre-group source/latest
+creator cursor; assignment uses its own causal source. Nested copy/hash/debit,
+identity, emission, retention and cleanup share remaining visits and atomic
+publication. No owner destruction or partial payment on cancel/fault/finish.
+
+## Conflict phase4 execution and complete causal sources
+
+At T%10=0 process genuine automatic noncombatant retreats by Fleet ID, then one
+globally simultaneous combat round. Travelling Fleet has no combat presence.
+Noncombatant means every current live Hull in this Fleet has damage0; another
+friendly Fleet is no implicit escort/merge. Attempt iff host World owner is a
+current declared enemy or a hostile positive-damage piece threatens it there.
+First retreat failure: lowest target HullJob reservation, lowest missing-credit
+Hull, no owned Colony, no permitted route. Actual reachable owned Colonies tie
+whole-itinerary ticks then World ID then lexicographic Lane path. A failure spends
+nothing and changes no Fleet field; emit one retreat_blocked/Facts.retreat with
+before=after, destination=null,outcome=blocked and exact first RetreatReason.
+Success consumes existing whole-roster return credits once, costs0 Energy,
+installs Return with chosen path/target/not_before=T/both bindings=null, full
+final Travelling T/T+duration, clears Blockade and preserves Supply/HP/passengers.
+Emit exactly one fleet_departed/Facts.retreat with complete before/after,
+destination nonnull,outcome=departed,reason=null. No generic duplicate Fleet
+Change or combat contribution. Each attempt uses its own actor-null phase4
+immutable actual pre-group full State source/latest applied creator cursor.
+
+Combat captures ONE immutable pre-round source after retreats. Resolve active
+War/no-Truce enemies and target class then decoded target ID from all current
+pieces: class0 live Escort, class1 owned live battery, class2 Scout/Ark Hull,
+then lowest hostile entity ID. Fleet ID is no target tie. Unowned battery has no
+combat faction/target. Enabled operational battery damage4, Escort damage2,
+Scout/Ark0.
+Disabled battery remains targetable but cannot fire. All pre-round shots fire,
+even when attacker dies in this round. Nominal target selection is simultaneous;
+allocate actual realized HP loss by target ID then attacker ID with
+min(nominal,remaining pre-round HP). Full CombatAction rows sort attacker ID,
+include actual target/containing Fleet/owner/War and exact bound Request option;
+never infer target owner, War or contribution from presence/order resemblance.
+Surviving actually damaged piece with null repair clock gets T+10; existing
+nonnull clock stays, destroyed piece gets none. World with no hostile engagement
+emits0; each engaged World emits1 combat_round with full CollectionKind/key-sorted
+Fleet/owned-battery before and logical damaged after, attacked-ID sorted Damage
+rows and complete actions including overkill0. World combat Facts precede
+Request contribution groups in C ID order, then
+global destroyed entity ID removals. All round facts share original pre-round
+source and report this one atomic mutation, not sequential damage commands.
+Only current supplied matching original bound named-enemy Escort realized damage
+qualifies for Defense credit; battery, overkill, creator damage and docking do
+not. Later phase5 renewal is no retroactive qualification. Emit exactly one
+defense_action_recorded per actual considered bound contribution group and one
+obligation_changed iff its complete C bytes change; never a fulfillment Anchor
+into the Receipt being built. Full private action carriers are authority evidence.
+
+A named Defense action group requires positive-fire Escort with full original
+bound Defend at target, original owner=R.defender; authentic live accepted R and
+mutual_defense C with exact IDs/creation ticks/parties/threat digest/C.request;
+actual target owner=R.requester; original named threat identity preserved; selected
+shot enemy=R.threat.enemy with actual attacker/enemy active War/no-Truce and no
+requester/defender forbidding War. Stale unknown never proves absence. A later
+real lawful ordinary shot may qualify from an earlier explicit creator binding,
+but creator intervention itself cannot fulfill. Attack/Move/Blockade/unbound order,
+other-enemy fire and presence do not form a named group. CombatAction association
+can retain its real binding even for nonqualifying fire; DefenseShot list contains
+ONLY actual matching named-enemy shots from full round actions. One action binds
+one R, no double credit; multiple genuine bound Fleets aggregate one C/R group.
+
+Defense total_realized sums all matching shots; credit_realized sums only shots
+whose original containing Fleet supplied at Sround (T<authentic deadline).
+Deadline equality is unsupplied; prior still-live success qualifies despite latest
+failed renewal. No reallocation from unsupplied/battery consumed HP to supplied
+attacker, and later phase5 payment has no effect. Outcome contributed iff credit>0;
+else no_realized_damage iff any matching supplied shot, otherwise readiness_denied.
+No matching named shot emits0/no attempt even when Fleet present or unsupplied.
+For nonempty group emit one defense_action_recorded then obligation_changed iff
+full C bytes change, C-ID/R-ID order. Both outcomes write last_attempt=Some(T)
+once; contributed sets fulfilled/reasons=[], noncredit preserves prior status/
+reasons. Both preserve full id/parties/kind/terms/created/expiry/route/request and
+prior last_fulfillment. Request stays accepted/outstanding. Only genuine positive
+outcome may supersede pending positive fulfillment for next ordinary phase2 prior
+history handoff; noncredit never clears or replaces earlier fulfillment. No shot
+resource cost, AUTO/action nonce, target-HP borrowing or currentReceipt Anchor.
+
+Actual Hull destruction removes it from full containing Fleet, retaining other
+Hull fields; last Hull removes Fleet. Exact destroyed before records may have
+logical post-round HP0 only at this registered replay/removal position, not a
+completed root or arbitrary import. Destroyed Hull emits1 hull_destroyed full containing Fleet/target-job cascade;
+if positive passenger count emit1 passengers_lost immediately afterward, containing
+Hull/world/owner/beforeCount/after0 with population fieldsnull. Zero count emits0;
+Fleet Change delta=-count represents this same loss once. Battery emits1
+operation_changed full Facility removal. Genuine combat target-job cancellation
+uses ordinary half-Alloy refund and
+actual storage discard; creator no-refund deletion remains a separate operator.
+Destroyed battery has its actual Facility removal and no cancellation refund.
+
+Occupation World order is decoded ID. Unique enemy Escort owner can progress
+only without original owner's Escort/enabled operational battery defenders or
+ANY third-party Docked Fleet hostile to claimant, including noncombatants. Multiple
+claimants is contested. Invalid predicate removes retained Occupation with1
+operation_changed iff existed, else0; same valid claimant increments1, different
+starts1, result<100 emits1 exact full Occupation Change. No catch-up/saturation
+or progress100 retained row. At100 capture
+preserves population/food/inventory/environment, changes World/Colony owner,
+clears workforce, cancels old paid jobs with exact half-refund/overflow, suspends
+mismatched endpoint Routes and removes Occupation/claims. Former-owner→captor
+relation decreases30 floor-60, absent relation uses base0/other counters0.
+Primary colony_captured owns these full sorted Changes once. Then affected
+Civilization status transitions by ID, hosting workforce recomputation, then ALL
+retained C/Request/Fleet eligibility adapters under the complete continuing-rights
+contract, each its actual prefix source, before next World. This supersedes the
+historical narrow Supply-only adapter; no richer retained family waits until100.
+Status is Active iff any current owned Colony, otherwise Dormant; retain identity,
+policy/research/assets. Byte-identical status/workforce/eligibility emits0.
+
+Settlement removes claims at owned or actually armed defended Worlds. A genuine
+paid Settle arrival opens a half-open50 window, later join iff arrival<close;
+original claimant linkage survives future Move/Return editing while physically
+Docked. At close no eligible claimant clears the window before any new one.
+Rank eligible civilizations by full SHA256 bytes of ASCII NYON_LIVING_V3_CLAIM_RANK then exactly one NUL,
+RulesV3 u32LE, seed32, World ID16, close Tick u64LE, civilization ID16; tie decoded
+civilization ID. Consume winner's globally lowest eligible Ark Hull ID, with its
+actual entire passenger count conserved into new Colony, not Fleet-first choice.
+World becomes Energy20/Ore20/Alloy0 with Food/environment/deposits preserved;
+explain discarded old stocks once. Colony initially balanced, Hub dueT+10,
+population/needs dueT+100, last needs=null, workforce=[] then real assignment.
+Remove claims/Occupation, clear only associated Settle orders and apply neighbor
+same-System/direct-Lane→winner relation decrease10 floor-20 once per civilization.
+Every primary/status/workforce/continuing adapter source is its own registered
+phase4 prefix, without currentReceipt witness, victory/peace or guessed IDs.
+All roster/copy/hash/action/conservation/capacity/cleanup work shares remaining
+visits; fault cannot publish a partial round, capture or founding.
+
+## Free research target F
+
+At T%50=0 logical F visits original H7 Active actor IDs after M and before audits.
+Only own original Research/policy/linked Catalog chooses a target; current truth
+validates it but never rescans for another preference. Eligible exact technologies
+are incomplete with all prerequisites completed and own progress (absent=0)<cost:
+agronomy100/[], efficient_logistics100/[], resilient_habitation150/[agronomy].
+Trader order Logistics,Agronomy,Resilience; Guardian Resilience,Agronomy,Logistics;
+neutral/expansionist/industrialist Agronomy,Logistics,Resilience. Retain original
+zero-based ranks after filtering; score=checked(3000-1000*rank). No eligible or
+original desired==original target emits0 and does not clear a target. For a
+changed desired validate current typed actor/Catalog/definition, Active status,
+current prerequisites/incomplete/progress, then current desired equality, in that
+order. Current equality emits0; no current fallback target. The fixed ordinary
+schedule has no genuine post-H7 research eligibility-loss producer: an alleged
+loss under that schedule is unpublished source/replay fault, not a fabricated
+rejected history. Conditional later connected-producer loss requires separately
+reviewed genuine timing and uses one first reason: invalid_target{target:actor,
+rule:research_reference_changed}, dormant_restriction{actor}, or
+invalid_target{target:actor,rule:research_target_ineligible}, respectively.
+
+Real switch emits intent_decided then research_target_changed in B9, both actor
+phase9 provenance with original phase7 H7 snapshot. Decision has next actual
+actor phase9 ordinal, select_research{technology:desired}, candidate=null,
+target=null, score above, tier=ordinary, observed_tick=null, Accepted, reasons
+ordered policy_score{policy:original policy,component:research_target_priority,
+value:score}, accepted{rule:research_target_selected}. These component/rule Slugs
+are explicitly permitted NEW free-selection labels, not material components.
+Facts.research is {actor,technology:desired,before:full current Research,
+after:{target:Some(desired),progress:unchanged,completed_technologies:unchanged},
+lab:null,resources:[]}. It owns that actual mutation with no duplicate generic
+Civilization Change, points, technology completion or workforce. No AUTO/entity
+ID, material lane, Trace, enumeration hash or AdmissionAttempt is consumed.
+Original H7 stays phase7; no self-Receipt or target Slug-as-ID is allowed. Scan,
+validation, copy/hash and event/ordinal checks share remaining visits; zero-record
+outcomes are not free unbounded scans. Cancel/fault retains owners and publishes
+no target without its complete group. Fresh independent vectors must cover ranks,
+filtering/no-ops and authentic paid Lab histories before human package approval.
+
+## Inherited free bilateral Agreement production
+
+At ordinary T%100=0, logical H after older Offers O and before K enumerates
+canonical decoded party pair then Trade/Nonaggression kind. Require both original
+Active phase7 captures: both directed totals>=0 and captured verified own-Colony
+connection for Trade; both>=20 with no connection condition for Nonaggression.
+Any retained same-pair War including future-start, active Truce, or retained
+same-kind Agreement excludes capture eligibility and creates no attempt. Material
+AdmissionTerms.agreement remains a declared shape but is forbidden as an
+autonomous material candidate: no lane, Trace, PolicyScore or material attempt.
+
+For original eligible pair revalidate actual current participants Active, absent
+same-kind key, no retained War/active Truce, bilateral thresholds, current Trade
+connection, distinct treaty capacity, then checked T+1200, in that order. Actual
+Trade connection may use another current own-Colony pair over the SAME parties;
+removed original witness alone does not cause reference_missing when one exists.
+No current gain creates an originally ineligible pair. First failure alone emits
+two Rejected free Decisions; path_unavailable represents actual no connection,
+BilateralThreshold carries direction-specific actual totals, admission_capacity
+uses each Decision actor subject and true treaty occupancy. No IDs/resources/holds
+or pending Agreement are installed. Success installs exactly
+Agreement{kind,participant_a:a,participant_b:b,start_tick:T,end_tick:T+1200} at
+absent typed key without Relation credit or entity/AUTO allocation.
+
+Emit intent_decided a→b then b→a; success only adds agreement_formed with one
+Facts.change: operation_index=null, before=null, after=full Agreement,
+resources=[],passenger_delta=0. Each Decision has phase8,candidate=null,score0,
+tier=ordinary,target=Some(peer),observed_tick=null, original own H7 snapshot and
+exact agreement action. Accepted success reasons in order are
+BilateralThreshold{peer,forward:actual own→peer,reverse:actual peer→own,required:0|20}
+and Accepted{rule:mutual_trade_with_connection|mutual_nonaggression}; rejection
+has exactly one actual first free cause. Actor phase8 ordinals continue from
+prior P/R groups, never reset per pair. Agreement Change uses one actor-null
+phase8 full current pre-group source/latest real creator cursor; Decision events
+use each original H7 capture. Local group order survives final phase buffering.
+Retained active/future key is never autonomously extended. After real phase2
+expiry a later fresh original capture may reform the same typed key with new
+T/T+1200, without backdating a gap. New H right grants no same-capture material
+candidate or Transit permission. At most240 groups/480 Decisions/720 events;
+source/path/copy/hash/retirement share the remaining visits and global receipt
+caps. Cancellation cannot publish a half-pair. Actor projection never shares the
+peer's private capture/audit; canonical evidence remains creator/replay authority.
+
+## Creator traveller resolution and current-reference retirement
+
+V3 EditFleet keeps its existing target/owner/world command shape but accepts a
+Travelling source as an explicit creator override. Resolve actual submitted typed
+Fleet, owner and surviving World at this operation prefix; preserve the actual
+HullJob reservation guard. A reserved target Fleet requires genuine prior
+CancelHullJob before relocation. Successful EditFleet sets owner to submitted
+owner, location=Docked{submittedWorld}, order=null and blockade=null, preserving
+full Hull IDs, HP, definition, credits, repair state, passenger counts/origins and
+authentic Supply components except independently required ownership cascades.
+Its direct full Fleet Change proves Travel→Docked with resources=[] and
+passenger_delta=0. It terminates that paid itinerary; no future automatic arrival,
+Energy/refund, unloading, new credit/origin, resupply or fulfillment is produced.
+V1/V2 retain their original versioned interpretation; this V3 Travelling
+creator override does not amend either prior contract.
+
+For RemoveEntity World/System compute actual issued closure from the complete
+pre-operation State after earlier batch operations, plus exact derived keys,
+using stable collection/key order. System closure includes its actual children
+and incident Lanes. A Fleet with Docked World or Travelling origin/final World in
+the closure must have been relocated earlier to surviving submitted World or be
+explicitly included for removal. A Shipment with either source/destination World
+in the closure must be removed once, regardless of disposition; existing commands
+cannot rewrite its endpoints. SetShipmentDisposition is not endpoint repair.
+Otherwise reject through existing referenced-target/cascade checks. There is no
+nearest-World placement, teleport, implicit endpoint rewrite or replacement ID.
+RemoveReviewed assertions must equal actual issued/derived closure; RemoveListed
+is legal only when no derived records are involved. A traveller resolved earlier
+is absent from the later current closure and cannot also be asserted for removal.
+
+Only a removed future Order target/path cancels that future order to null while
+preserving current paid motion. Removed passenger voyage_origin clears that
+origin to null in the containing Fleet Change, preserving count/HP/credit.
+Supply references follow their independent historical exception above. Paid
+Route/C removal does not rewrite a surviving Shipment's original provenance.
+Intermediate paid Lane/System deletion cannot alter whole-itinerary motion or
+Shipment original duration when both final endpoints survive. EditWorld System
+relocation preserves World identity and existing paid endpoints/clocks; future
+orders/routes/fixed Secure endpoints are revalidated against actual new topology
+and receive explicit cancellation, suspension, removal or pending invalidation
+before aggregate validation. Distance-only Lane edits retain valid future order
+identity and affect only a later departure's current route cost. No automatic
+rerouting substitutes another path/target. Suspended Route is no missing-endpoint
+waiver. Terminal objective references retain only their authenticated historical
+exception. Current Fleet location and Shipment endpoint remain strict live refs.
+
+For nested Hull RemoveEntity resolve its unique current containing Fleet. If any
+Hull remains emit one direct full Fleet before/after, passenger_delta=-removed
+Hull.count, resources=[]; preserve compatible target HullJobs and other Hulls.
+Whole-roster Request-bound Defend is canceled with actual derived Order assertion;
+otherwise a still-valid unbound/objective order remains for later actual guards.
+If no Hull remains emit that same direct Fleet before→null, never an empty Fleet
+or separate Hull row. Exact issued dependents include containing Fleet ID and
+all actual target HullJob IDs, excluding primary Hull; derived closure includes
+Order{fleet} iff nonnull and every actual required key. No separate Blockade
+removal tag exists: it disappears inside the Fleet. RejectIfReferenced rejects
+this real parent dependency; missing/extra/duplicate assertion rejects atomically.
+Last-Hull target HullJobs are indirect creator removals with NO refund; release
+paid reservation/occupancy once. Genuine earlier CancelHullJob instead performs
+its ordinary half-Alloy refund/overflow before removal, so the later closure sees
+no canceled job. Do not borrow combat refund semantics. Sequential Hull removals
+use actual preceding results; after last Hull removal any later missing Fleet or
+Hull target rejects the entire batch at that actual operation index.
+
+Destroyed Fleet passenger_delta is minus the checked sum of its actual physical
+Hull counts once; resources=[] since fuel was already spent. Destroyed Shipment
+has one discarded ResourceFact for its actual positive units and delta0; no source
+refund or receiver/C/relation credit. Destroyed World explains its positive current
+inventories as discarded in resource order. Deleted Colony has passenger_delta=0;
+its full before→null proves population loss without conflating Hull passengers.
+Primary World/System removal is direct; dependent travellers/orders/origin clears
+and other rows are indirect, even when asserted. Nested Hull target's containing
+Fleet is direct; target Job removals are indirect. Every operation emits exact
+full Changes at its actual index. Creator Revision partitions direct Changes in
+creator_intervention and indirect Changes in creator_cascade iff nonempty, without
+changing actual operation mutation order. No autonomous arrival/departure/combat,
+paid fulfillment or currentReceipt witness is manufactured. Original paid sources
+remain historical in full before records; creator operations use their actual
+pre-command CreatorCapture and accepted allocator marks.
+
+Preview computes the complete closure/conservation first and compares submitted
+reviewed_effects byte-identically by operation_index/collection/key. Existing
+typed reference/definition/range/reservation and cascade mismatch precedence
+remains index-first; no new traveller-unresolved diagnostic is added. Checked
+arithmetic, source, event/byte capacity, cancellation or stale publication abort
+the whole unpublished candidate. Shared 1–1024 visits include roster, nested
+copy/hash, source, journal and retirement; retain capacity-sized owners on fault,
+cancel or premature finish. No partial relocation/destruction or allocator
+publication is legal. Removed current occupancy does not recycle issuance IDs
+or prune original ancestry; no implicit version migration is permitted.
+
 ## Failure order, resources and identity
 
 Keep the frozen stage order:1 reference/definition/order,2 intelligence,
@@ -2033,34 +3039,83 @@ ownership behavior, not a claim that the separate boundary implementation has
 already implemented or proved V3 retirement.
 ## Diplomacy request, acceptance and peace record lifecycle
 
-A demand request is created only by its own actor for its owned colony's positive
-known shortage; units1..10000, expires_tick=tick+200. Requests enter actor capture exactly under Actor32 demands selection: its own
-actor, current DirectVisible world, or direct bilateral Commitment active at
-captured T. Source selection is separate from later request action eligibility. They expose only the listed shortage
-fields, not inventory or research. Refresh replaces the same key, records a new
-snapshot/tick, and cannot exceed request capacity. Capacity omission emits a
-request_capacity fact and preserves existing requests. Expired/resolved/removed
-requests leave active state with an event. This visibility/capacity choice is new
-Proposed mechanics and must receive written review.
+The diplomacy region uses ecology's exact P/R/B/O/H/K/M/F/A logical order,
+immutable phase7 actor captures and SAME actual W/ledger. P-entry freezes old
+pending Request IDs created<T in C-ID/R-ID order. P performs maintenance/objective
+samples/Demand/fresh Request/sharing only; B considers surviving frozen old Requests
+AFTER real category0R and before old OffersO. New Request/Offer atT never receives
+same-T response. Lifecycle expiry never fabricates consideration of removed rows.
+All actual actor-owned Decisions/facts retain ORIGINAL full phase7 reference while
+execution/issuance phase remains8. Lifecycle immediate groups use registered actual
+actor-null original prefix; no rewrap/current Receipt self-source.
 
-At the diplomacy boundary use the shared post-phase7 immutable actor-limited
-planning captures (§Integrated planning and admission). Expire/update objectives;
-collect requests; consider only offers created before this boundary. Protect
-category0 phase8/9 material reservations first, then resolve pending-offer responses
-by recipient ID then offer ID against leftover ledger capacity. Newly accepted
-terms do not change captured actor scores; phase10 uses actual installed permissions. Each recipient can accept all
-compatible offers until capacity/resource reservation denies one. Accept consumes
-one outgoing offer, creates an exact Commitment and, for supply, one bound Route
-atomically. Capacity denial retains the same Offer ID and sets last_consideration to
-{tick,waiting,capacity_unavailable}; emit offer_considered with exact before/after
-consideration. It is neither a creation nor a refusal. On accepted/refused
-consideration emit the corresponding consideration before the lifecycle event
-and record accepted/reason null or refused/typed reason in its event snapshot.
-New offers have last_consideration null. Other failed eligibility refuses it.
-New proposals use the shared phase7 planning capture and scoring §7's single
-category/deadline/U/lane/family/kind/target/counterpart/actor/identity merge. Older
-issued offers use recipient/offer response order against leftover protected
-capacity, never a second utility-first comparator or private recapture.
+### Free own Demand producer and exact decisions
+
+Demand key=(actor,World,resource), cap1024; existing key refresh consumes no extra
+slot. Only own positive known shortage creates units1..10000, tick=T,
+expires=checked(T+200), snapshot_digest=original actor H7 permitted digest.
+Order actor/World/resource tag. Food/Energy use captured population's next ordinary
+ceil(pop/100)/ceil(pop/200) Need minus captured physical stock. Ore uses ONE earliest
+(due tick,FacilityID) enabled staffed applicable own Foundry due<=T+100, with all
+other actual guards satisfied except Ore deficit. Alloy analogously uses ONE Lab
+with eligible selected target/Energy/staff and other guards except Alloy deficit.
+No speculative construction, summed future production or hidden receiver stock
+forms shortage. Creator-authored other genuine purpose rows remain legal and are
+not silently deleted because this autonomous roster differs.
+
+For every positive posting/refresh/omission emit free intent_decided:
+phase8, actor producer, next actual actor/phase ordinal, action request_supply with
+COMPLETE proposed Demand, candidate=null, targetSome(World), score0,tierordinary,
+snapshot original H7 phase7, observed_tickSome(T), outcomeaccepted/rejected.
+Accepted reasons[]; rejected exactly protocol{failure}. No material utility/lane/
+CandidateAudit. Acceptance follows with demand_posted full old/new reasonnull;
+new null→new and existing refresh old→new give2 events even if units unchanged.
+Full1024 NEW key gives rejected protocol.capacity{demand_requests,1024,1024} then
+adjacent request_capacity demand{before:null,after:null,capacity_unavailable}.
+Adjacency/same producer/capture authenticates exact omitted key; lone null/null is
+invalid. Current ownership/reference loss has ONLY rejected protocol.target_invalid
+Decision and preserves existing row; no false capacity/end/no-op companion. Present
+P has no owning after-H7 World mutation, so do not fabricate unreachable failure
+histories. Genuine earlier loss uses its real removal before capture. Known resolved
+own autonomous purpose removes via demand_expired/reasonnull, no zero active record
+or posting Decision; target loss=target_invalid, TTL=expired. Arithmetic/source/cap
+fault aborts complete unpublished boundary, never truncates omitted attempts.
+
+### Older Offer response, formation and renewal
+
+O-entry freezes current eligible old Offers created<T<expires, recipient-ID then
+Offer-ID. Validate original authentic Terms/participants/H7 and actual current
+W/ledger guards without rescoring or new target. Waiting cap/own_needs_reserve/
+physical no_supply retains exact Offer and last_consideration{T,waiting,reason};
+no_supply is the explicit exception to refusal. Other genuine eligibility failure
+refuses/removes. Waiting emits offer_considered1; refusal considered then
+ offer_refused with exact updated consideration2. New proposals have consideration
+null and are excluded from this walk; score/identity and outgoing capture occupancy
+remain immutable. Checked clocks/source/collision/event faults are not refusals.
+
+Accepted new C has actual ID, sorted parties, exact original kind/Terms, createdT,
+expireschecked(T+1200), statusready/attemptnull/fulfillmentnull/reasons[]/requestnull.
+Access/Defense route=null; Supply route=actual new bound Trade Route, exact original
+sender/receiver/endpoints/resource/batch/reserve/cadence10, suspendedfalse,
+next_duechecked(T+10), commitmentC. No accepted cargo/payment/fulfilled witness.
+This Trade-kind right authorizes only this original Supply route, not global Trade.
+Transient positive batch/floor protects only supported next dispatch and ends at
+publication, no1200-tick escrow. Original Access/Defense acceptance emits considered,
+commitment_created, full accepted Offer removal3; Supply adds full Route insertion
+before Offer removal4. Recipient H7 owns consideration/C/removal; original proposer
+H7 owns Route insertion. Actual allocation uses flag1 phase8: Offer15 subject
+Civilization5 recipient; C16 subject Offer15 original; Route12 subject World3 source;
+Request17 subject World3 target, contiguous successful counters per actor/phase/kind.
+No denied/renewed case consumes a success counter; prospective ID collision faults,
+never increments until free.
+
+Renewal preserves exact C/Route IDs/created/Terms/obligation, updates expiryT+1200
+only, consumes no AUTO counter, dispatch/attempt, suspension reset or old witness.
+Emit considered, commitment_renewed fullold/new, accepted Offer removal3. Different
+Terms requires explicit old removal/new formation; paid old C cargo never fulfills
+C2 by resemblance. Missing expired renewal source refusesexpired under genuine
+historical reference, not implicit new treaty. Due C removal is actual phase2 or
+immediate owning cause, never deferred to next100.
 
 ObservedThreat names one exact known hostile actor at the requested owned world.
 Its owner/escort/occupation facts come from the requester's visible observation,
@@ -2107,6 +3162,132 @@ counts/fleet IDs, changed timestamp or using an enclosing permitted snapshot has
 rejects replay validation.
 
 
+### Defense creation, sharing and old-request response
+
+Fresh Request requires live usable original mutual_defense C, original party
+requester/direct-visible own target and exact original requester H7 Observation/
+Threat at observedT. Threat enemy/World/observer/tick/digest/optional requester-enemy
+War/counts/Fleet IDs are copied byte-exact; no shared stale input refreshes it.
+Choose C-ID/requester-ID/World-ID/full threat key, one first eligible target/threat
+per requester/C. Reciprocal lower requester wins one outstanding C pointer.
+
+Prepare ID-free DefenseRequestInput before actual issued R. First causes: current
+C/party/target/ownership/interval; actual same-pair unusable War rights; authentic
+original target/threat; outstanding C Request; Request256 cap; prospective new
+share4096 key cap. Integrity/TTL/collision/output fault aborts, never denial.
+Target/reference failure refuses target_invalid; active pair War refuseswar_incompatible;
+expired C refusesexpired only where its genuine input still exists; outstanding
+R waitsprior_obligation (actual reciprocal loser), caps wait exact ProtocolCollection.
+Denied input has installed_requestnull and one defense_request_attempted only;
+no ID/success ordinal/C attempt/partial share is allocated.
+
+Accepted R is genuine phase8 flag1 Request17/targetWorld3/requester original H7
+AUTO success; full fields exact input plus id/dispositionpending. C.requestSome(R),
+statuswaiting/reasons[], preserve last_attempt and prior fulfillment. Atomic group:
+attemptedaccepted/nullreason/installedSome; defense_requested full R; changed C
+obligation_changed; intelligence_shared iff actual transport mutation (3 or4).
+Share ONLY exact target facts to key(defender,original observer,target), receivedT;
+original observation tick stays unchanged. New key consumes slot; newer original
+payload replaces; identical equal-tick or older retains stored received_tick and
+emits0. Equal observer/World/tick inconsistent payload is source-integrity fault,
+not last-write-wins. No transitive sharing or whole galaxy/rival private facts.
+
+At B consider ONLY surviving P-entry old pending IDs C-ID/R-ID against actual
+post-R W/ledger and defender original H7. True lifecycle invalidity ends Request
+through owning cause, no nonexistent-row consideration. Then first response cause:
+missing/stale original action intelligence waits its explicit tag; strict own
+category0 recovery or genuine admitted contrary structural/account contributor
+waitsprior_obligation. Build finite ORIGINAL whole own Fleet alternatives, current
+physical/reference/Supply/path/needs/structural guards, separate LawfulNow from
+DeclarationOnly lacking ONLY War against exact named enemy. Lawful local nonoffensive
+Defend requires no invented offense. Unknown nonpermission inputs wait, never empty
+Fleet proof. LawfulNow feasible accepts. Only DeclarationOnly searches original
+actually eligible still-unattempted reachable War CandidateTrace against exact enemy
+with its original force and current queue/guards. Rejected R identity or filled Fleet
+lane cannot retry. Genuine candidate dependency waitsdeclaration_required{enemy,
+war_candidate_identity_bytes}; otherwise known no feasible action refusesno_eligible_fleet.
+No post-capture new plan, reserve, order, payment, declaration or fulfillment follows.
+
+Contrary-holder comparison uses same original alternatives/current physical inputs:
+F_actual versus removal ONLY of earlier genuinely contrary resource/floor/structural
+entries. Never remove own strict recovery, real prior debit, current canonical order
+or permission failure. If a different lawful Fleet remains, accept; one blocked
+candidate is no veto. Exact private witness selector is lowest(holder targetID,
+holder actorID,holder identitybytes) among causal participants, reproducible from
+P/R/B, no forged pre-R winners. Persistent installed-action conflict has its own
+exact predicate, not erased by a counterfactual ledger. No accepted R owns a Fleet.
+
+Every actual consideration emits defense_request_considered with exact old/new
+RequestDisposition,T,outcome/reason, no Decision; then full R Change iff disposition
+changes, then full C fact iff byteschange. C.last_attempt=T once; accepted→waiting/[];
+wait→waiting/[exact mapped cause]; refused→waiting/[recipient_refused], Rrefused.
+Missing/stale map exact new ObligationReason; declaration_required unit is backed
+by full private candidate dependency fact. Prior fulfillment is unchanged. Waiting
+R unchanged has no fake Change. Acceptance does not count contribution. Full
+candidate-bearing consideration is defender/authority/replay only, not requester
+canonical export; safe requester notice omits identity/force/account/source hash.
+
+### Continuing C rights and immediate cause groups
+
+Acceptance relation/Demand/connection thresholds are NOT automatic revocation.
+C original ID/created/Terms/parties remain authentic through same-Terms expiry-only
+renewal; EditCommitment may not change Terms. New Terms requires actual remove/new
+instance. Live C has created<=T<expires and required actual references. Transit/
+Defense usability excludes active same-pair War only; third-party War does not
+revoke treaty. Existing otherwise usable C is compatible with Truce, which grants
+no new rights and still blocks new Access/Defense acceptance/offense.
+Supply additionally needs exact original Worlds/Route/C/parties, current matching
+endpoint owners and Route.suspendedfalse. Original Demand/relations/current stock/
+connection changes alone never revoke fixed rights; actual dispatch still guards.
+
+Freeze retained C-ID roster at each real cause. First causes: missing participant
+end; expiry end; genuine Supply World/Route removal end; source owner mismatch,
+receiver mismatch, sticky Route suspension→suspended/[endpoint_changed]; active
+same-pair War→suspended/[war_incompatible]; otherwise preserve nonsuspended bytes.
+War-only suspended recoversready/[] if no stronger cause, preserving attempt/prior
+pointer; never restores guessed old status. Endpoint latch clears ONLY legal actual
+SetRouteSuspended true→false with exact original binding/current owners/no active
+War: direct Route Change then dependent Cready/[], preserving all other fields.
+Already-false repeat does not clear planted endpoint reason. EditRoute/owner equality/
+War end/renewal is no substitute. Binding corruption is fault, not silent end repair.
+
+Defense target capture/removal, actual C/party removal/expiry, same-pair War or later
+authenticated absence of SAME named threat ends R once. Stale/unknown absence or
+another enemy does not prove cessation. End primary, ascending exact originally
+bound Fleet full order-null Changes in one operation_changed iffchanged, then one
+coalesced C request/status fact. Preserve paid location/Hulls/Supply/credit/passengers,
+last_attempt and prior fulfillment. Request-only waiting reasons resetready/[] only
+if selected continuing rights valid; fulfilled persists absent real suspension.
+C end emits commitment_ended, bound Route removal iffpresent, remaining R end and
+bound Fleet cleanup iffpresent; paid Shipments retain historical dispatch linkage.
+No dangling R/C/Fleet binding publishes. Full C-ID roster max256, Fleet<=256,
+no unrelated treaty/endpoint resemblance or new replacement revisit.
+
+Place actual cause adapters after primary World capture/status/workforce before
+next World, after War end/Truce pair or current War installation/start before later
+region work, and inside exact creator aggregate effects for owner/reference edits.
+Autonomous group source is its full original per-C actor-null prefix/T/actual phase,
+latest applied creator cursor. Only registered cause→adapter interval may temporarily
+contain stale derived eligibility; never completed import. Changed before/after
+emits1 C fact; byte-equal emits0/ordinal0. Bare scan never updates last_attempt or
+fulfillment. Creator group emits aggregate direct/indirect Changes, never duplicate
+autonomous obligation/end facts. Capture/War/removal are immediate at off100 too;
+due R then C ends are phase2 every advancing boundary, not delayed protocol100.
+
+Accepted bound Defend's explicit DefenseActionBinding is original R ID/created,
+C ID/created, Threat digest; only Defend may nonnull. Current validates live accepted
+R, exact parties/defenderFleet owner, targetrequester-owner, C.request exact, active
+usable original duty and independent original intelligence/path/Supply. Multiple
+original applicable Requests create separate ascending-ID binding alternatives,
+no new score or post-B insertion; a pending H7 R can be preformed then genuinely
+accepted atB. Refused H7 yieldsnone. Request accepted alone has no force escrow.
+Installed genuine bound Defend is protected against autonomous contrary replacement/
+Board/split/merge/roster destruction until owning end; other Fleet/unrelated War is
+not alliance veto. Creator transformations explicitly cancel old bound action before
+new roster, never clone/transfer contribution. Actual incompatible current bound
+order fails earlier reference/order guard; transient actual holder fails stage9.
+Terminal outcome/Request end preserves original action history, never C2 credit.
+
 Every successful paid dispatch freezes its exact route, optional CommitmentBinding,
 withdrawn resource/units and pre-dispatch SnapshotReference in ManifestProvenance.
 terms_digest is SHA256(NYON_LIVING_V3_TREATY_TERMS followed by one NUL, then canonical
@@ -2134,6 +3315,60 @@ terms must be identical, otherwise it is a new commitment. Old receipts remain
 immutable. Overlapping same-party/same-kind commitments with identical terms
 reject; incompatible terms require explicit expiry/removal before replacement.
 
+### Exact Secure endpoint sampling and objective witnesses
+
+Enumerate each public Lane's actual endpoint World Cartesian product in World-ID
+order, then eligible whole own Fleets and each selected pair World as arrival.
+With512 total Worlds and distinct endpoint Systems the product is at most65,536;
+stream candidates/hash/best/head with shared-budget rescans, no retained product,
+top-N cutoff or guessed System owner. Secure local tie inserts world_a/world_b
+following objective target/peer and before arrival/Fleet/Hull bytes. Target stays
+Lane. Each initial objective is pending/count0/last_evaluated null/witness null.
+
+At a100-boundary evaluate pending objectives under original H7 capture in War-pair
+then actor-ID order. Secure first checks its fixed live Lane/pair topology; missing
+or relocated endpoint/broken Lane System membership invalidates/count0. Distance
+alone does not invalidate. Then owned success requires BOTH chosen Worlds owned
+by actor. Negotiated success requires EACH endpoint either own or foreign-owned
+with its exact active usable actor/owner Transit C, with at least one actual
+foreign Transit. Distinct foreign owners can require two contracts. Null owner
+cannot satisfy negotiated success. Actual ordinary destination permissions must
+pass for both endpoints; no unrelated C, Trade, pending Offer or new same-T Transit
+creates a sample. Foreign ownership must be authorized observed at this T; own
+full records are exact. Stale/unknown ownership or permission resets pending count0,
+last_evaluated=T; no hidden-root absence or age300 offensive waiver applies here.
+
+A complete positive sample increments iff previous sample was T−100 under the
+SAME objective instance, else begins1; cap3 succeeds. Complete negative or unknown
+resets0. Every visited pending evaluation records T and one objective_changed iff
+bytes change. Terminal succeeded/invalid latches without later reevaluation/fact.
+Creator deletion/World relocation/Lane-endpoint edit invalidates each affected
+pending row before aggregate validation, retaining original IDs/pair and prior
+pointer; terminal rows remain byte-identical. Repeated invalidation emits no phantom
+change. Exact containing War before/after appears once in creator direct/indirect
+effects; no substituted endpoint, autonomous success or fabricated observation.
+
+Objective instance is original War installation plus its genuine last replacement
+operation in retained ancestry, not equal bytes. Only actual terminal
+objective_changed or creator-dependent pending→invalid aggregate War Change is
+an outcome-witness producer. Pointer-only installation and pending counter samples
+are not producers. Producing State retains prior Anchor P; next advancing boundary
+phase2 handoff installs the original sealed terminal producer Anchor once for the
+same surviving instance. Creator invalidation keeps its actual intervention/cascade
+EventReference kind. Phase1 captures prior P before handoff; paused creator/save/
+reopen/fork never consumes a handoff or installs its own receipt Anchor. Child uses
+only genuine inherited ancestry; parent future is excluded. Removed/replaced
+objective skips installation, never transfers to identical replacement.
+
+Defense fulfilled-action pointers use the same next-ordinary phase2 cadence with
+the genuine exact C/R/action producer. Same live C may consume after R legitimately
+ends, preserving current status/reasons/request/attempt; removed/expired/replaced C
+skips. A real action at T followed by later capture/War retains its historical
+eligibility, not final-owner hindsight. Supply pointer handoff remains phase3
+block0. No handoff repeats evaluation/payment/contribution or produces another
+handoff-chain event. Pending source/copy/replay and cleanup share remaining visits;
+mandatory pointer capacity fault aborts the complete unpublished boundary.
+
 Every installed war records both objectives, attached atomically. An autonomous
 declarer enumerates only its own objective/force and peer under its own immutable
 post-phase7 capture; the defender objective is excluded from identity/score/order.
@@ -2146,11 +3381,15 @@ WarAdmissionAudit binds those captures/unchanged identity/selection. Only succes
 installation discloses the public defender objective; its force/account audit remains
 defender-private. There is no intermediate one-objective War or recaptured actor
 queue. This replaces the earlier actor-declaration two-objective requirement.
-Creator ForceWar explicitly supplies both. Objective completion/invalidation
-records an Anchor and proposes Peace. The other participant considers it at the
-next diplomacy boundary using only its own permitted observations and the stated
-achievability formulas. Refusal remains in peace with reason and considered_tick;
-a later relevant objective/observation change may repropose with a new created_tick.
+Creator ForceWar explicitly supplies both exact pending constructors. Actual
+objective completion/invalidation records its complete outcome while retaining
+prior witness; its sealed producer Anchor is installed only at next advancing
+ordinary phase2. K may propose from that authentic terminal same-instance result
+without a self-Receipt pointer. The other participant considers only an older
+proposal at the next actual100 diplomacy boundary using original permitted
+observations and supported true/false/unknown achievability. Refusal retains its
+full reason/considered_tick; retry requires the exact finite semantic-baseline
+comparison above, never time/pointer-only changes.
 Acceptance/expiry converts the exact reserved treaty key under Derived future
 Truce capacity, removes War and emits its autonomous end fact before the300-tick
 Truce. Expiry occurs at phase2 end-exclusive deadline without waiting for another
@@ -2244,6 +3483,140 @@ Define DirectVisible(A,w) from validated current base records as: w.owner=A OR a
 
 All permitted retained Observation/shared/request original scope facts feed I1 before world projection. Latest scope selection, negative coverage, latest child INCLUDING expired then chosen expiry then each-family128 fault follow I1 unchanged. Original source geometry/tick/observer authenticate at the source boundary; current World moves, received_tick or fleet traversal never refresh it. ActorInputContext/outer SnapshotReference shapes and domain bytes remain unchanged, but the32-field permitted hash and dependent traces/AUTO frames require fresh derivation.
 
+### Closed actual dispatch, protocol and combat carriers
+
+The following are required full V3 declarations. All options are explicit;
+records use displayed field order and tagged unions type-first. No aliases,
+free-text reason, fake paid ID or omitted field is admitted.
+
+```text
+MovementPermissionFailure = settlement_target_owned { world:ID, owner:ID }
+ | defense_target_unowned { world:ID }
+ | defense_request_required { world:ID, owner:ID }
+ | binding_target_owner_changed { world:ID, expected_owner:ID, actual_owner:Option<ID> }
+ | offensive_target_not_enemy { world:ID, actual_owner:Option<ID> }
+ | truce_active { war_a:ID, war_b:ID, end_tick:Tick }
+ | offensive_war_missing { world:ID, owner:ID }
+ | no_transit_right { world:ID, owner:ID }
+ | defense_duty_unavailable { request:ID, commitment:ID, cause:DefenseDutyCause }
+DefenseDutyCause = request_not_accepted | request_interval_ended |
+ commitment_interval_ended | commitment_suspended | request_pointer_changed |
+ requester_defender_war_active
+FleetDispatchBlock { fleet:ID, owner:ID, origin:ID, target:ID, order:FleetOrder,
+ attempted_tick:Tick, reason:FleetDispatchBlockReason }
+FleetDispatchBlockReason = return_target_not_owned { current_owner:Option<ID> }
+ | recovery_not_eligible { predicate:RecoveryPredicate }
+ | launch_account_unavailable { current_owner:Option<ID> }
+ | no_route | permission_denied { predicate:MovementPermissionFailure }
+ | supply_unavailable { readiness:SupplyReadiness }
+ | hull_delivery_reserved { job:ID }
+ | declaration_force_reserved { actor:ID, candidate_identity_bytes:String }
+ | return_credit_missing { hull:ID }
+ | physical_energy_unavailable { world:ID, required:u32, available:u32 }
+RecoveryPredicate = actor_not_dormant | target_not_unowned | ark_absent | target_unknown
+DispatchReservation { world:ID, resource:Resource, physical_stock:u32, floor:u32,
+ protected_floor:u32, required:u32, available:u32, self_held:u32, self_floor:u32,
+ holders:Vec<DispatchHolder> }
+DispatchHolder { actor:ID, origin:HoldOrigin, consumer:HoldConsumer,
+ quantity:u32, protected_source_floor:u32 }
+HoldOrigin = candidate { phase:u16, lane:u32, identity_bytes:String }
+ | older_offer { offer:ID }
+HoldConsumer = route { id:ID } | fleet { id:ID }
+ProtocolCollection = demand_requests | defense_requests | shared_intelligence
+ProtocolFailure = target_invalid { world:ID }
+ | capacity { collection:ProtocolCollection, limit:u32, occupied:u32 }
+DefenseRequestInput { commitment:ID, requester:ID, defender:ID, target_world:ID,
+ created_tick:Tick, expires_tick:Tick, originating_observer:ID, observed_tick:Tick,
+ observation:ObservationFacts, threat:ObservedThreat }
+DefenseRequestAttempt { input:DefenseRequestInput, outcome:DefenseProtocolOutcome,
+ reason:Option<DefenseProtocolReason>, installed_request:Option<ID> }
+DefenseProtocolOutcome = accepted | refused | waiting
+DefenseProtocolReason = target_invalid | war_incompatible | expired |
+ prior_obligation | no_eligible_fleet | recipient_refused | missing_intelligence |
+ stale_intelligence |
+ declaration_required { enemy:ID, war_candidate_identity_bytes:String } |
+ capacity { collection:ProtocolCollection, limit:u32, occupied:u32 }
+RetreatOutcome = departed | blocked
+RetreatReason = hull_delivery_reserved { job:ID } |
+ missing_return_credit { hull:ID } | no_owned_colony | no_route
+CombatAction { attacker:ID, attacker_fleet:Option<ID>, attacker_owner:ID,
+ target:ID, target_fleet:Option<ID>, target_owner:ID, war:Pair,
+ nominal_damage:u32, realized_damage:u32,
+ defense_request:Option<DefenseActionBinding> }
+DefenseShot { attacker:ID, target:ID, nominal_damage:u32, realized_damage:u32,
+ readiness:SupplyReadiness }
+DefenseCombatAction { binding:DefenseActionBinding, requester:ID, defender:ID,
+ world:ID, enemy:ID, shots:Sorted<DefenseShot>, total_realized_damage:u32,
+ credit_realized_damage:u32, outcome:DefenseCombatOutcome }
+DefenseCombatOutcome = contributed | no_realized_damage | readiness_denied
+```
+
+Movement purpose ownership precedes topology, then treaty/duty; active Truce
+precedes missing active War. Binding instance/type mismatch is earlier reference/
+order failure, not a substitute permission enum. Cause order follows the listed
+DefenseDutyCause predicates; no ended/dangling binding survives completed State.
+Retreat failure order is paid HullJob, missing Hull credit, no owned Colony, no route.
+FleetDispatchBlock copies its actual complete order and owns no new Decision,
+ResourceFact, travel clock or AUTO ordinal. Its physical failure requires D>0 and
+available<D; every Hull/job/declaration witness resolves to this exact real Fleet.
+
+Dispatch holders are EVERY other active positive account entry in original causal
+admission order, not actor/ID sort or winner-only truncation. Quantity>0;
+unique consumer/account. Global active-entry bound2240 (Route2048 + at most
+16*3*4 accepted lane/account entries192); one Route resource claim includes its
+older-Offer origin, not an extra64. Floors MAX-coalesce, cargo quantities add.
+Exact witness recomputes H/B/self/other and H+B<=physical_stock, never redefines
+physical P. Full bytes are authority/creator/replay only. Actor filtering removes
+whole private carriers. A separate noncanonical own cause notice requires
+authentic producer-prefix Fleet.owner or Route.source_owner equal to that selected
+actor (receiver/current ownership grants nothing), and the
+notice Event in the selected HistoryTip eligible ancestry (parent only through
+fork); present ownership is insufficient. Missing/unsupported locator, wrong catalog/
+branch, missing replay provenance or unauthenticated subject yields no notice,
+never owner fallback. Original owner may retain notice after capture/removal;
+later owner receives none for the earlier producer. Notice contains ONLY subject
+ID and constant “Dispatch was constrained by reservations.” Coalesce paired
+Route/blockade carriers by authentic private actual operation identity, not equal
+tick; never expose that key. It exposes no holder count/identities, quantities,
+account location, source hashes, rival stock or candidate identities and cannot
+be copied into Actor32/scoring or portable canonical history.
+No redacted canonical Event is exported. Holder traversal/byte copies count under remaining visits and receipt caps.
+
+Defense attempt input is ID-free and denied installed_request=null consumes no
+Request AUTO success ordinal. Accepted input/ID must match the actual full new row;
+request expiry/observation/threat/source are authentic original values. Consideration
+has no fresh Decision or material lane; its declaration_required identity is a
+DEFENDER-only complete canonical carrier because it contains private ForceWitness.
+Requester may see only a separately derived known-enemy willingness/cause notice.
+
+Facts.combat with its complete CombatAction array and Facts.defense_action
+with complete DefenseCombatAction/shots are whole-carrier creator/replay
+authority-only. Actor panels receive neither a selectively redacted array nor
+raw target allocation, rival HP, actual private Supply proof or source metadata.
+A separate noncanonical own-duty semantic notice may derive from authenticated
+original action ownership and permitted original C/R history at selected history
+tip/eligible ancestry. It shows only original own Request ID, target/named enemy
+already authorized by that Request, and contributed / attempted without
+creditable damage / attempted without current Supply. The last explains only
+original defender readiness. No shot count, target Hull IDs/HP, rival accounts,
+source/action/Receipt digests, private force/audit or unauthorized history is
+exposed. Original ownership governs after capture/removal; later owner gains no
+earlier notice. Requester receives only its legitimate public C result, not
+defender action ledger. Missing proof fails closed. This is derived presentation,
+never a redacted canonical carrier or planning/Trace input.
+
+Combat actions sort by attacker ID, bounded4096. Damage allocation visits target
+ID then attacker ID and assigns min(nominal,remaining pre-round HP), checked; sum
+realized equals actual HP loss. All pre-round shots fire even if attacker dies.
+Battery damage contributes ordinary allocation but no Request credit. Defense
+shots sort(attacker,target), max2048 Hull shots/group; groups<=256. Current supplied
+positive matching named-enemy Escort damage alone contributes credit; no docking,
+order, presence, creator damage or overkill nominal count qualifies. Association
+may remain recorded on nonqualifying shots, never mislabels them contributed.
+Readiness is genuine pre-round current T<deadline; later phase5 renewal cannot
+retroactively grant credit. Outcomes: contributed iff credit>0; otherwise
+no_realized_damage if any supplied matching shot, else readiness_denied.
+
 EventKind contains every frozen LivingEventKindV3 variant plus:
 needs_paid, needs_shortfall, population_changed, workforce_changed,
 passengers_boarded, passengers_unloaded, passengers_lost, research_progress,
@@ -2255,7 +3628,9 @@ commitment_renewed, commitment_ended, obligation_changed, defense_requested,
 defense_request_ended, intelligence_shared, objective_changed, peace_proposed,
 peace_refused, fleet_supplied, fleet_supply_unavailable, blockade_restriction,
 intent_decided, operation_changed, route_attempted, creator_cascade, candidate_audit,
-defender_objective_audit, war_admission_audit, needs_reserved, declaration_hold.
+defender_objective_audit, war_admission_audit, needs_reserved, declaration_hold,
+retreat_blocked, fleet_dispatch_blocked, dispatch_reservation_blocked,
+defense_request_attempted, defense_request_considered, defense_action_recorded.
 This list is closed. No arbitrary text reason replaces a typed fact.
 
 EventPayload fields: `phase:u16, ordinal:u32, provenance:Provenance,
@@ -2263,8 +3638,8 @@ kind:EventKind, facts:Facts`. Facts is the tagged union below. Allowed kinds:
 
 | Facts tag and exact fields | Allowed EventKinds |
 | --- | --- |
-| change { changes:Vec<Change> } | creator_intervention,creator_cascade,civilization_dormant,civilization_reactivated,colony_captured,construction_cancelled,construction_completed,hull_completed,hull_destroyed,refund_discarded,settlement_claim_opened,settlement_claim_resolved,agreement_expired,agreement_formed,war_declared,war_ended,hazard_started,hazard_ended,operation_changed |
-| combat { world:ID, before:Vec<Record>, after:Vec<Record>, damages:Sorted<Damage> } | combat_round |
+| change { changes:Vec<Change> } | creator_intervention,creator_cascade,civilization_dormant,civilization_reactivated,colony_captured,construction_cancelled,construction_completed,hull_completed,hull_destroyed,refund_discarded,settlement_claim_opened,settlement_claim_resolved,agreement_expired,agreement_formed,war_declared,war_ended,operation_changed |
+| combat { world:ID, before:Vec<Record>, after:Vec<Record>, damages:Sorted<Damage>, actions:Sorted<CombatAction> } | combat_round |
 | operation { world:ID, facility:Option<ID>, recipe:RecipeFacts, resources:Sorted<ResourceFact> } | facility_blocked,facility_produced |
 | fleet_motion { fleet:ID, origin:ID, destination:ID, departure_tick:Tick, arrival_tick:Tick, resources:Sorted<ResourceFact> } | fleet_arrived,fleet_departed |
 | shipment { manifest:Shipment, recipient:Option<ID>, resources:Sorted<ResourceFact> } | shipment_captured,shipment_delivered,shipment_dispatched,shipment_returned,shipment_waiting |
@@ -2273,6 +3648,7 @@ kind:EventKind, facts:Facts`. Facts is the tagged union below. Allowed kinds:
 | passengers { hull:ID, world:Option<ID>, owner:ID, before:u32, after:u32, population_before:Option<u32>, population_after:Option<u32> } | passengers_boarded,passengers_unloaded,passengers_lost |
 | research { actor:ID, technology:Slug, before:Research, after:Research, lab:Option<ID>, resources:Sorted<ResourceFact> } | research_progress,technology_completed,technology_revoked,research_target_changed |
 | environment { world:ID, before:Environment, after:Environment } | environment_updated |
+| hazard { record:Hazard } | hazard_started,hazard_ended |
 | stellar { record:StellarEvent } | stellar_warning,stellar_started,stellar_ended |
 | omission { star:ID, due_tick:Tick, proposed_kind:Slug, capacity:u32 } | environment_capacity_omission |
 | demand { before:Option<DemandRequest>, after:Option<DemandRequest>, reason:Option<ObligationReason> } | demand_posted,demand_expired,request_capacity |
@@ -2284,13 +3660,19 @@ kind:EventKind, facts:Facts`. Facts is the tagged union below. Allowed kinds:
 | objective { war_a:ID, war_b:ID, before:WarObjective, after:WarObjective } | objective_changed |
 | peace { war_a:ID, war_b:ID, record:Peace } | peace_proposed,peace_refused |
 | supply { fleet:ID, before:Supply, after:Supply, resources:Sorted<ResourceFact> } | fleet_supplied,fleet_supply_unavailable |
-| dispatch { route:ID, commitment:Option<ID>, eligible_batch:u32, restricted_batch:u32, actual_dispatched:u32, blockers:Sorted<ID>, modifiers:Vec<Modifier>, reason:Option<ObligationReason> } | blockade_restriction,route_attempted |
+| dispatch { route:ID, commitment:Option<ID>, eligible_batch:u32, restricted_batch:u32, actual_dispatched:u32, blockers:Sorted<ID>, modifiers:Vec<Modifier>, reason:Option<ObligationReason>, reservation:Option<DispatchReservation> } | blockade_restriction,route_attempted |
 | decision { record:Decision } | intent_decided |
 | candidate_audit { record:CandidateAudit } | candidate_audit |
 | defender_objective_audit { record:DefenderObjectiveAudit } | defender_objective_audit |
 | war_admission_audit { record:WarAdmissionAudit } | war_admission_audit |
 | needs_guard { operation:NeedsGuardOperation, reason:NeedsReserved, outcome:NeedsGuardOutcome } | needs_reserved |
 | declaration_hold { record:DeclarationHold } | declaration_hold |
+| retreat { fleet:ID, world:ID, before:Fleet, after:Fleet, destination:Option<ID>, outcome:RetreatOutcome, reason:Option<RetreatReason> } | fleet_departed,retreat_blocked |
+| fleet_dispatch_block { record:FleetDispatchBlock } | fleet_dispatch_blocked |
+| dispatch_reservation { fleet:ID, record:DispatchReservation } | dispatch_reservation_blocked |
+| defense_request_attempt { record:DefenseRequestAttempt } | defense_request_attempted |
+| defense_request_consideration { request:ID, before:RequestDisposition, after:RequestDisposition, tick:Tick, outcome:DefenseProtocolOutcome, reason:Option<DefenseProtocolReason> } | defense_request_considered |
+| defense_action { record:DefenseCombatAction } | defense_action_recorded |
 
 ResourceFact `{role:ResourceRole, resource:Resource, quantity:u32}` sorts by
 (role,resource); roles discarded/input/output/paid/refund/transferred.
@@ -2322,20 +3704,27 @@ Add DecisionReason `workforce { world:ID, required:u32, available:u32 }`,
 `obligation { commitment:ID, reason:ObligationReason }`,
 `supply { fleet:ID, readiness:SupplyReadiness }`,
 `needs_reserved { world:ID, resource:Resource, physical_stock:u32, held:u32, required:u32 }`
-and unit no_valid_defender_objective to the frozen reason union. BlockedReason also
+and unit no_valid_defender_objective plus `protocol { failure:ProtocolFailure }`
+to the closed reason union. Protocol is only the defined candidate-null free
+producer, never a made-up material capacity or C-specific reason. BlockedReason also
 adds needs_reserved with those exact fields. No physically present held stock is
 reported as MissingInput.
 
 Receipt payload field order: `tick, applied_revisions, events, state_digest`.
 Events in this payload are EventPayload with NO event ID; applied revisions
-sort by full RevisionID, while event order is authority emission order.
+sort by full RevisionID. Events follow stable phase1..12 producer buffers;
+within each phase preserve actual local group emission order. Logical mixed
+P/R/B/O/H/K/M/F/A mutation/fault order is reconstructed independently and must
+not be replaced by reporting partition order.
 ReceiptDigest hashes the payload; EventID derives afterwards. Public Receipt:
 `tick, applied_revisions, events, state_digest, digest`, where each public event
 adds id BEFORE the EventPayload fields. No digest input contains its own hash,
 event IDs or an Anchor to the same receipt. Any event witness for the current
-boundary is installed in the next boundary, after sealing; objective/obligation
-state stores its latest PRIOR authenticated Anchor, while the current outcome
-is fully evidenced in this boundary's fact. This delay avoids a state/receipt
+boundary is installed only at the next advancing ordinary owning handoff: phase2
+for objective/Defense outcome, phase3 for paid Supply delivery. Creator-only or
+paused publication, read/save/reopen/fork consumes neither handoff. Objective/
+obligation state stores its latest PRIOR authenticated Anchor; the current
+outcome is fully evidenced in this boundary's fact. This delay avoids a state/receipt
 hash cycle and must be reviewed for its UI and witness implications.
 
 EventKind's frozen ordinary variants are exactly: agreement_expired,
@@ -2356,7 +3745,7 @@ Additional ASCII domains, each including exactly one final NUL:
 `NYON_LIVING_V3_GENESIS_ENTITY`, `NYON_LIVING_V3_CREATOR_ENTITY`,
 `NYON_LIVING_V3_AUTO_ENTITY`, `NYON_LIVING_V3_FORK_BRANCH`,
 `NYON_LIVING_V3_OBSERVATION`, `NYON_LIVING_V3_TRANSFER`,
-`NYON_LIVING_V3_COORDINATOR`. Parent PACK/STATE/GENESIS/ROOT_BRANCH/REVISION/
+`NYON_LIVING_V3_COORDINATOR`, `NYON_LIVING_V3_CLAIM_RANK`. Parent PACK/STATE/GENESIS/ROOT_BRANCH/REVISION/
 RECEIPT/EVENT/ARCHIVE/NOTEBOOK domains retain their literal bytes.
 
 Stable entity kind u16le registry: system1, star2, world3, lane4, civilization5,
@@ -3178,7 +4567,7 @@ AdmissionTerms is a closed tagged enum with type first and these exact variants:
 | construction | world:ID, definition:Slug, scrap:Option<ID>, alloy_paid:u32, slot_count:u32 |
 | hull | world:ID, definition:Slug, target_fleet:Option<ID>, alloy_paid:u32, reserve_new_fleet:bool |
 | route | source:ID, destination:ID, resource:Resource, existing_route:Option<ID>, kind:RouteKind, batch_size:u32, cadence_ticks:u32, source_reserve:u32, source_owner:ID, receiver_owner:ID, commitment:Option<ID>, next_due:Tick |
-| movement | fleet:ID, kind:FleetOrderKind, target:ID, lane_path:Vec<ID>, departure_not_before:Tick, departure_payments:Sorted<ResourceAmount> |
+| movement | fleet:ID, kind:FleetOrderKind, target:ID, lane_path:Vec<ID>, departure_not_before:Tick, departure_payments:Sorted<ResourceAmount>, objective:Option<ObjectiveKey>, defense_request:Option<DefenseActionBinding> |
 | board | hull:ID, world:ID, count:u32 |
 | offer | proposer:ID, recipient:ID, kind:TreatyKind, terms:Terms, demand:Option<DemandKey>, renewal_of:Option<ID> |
 | war | peer:ID, declarer_objective:WarObjective, declarer_force:ForceWitness |
@@ -3262,14 +4651,64 @@ exact fields; RecipeFacts.blocked can carry it. Guard facts accompany
 due supply/repair denial where no RecipeFacts exists.
 
 
-NeedsGuardOperation = facility { id:ID } | repair { fleet:ID } | supply { fleet:ID }.
+NeedsGuardOperation = facility { id:ID } | repair { fleet:ID } | supply { fleet:ID }
+ | hub_fallback { world:ID } | battery_repair { facility:ID }.
+Tagged JSON has type first, then the sole payload field; variant order is the
+order above. Facts.needs_guard retains operation/reason/outcome field order.
 NeedsGuardOutcome = denied | food_waiver. A denied guard consumes no inputs; its
-NeedsReserved also appears in blocked reasons. A food_waiver is only an otherwise
+NeedsReserved also appears in the corresponding producer's actual blocked-reason
+carrier where one exists; never fabricate RecipeFacts for Hub/repair/Supply. A food_waiver is only an otherwise
 valid atomic Food-producing facility recipe meeting scoring §6's exact exposure/
 funded-payment predicate; it emits this guard fact plus ordinary produced/resource
 facts, with no blocked reason on the successful recipe. Required/held/physical_stock
 refer to pre-recipe values; replay computes the exact without/with Needs comparison,
 never claims the hypothetical comparison is an already-paid needs result.
+
+### Exhaustive Needs guard subject, producer and privacy mapping (Proposed)
+
+| Operation | Typed subject and local account linkage | Genuine producer and companion cardinality | Legal outcomes |
+| --- | --- | --- | --- |
+| facility{id} | Facility kind7; Facility.world equals reason.world kind3; catalog effect is exact due recipe | phase5 periodic production/lab; guard immediately before primary facility event; guarded ordinary recipe has two events, successful Lab additionally retains its existing research event | denied; food_waiver only exact positive Farm waiver |
+| repair{fleet} | Fleet kind10; exact eligible damaged Hull selected by global entity-ID traversal; Docked World equals reason.world | phase5 Hull repair; one guard then one operation_changed with containing Fleet Change; no invented Hull field or per-Fleet aggregation | denied |
+| supply{fleet} | Fleet kind10; owned Docked World equals reason.world; exact live Hull count determines required Energy | phase5 Supply100; one guard then fleet_supply_unavailable | denied |
+| hub_fallback{world} | World kind3; operation.world equals reason.world; exact World Hub fallback branch, not a Facility | phase5 due Hub Alloy fallback; exactly one needs_reserved, no RecipeFacts or generic duplicate | denied |
+| battery_repair{facility} | Facility kind7; catalog Defense effect and Facility.world equals reason.world | phase5 battery repair; one guard then one operation_changed with battery Facility Change | denied |
+
+Every row uses actual phase5 pre-group full State source/latest creator cursor and
+null actor under §Production phase5 actual ownership and reports. This is neither
+AUTO allocation nor a new successful allocation ordinal. All exact producers use
+Energy guards; Resource remains the carrier type. All reasons retain field order
+world/resource/physical_stock/held/required. Farm waiver has no successful blocked
+reason. Hub's single event, repair's paired event, Supply's paired denial and Lab's
+additional research carrier remain their distinct genuine producers.
+
+Operation IDs and reason.world resolve to the typed records above in authenticated
+producer-prefix replay, never a current resident State after removal. Under §V3
+decoder stages, stage8 checks only supplied typed graph/history-locator evidence
+available WITHOUT executing/authenticating a producer. Truly preliminary supplied
+edge absence/foreign kind retains stage8 missing_reference/wrong_reference_kind;
+opaque IDs reveal no kind bits. Stage9 framed integrity precedes all historical
+producer reconstruction. Stage10 establishes original-prefix membership/kinds,
+operation/world/local-account/ownership links, selected Hull, amounts and genuine
+producer cardinality under the existing integrated replay order. A missing
+prerequisite replay reference remains stage10 missing_reference; reproduced facts
+differing from claimed subject/kind/link/amount/cardinality use stage10
+replay_mismatch. Existing stage10 Arithmetic faults retain invalid_range. Never
+backdate a replay-discovered fault to stage8 or substitute current resident State.
+Repair authenticates the selected Hull from traversal and exact Fleet Change;
+no new portable Hull reference or diagnostic is introduced.
+
+For ALL five rows, the full canonical guard contains private stock/hold quantities.
+Authority, creator and authenticated replay may read the full carrier. Own actor
+inspection may read it only when authenticated producer-prefix World.owner for
+reason.world equals that actor, with the corresponding owned Facility/Fleet links
+verified for the row. Remove the entire guard for every other actor; never redact
+canonical Event bytes or add guard stock/hold data to Actor32. Present ownership,
+current lookup, direct sight or receiving cargo grants no historical private data.
+Missing historical proof fails closed. This finite historical ownership rule is a
+Proposed clarification for independent review, not a pre-existing classifier;
+no new public safe-notice vocabulary is introduced.
+
 DeclarationHold { actor:ID, snapshot:SnapshotReference, candidate_identity_bytes:String,
 fleet:ID, world:ID, resources:Sorted<ResourceAmount>, released:bool }. Emit a hold
 fact with released=false after validation and a matching released=true fact at
@@ -3432,9 +4871,10 @@ receipt or event digest enters ActorInputContext or its trace.
 
 ## Integrated correction I5: creator fleet-order objective binding
 
-SetFleetOrder's required objective is explicit even when null. kind=null requires
-target_world=null, lane_path empty and objective=null, and sets order=null. A
-non-null kind builds the exact order from all submitted fields and objective;
+SetFleetOrder's required objective and defense_request are explicit even when null.
+kind=null requires target_world=null, lane_path empty and BOTH bindings null,
+and sets order=null. A
+non-null kind builds the exact order from all submitted fields and both bindings;
 null objective clears any old binding, nonnull replaces it. No implicit preservation
 or inferred War objective is permitted. Return/Explore/Settle/Blockade require
 objective=null. Attack/Defend/Move may bind only as follows: ObjectiveKey names an
@@ -3446,7 +4886,9 @@ Move still needs actual movement permission. All underlying order/path/clock/
 capacity validation remains required. An incompatible binding rejects the entire
 batch, consumes no IDs/funds and leaves the Fleet byte-identical.
 
-SetWarObjective that changes kind/target cancels every fleet order bound to that
+EVERY genuine SetWarObjective replaces that exact objective instance even for
+byte-equal submitted kind/target/pair, resets pending/count0/evaluated null/witness
+null and clears the entire War.peace. It cancels every Fleet order bound to that
 actor/pair; it does not silently retarget it. ForcePeace/war expiry/removal cancels
 all orders with that pair and clears any Blockade with that pair. reviewed_effects
 must contain each exact before/after Fleet and these cancellations. Already-paid
@@ -3555,12 +4997,12 @@ eligible-only hashing is not permission to hide traversal cost or truncate recor
 
 Let F be the complete valid Fleet record with id=f,owner=a,location=L,
 order={kind:attack,target_world:w,not_before_tick:t,lane_path:P,
-objective:{war_a:a,war_b:b,actor:a}},hulls=H,supply=S,blockade=null.
+objective:{war_a:a,war_b:b,actor:a},defense_request:null},hulls=H,supply=S,blockade=null.
 Here a<b, that actual War's a objective is pending Occupy w, and L/H/S/P are the
 original canonical validated values. These symbols stand for their entire input
 bytes, not omitted defaults. Complete return-after record is
 {id:f,owner:a,location:L,order:{kind:return,target_world:origin,
-not_before_tick:t2,lane_path:R,objective:null},hulls:H,supply:S,blockade:null},
+not_before_tick:t2,lane_path:R,objective:null,defense_request:null},hulls:H,supply:S,blockade:null},
 where origin/R/t2 are submitted validated return parameters. Complete cancel-after
 and ForcePeace-after record is
 {id:f,owner:a,location:L,order:null,hulls:H,supply:S,blockade:null}.

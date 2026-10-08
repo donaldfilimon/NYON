@@ -1,6 +1,6 @@
 # Living V3 diplomacy, logistics and conflict
 
-Date: 2026-10-01. Status: **Proposed numerical contract for review**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `2026-10-01-living-expansion-architecture.md`.
 Boundary order is the shared contract in `2026-10-01-living-ecology-rules.md`.
 This is an expansion design, not implemented or accepted V2 behavior.
@@ -26,7 +26,7 @@ Acceptance rules:
 
 | Offer | Eligibility | Terms |
 | --- | --- | --- |
-| Transit access | Both directed relations >=0; no war/truce; connected participants | Reciprocal movement through owned worlds/lanes for1200 ticks; no ownership or resource grant |
+| Transit access | Both directed relations >=0; no war/truce; connected participants | Reciprocal nonoffensive entry to participant-owned Worlds for1200 ticks; public System/Lane transit needs no treaty; no ownership or resource grant |
 | Resource supply | Both relations >=0; eligible direct route; recipient known demand | One exact source/destination/resource route, batch1..10, cadence10, source reserve >=20; duration1200 |
 | Mutual defense | Both relations >=40; no war/truce; connected participants | Reciprocal defense-request obligation for1200 ticks; no implicit offensive war or omniscient intelligence |
 
@@ -65,6 +65,53 @@ posts only its own shortage. Never disclose the receiver's complete stockpile.
 Renewal requires mutual eligibility at a diplomacy boundary; never automatic
 extension. Creator may set relations, create/remove exact commitments or cancel
 offers through explicit revisions and complete incompatibility previews.
+
+## Inherited free Trade/Nonaggression handshake
+
+These two legacy kinds are free bilateral protocol, NOT new three-kind Offers,
+material Candidate/Trace/attempt or diplomacy lane fills. H follows older OffersO
+and precedes PeaceK/remainingM. Freeze unordered H7 Active pairs a<b, max120;
+consider Trade then Nonaggression. Both original actor inputs must independently
+prove bilateral relations: Trade>=0 plus some valid own-Colony public graph
+connection; Nonaggression>=20 with NO connection requirement. Same System suffices;
+otherwise real public graph path. Missing Relation is exact source-defined0, not
+foreign account access. Both captures remain full phase7 and do not leak to peer.
+Retained same-kind Agreement, any retained same-pair War including future, or active
+Truce excludes captured attempt; current gain cannot create a new H7 proposal.
+
+For captured-eligible group revalidate current participants Active/references;
+no retained same-kind key; no retained War then no active Truce; both actual totals;
+Trade-only current valid Colony connection (alternate current own Colony pair may
+replace removed captured witness); treaty union slot; checked T+1200 and output.
+This is the exact free first-cause order. Old captured witness remains original
+H7 historical proof, so its removal alone is not reference_missing if current
+connection exists. Actual failure emits two rejected Decisions with one actual
+cause each, no Agreement. Capacity uses admission_capacity agreements_commitments,
+actor subject, limit256/reserved currentN; threshold uses each direction's actual
+BilateralThreshold. No connection uses path_unavailable. Current gains never rescore.
+
+Success installs exact Agreement kind/a/b/startT/endchecked(T+1200), no ID/AUTO,
+resources, Relation credit, objective or witness. Group: a intent_decided, b
+intent_decided, agreement_formed full one-key null→new Change/resources[]/delta0.
+Each free Decision phase8/candidate null/score0/tierordinary/targetSome(peer)/
+observed_ticknull/original H7/actionexactkind; success reasons BilateralThreshold
+then Accepted mutual_trade_with_connection|mutual_nonaggression. Current guard
+facts do not claim recomputed material utility. Failure has exact one reason.
+Actor/phase8 Decision ordinal includes earlier real free/material Decisions; H
+fills no lane and emits no CandidateAudit entry. Change actor-null source is real
+full pre-pair current prefix. No self Receipt/Event source.
+
+Active/future same-kind keys are never extended/replaced. Actual phase2 expiry
+removes once; at next100 H can mutually REFORM after fresh eligibility, with real
+off-grid gap and no backdated rights. Trade/Nonaggression/Truce keys cannot coexist
+with ANY retained same-pair War, even future. Autonomous War cannot delete them:
+actual H can block laterM, real category0R War blocks H. Creator ForceWar explicitly
+removes every same-pair legacy key in reviewed closure then installs/replaces War,
+counts future Truce once and executes active-now C/Request/order causes only if
+start<=T. Future install leaves current C rights until genuine phase2 crossing.
+Reciprocal creator SetAgreement explicitly removes same-pair War/bound invalid
+orders/Blockades before installation/recovery; no silent future lease theft or
+restoration of old legacy keys. Continuing C has independent ID/rights/capacity.
 
 ## Alliance intelligence and obligations
 
@@ -128,9 +175,19 @@ WarAdmissionAudit binds that later selection to unchanged declarer identity. Thi
 explicitly replaces the earlier actor-declaration two-objective requirement.
 Creator ForceWar still supplies both objectives directly as a free override.
 
-Objective success produces a peace proposal, not instantaneous unilateral peace.
-Accept peace when the responder's own objective is complete/invalid, its eligible
-observed force cannot achieve its objective, or war expires. War lasts1200 ticks;
+Objective terminal outcome can propose Peace, never unilateral conversion.
+K freezes actual ascending War-pair roster and entry Peace per pair. Older
+Proposed.created<T receives one response; none selects fresh terminal proposer,
+refused selects eligible semantic-change retry, created==T receives no response.
+Choose deterministic lower eligible proposer ID; newly refused never retries
+in that same K pass. Genuine same-actor objective outcome
+and original H7 classify achievable force TRUE/FALSE/UNKNOWN, never unknown defense0.
+Terminal succeeded/invalid or proven FALSE accepts. TRUE with actual matching
+eligible force refuses; TRUE blocked solely by actual strict recovery owner/holds
+DEFERs unchanged. UNKNOWN DEFERs unchanged. No consideration tick/event is invented
+for defer. A real refusal retains proposer/created, sets consideredT/statusrefused/
+reasonobjective_still_achievable and emits one exact peace_refused; original full
+Facts.peace record and installed reason must match. Natural expiry is phase2. War lasts1200 ticks;
 peace/expiry converts its reserved key to a300-tick truce at actualE. Natural
 expiry is phase2; completed/import War.end_tick>State.tick. A due inherited
 phase1 row retains its reservation until exactly one conversion; new/replacement
@@ -146,11 +203,85 @@ can reach its owned target and has strength >=observed hostile escort strength;
 no threat follows the explicit three-boundary success rule. War/truce and
 occupation remain nonterminal; an empty or conquered galaxy stays editable.
 
+Fresh Peace uses reasonobjective_complete or objective_invalid from actual terminal
+outcome, proposed status/createdT/considerednull, one peace_proposed full installed
+record. Existing Proposed is never overwritten. Refused retry compares genuine
+semantic original refusal baseline: same objective instance, target observation
+membership/strength/freshness class, actual original whole force/path/funding
+eligibility. Ignore raw timestamp/receipt/pointer/evaluation transport refresh alone;
+changed real predicate permits new proposal, no same-pass response. Actual War
+end atomically removes War/order/Blockade/occupation consequences, forms reserved
+Truce and exact continuing Request/Fleet/C groups, no fake universal two-event count.
+Unknown source replay remains Pending/fault, not force_unachievable success.
+Every genuine creator SetWarObjective resets the exact instance to pending/count0/
+evaluatednull/witnessnull and clears Peace even byte-equal replacement. Creator
+ForceWar constructs both sorted participant objectives reset likewise, peacenull,
+checked end=start+1200, end>application and representable end+300. Pending Secure
+submits exact live directional pair; other kinds null. No creator constructor may
+submit arbitrary success/witness, borrow old samples or masquerade as negotiated
+fulfillment. Paid location/Hulls/counts/credits stay intact under bound order cleanup.
+
 ## Fleet logistics and autonomous behavior
 
-Every docked owned hull pays existing energy costs at departure. Efficient
-logistics adjusts only that future departure cost. Existing paid return credits
-and travelling manifests remain immutable. No global supply pool is introduced.
+Ordinary paid Fleet motion is one origin-to-FINAL-World itinerary. A distinct
+same-System target takes10 ticks with empty path; otherwise use minimum checked
+sum of direct Lane durations max(10,ceil(distance_units/10)), tie by lexicographic
+decoded Lane-ID sequence. Intermediate Systems/Lanes are public unowned graph
+transit, with no docked waypoint, event, refuel, combat or continuation cursor.
+Paid duration/path/roster/payment remains authenticated by its original departure
+producer after future order edits. Later geometry, permissions or technology cannot
+halt/reprice it. Actual required endpoint removal uses explicit reviewed traveller
+relocation/destruction, never invented nearest placement, refund or fake credit.
+
+At actual owned nonReturn launch each Hull pays base2 Energy plus2 iff missing
+return_credit. Efficient Logistics applies ceil(3*base/4), minimum1, PER HULL,
+then checked sum in Hull-ID order. Two credited Hulls therefore pay4, not aggregate
+rounded3; this is an explicit NEW Proposed balance recommendation. Debit once,
+grant each Hull credit once. Return/exact credited Dormant Ark recovery pays0 and
+consumes every Hull credit once for the whole itinerary. Already paid travel never
+pays again. Shipment's immutable original-duration return is a separate producer.
+No global pool or forecast output funds a real departure.
+
+Actual ownership comes from World.owner: own iff Some(actor), unowned iff null,
+foreign iff Some(other actual issued participant). Colony absence never changes
+that category. Separate OwnedColony requires matching World and Colony owner and
+remains mandatory for Return/owned launch where prescribed. Missing World or nonnull wrong-kind/absent owner ID
+is a typed fault; owner=null is legitimate unowned. Actor formation uses own full World records or its authorized
+fresh ownership observations; absent/stale knowledge is UNKNOWN, not null.
+Actual authority may deny from real current ownership without enriching H7 scores.
+
+| Destination/order | Entry permission |
+| --- | --- |
+| Move/ordinary Explore | own/unowned allow; foreign requires active usable bilateral Transit |
+| Pure-scout Explore | nonoffensive discovery entry to any live World without asserting owner/Transit |
+| Settle | actual unowned target plus its own known habitability/Ark/claim purpose guards |
+| Return | actual OwnedColony destination plus whole credits |
+| Unbound Defend | actual own target plus its owning defense predicates |
+| Request-bound Defend | exact accepted live original R/C/threat and requester-owned named target |
+| Attack/Blockade | actual foreign enemy owner, active matching War and no active Truce |
+
+Transit grants no offense, settlement, stock, intelligence or ownership. Trade,
+Nonaggression, Supply, pending/future Transit and other Requests do not substitute.
+An accepted original bound Defend authorizes only that named nonoffensive entry,
+not generic allied Transit or declaration against its enemy. Required instance/
+typed references are checked first, destination-purpose ownership second, public
+topology third, then Truce-before-War offense or exact Transit/duty permission.
+Each first failure carries its finite schema witness, not guessed rival data.
+
+PureScoutRoster requires the entire nonempty whole Fleet to have scout-role Hulls,
+count0 and voyage_origin null. It contains no idle/order/location/hold predicate.
+H7 formation separately requires own Docked idle/funded/compatible whole Fleet and
+public target/path, with objective/request null. Unknown destination ownership never
+blocks that exact discovery family. Actual due Explore reuses current roster/kind/
+null bindings, not order=null; structural holders do not revoke entry and block only
+at their later guard. Changed mixed roster falls back to ordinary actual permission;
+central scores/identity stay original and standing dispatch creates no Decision.
+Discovery gives no combat immunity, occupation, cargo or offensive rights.
+
+Attack/Blockade and travelling Defend require supplied. Move/Explore/Settle retain
+nonoffensive travel eligibility without new military Supply requirement. Return,
+exact Dormant credited recovery and already paid travel allow unsupplied. Stationary
+own-world unbound Defend keeps its exception; this is no remote relief waiver.
 
 Add a fleet supply record: last supplied tick, supplying world and supplies paid.
 At an owned dock every100 ticks, one energy per hull funds supply through the next

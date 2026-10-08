@@ -22,7 +22,7 @@ The repository relocation and exact-baseline reconstruction are completed histor
 
 ## Run natively
 
-The repository pins `nightly-2026-09-01` in `rust-toolchain.toml`.
+The repository pins `nightly-2026-10-08` in `rust-toolchain.toml`.
 
 ```bash
 cargo run --release

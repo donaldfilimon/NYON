@@ -656,3 +656,1248 @@ fn edits_apply_to_existing_records() {
         Some(authority.revisions()[0].id)
     );
 }
+
+#[test]
+fn creator_replacement_is_publicly_admitted_from_authored_genesis_and_matches_staged_step() {
+    use nyon_workshop_core::living::*;
+    fn sorted<T: LivingKeyedV2>(row: T) -> LivingSortedVecV2<T> {
+        LivingSortedVecV2::new(vec![row]).unwrap()
+    }
+    let template = creator_fixture_with_lane();
+    let world = template.state().colonies.as_slice()[0].world;
+    let owner = template.state().colonies.as_slice()[0].owner;
+    let destination = template
+        .state()
+        .worlds
+        .as_slice()
+        .iter()
+        .find(|row| row.id != world)
+        .unwrap()
+        .id;
+    let fleet = template.state().fleets.as_slice()[0].clone();
+    let hull = fleet.hulls.as_slice()[0].clone();
+    let facility = template.state().facilities.as_slice()[0].clone();
+    let lane = template.state().lanes.as_slice()[0].id;
+    for kind in 0..8 {
+        let operation = match kind {
+            0 => LivingCreatorOperationV2::CreateFacility {
+                local: 0,
+                world: existing(facility.world),
+                definition: facility.definition.clone(),
+                status: facility.status,
+                paid_alloy: facility.paid_alloy,
+                hit_points: facility.hit_points,
+                next_due: facility.next_due,
+            },
+            1 => LivingCreatorOperationV2::CreateConstructionJob {
+                local: 0,
+                world: existing(world),
+                owner: existing(owner),
+                definition: slug("solar_array"),
+                accepted_tick: LivingTickV2(0),
+                completion_tick: LivingTickV2(100),
+                paid_alloy: 20,
+            },
+            2 => LivingCreatorOperationV2::CreateHullJob {
+                local: 0,
+                world: existing(world),
+                owner: existing(owner),
+                definition: hull.definition.clone(),
+                accepted_tick: LivingTickV2(0),
+                completion_tick: LivingTickV2(100),
+                paid_alloy: 20,
+                target_fleet: None,
+            },
+            3 => LivingCreatorOperationV2::CreateFleet {
+                local: 0,
+                owner: existing(owner),
+                world: existing(world),
+            },
+            4 => LivingCreatorOperationV2::CreateHull {
+                local: 0,
+                fleet: existing(fleet.id),
+                definition: hull.definition.clone(),
+                hit_points: hull.hit_points,
+                return_credit: false,
+            },
+            5 => LivingCreatorOperationV2::CreateRoute {
+                local: 0,
+                kind: LivingRouteKindV2::Internal,
+                source_world: existing(world),
+                destination_world: existing(destination),
+                resource: LivingResourceV2::Ore,
+                batch_size: 2,
+                cadence_ticks: 10,
+                source_reserve: 20,
+                source_owner: existing(owner),
+                receiver_owner: existing(owner),
+                next_due: LivingTickV2(10),
+            },
+            6 => LivingCreatorOperationV2::CreateShipment {
+                local: 0,
+                dispatch_owner: existing(owner),
+                intended_receiver: existing(owner),
+                source_world: existing(world),
+                destination_world: existing(destination),
+                resource: LivingResourceV2::Ore,
+                units: 2,
+                departure_tick: LivingTickV2(0),
+                arrival_tick: LivingTickV2(10),
+                disposition: LivingShipmentDispositionV2::Outbound,
+            },
+            _ => LivingCreatorOperationV2::CreateHazard {
+                local: 0,
+                definition: template.catalog().hazards()[0].id.clone(),
+                lane: existing(lane),
+                start_tick: LivingTickV2(1),
+                end_tick: LivingTickV2(10),
+            },
+        };
+        let mut operations = vec![operation];
+        if kind == 3 {
+            operations.push(LivingCreatorOperationV2::CreateHull {
+                local: 1,
+                fleet: LivingCommandTargetV2::Local { local: 0 },
+                definition: hull.definition.clone(),
+                hit_points: hull.hit_points,
+                return_credit: false,
+            });
+        }
+        let envelope = LivingCommandEnvelopeV2 {
+            expected_committed_revision: None,
+            expected_tick: LivingTickV2(0),
+            expected_pending_sequence: 0,
+            mode: LivingCommandModeV2::Running,
+            command: batch(operations),
+        };
+        let accepted = LivingAcceptedCommandV2 {
+            accepted_sequence: 1,
+            application_tick: LivingTickV2(1),
+            envelope: envelope.clone(),
+        };
+        let revision =
+            LivingRevisionV2::seal(template.catalog().catalog_hash(), SEED, None, &accepted)
+                .unwrap();
+        let (_, entity_kind, derived) = revision.created_entities()[0];
+        assert_eq!(
+            derived,
+            creator_entity_id_v2(revision.id, entity_kind.ordinal(), 0)
+        );
+        let mut state = template.state().clone();
+        match kind {
+            0 => {
+                let mut old = facility.clone();
+                old.id = derived;
+                old.disabled = true;
+                state.facilities = sorted(old);
+            }
+            1 => {
+                state.construction_jobs = sorted(LivingConstructionJobV2 {
+                    id: derived,
+                    world,
+                    owner,
+                    definition: slug("solar_array"),
+                    accepted_tick: LivingTickV2(0),
+                    completion_tick: LivingTickV2(90),
+                    paid_alloy: 40,
+                })
+            }
+            2 => {
+                state.hull_jobs = sorted(LivingHullJobV2 {
+                    id: derived,
+                    world,
+                    owner,
+                    definition: hull.definition.clone(),
+                    accepted_tick: LivingTickV2(0),
+                    completion_tick: LivingTickV2(90),
+                    paid_alloy: 40,
+                    target_fleet: None,
+                })
+            }
+            3 => {
+                let mut old = fleet.clone();
+                old.id = derived;
+                state.fleets = sorted(old);
+            }
+            4 => {
+                let mut parent = fleet.clone();
+                let mut old = hull.clone();
+                old.id = derived;
+                old.return_credit = true;
+                parent.hulls = sorted(old);
+                state.fleets = sorted(parent);
+            }
+            5 => {
+                state.routes = sorted(LivingFreightRouteV2 {
+                    id: derived,
+                    kind: LivingRouteKindV2::Internal,
+                    source_world: world,
+                    destination_world: destination,
+                    resource: LivingResourceV2::Ore,
+                    batch_size: 3,
+                    cadence_ticks: 10,
+                    source_reserve: 20,
+                    source_owner: owner,
+                    receiver_owner: owner,
+                    next_due: LivingTickV2(10),
+                    suspended: true,
+                })
+            }
+            6 => {
+                state.shipments = sorted(LivingShipmentV2 {
+                    id: derived,
+                    dispatch_owner: owner,
+                    intended_receiver: owner,
+                    source_world: world,
+                    destination_world: destination,
+                    resource: LivingResourceV2::Ore,
+                    units: 3,
+                    departure_tick: LivingTickV2(0),
+                    arrival_tick: LivingTickV2(10),
+                    disposition: LivingShipmentDispositionV2::WaitingForStorage,
+                    dispatch_kind: Some(LivingRouteKindV2::Internal),
+                    returning_to_source: true,
+                })
+            }
+            _ => {
+                state.hazards = sorted(LivingHazardV2 {
+                    id: derived,
+                    definition: template.catalog().hazards()[0].id.clone(),
+                    lane,
+                    start_tick: LivingTickV2(0),
+                    end_tick: LivingTickV2(9),
+                })
+            }
+        }
+        let genesis = validate_living_genesis_manifest_v2(
+            LivingGenesisManifestV2 {
+                kind: LIVING_GENESIS_KIND_V2.to_owned(),
+                format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+                rules_version: LIVING_RULES_VERSION,
+                state,
+            },
+            template.catalog(),
+        )
+        .unwrap();
+        let mut admitted = LivingGalaxyAuthorityV2::from_genesis(
+            template.catalog().clone(),
+            SEED,
+            generator(),
+            genesis,
+        )
+        .unwrap();
+        assert_eq!(admitted.submit(envelope).unwrap(), accepted);
+        let mut reference = admitted.clone();
+        reference.step().unwrap();
+        assert_eq!(reference.revisions()[0], revision);
+        assert_eq!(reference.revisions()[0].created_entities()[0].2, derived);
+        for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+            let mut actual = admitted.clone();
+            let capture = actual.capture_boundary().unwrap();
+            let mut job = actual.begin_step().unwrap();
+            let mut completed = false;
+            for attempt in 0..100_000 {
+                let budget = schedule[attempt % schedule.len()];
+                let progress = job.poll(budget).unwrap();
+                assert!(job.last_poll_visits() <= budget);
+                assert!(actual.boundary_capture_is_current(&capture));
+                assert_ne!(
+                    progress,
+                    LivingStepProgressV2::NeedsSynchronousCreatorOperation
+                );
+                if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                    completed = true;
+                    break;
+                }
+                assert_eq!(progress, LivingStepProgressV2::Pending);
+                assert!(
+                    job.last_poll_visits() > 0,
+                    "public Step Pending without work"
+                );
+            }
+            assert!(completed, "public replacement Step exceeded attempt bound");
+            let LivingStepPreparationV2::Ready(prepared) =
+                job.finish_synchronously(&actual).unwrap()
+            else {
+                panic!("expected completed step")
+            };
+            let retired = actual.commit_step(prepared).unwrap();
+            drop(retired);
+            assert_eq!(actual.state(), reference.state());
+            assert_eq!(actual.last_receipt(), reference.last_receipt());
+            assert_eq!(actual.last_decision(), reference.last_decision());
+            assert_eq!(actual.last_event_facts(), reference.last_event_facts());
+            assert!(actual.last_creator_recoveries().is_empty());
+        }
+    }
+}
+
+#[test]
+fn six_original_creator_constructor_collisions_reject_without_consuming_admission() {
+    use nyon_workshop_core::living::*;
+    fn add<T: LivingKeyedV2 + Clone>(
+        source: &LivingSortedVecV2<T>,
+        row: T,
+    ) -> LivingSortedVecV2<T> {
+        let mut rows = source.as_slice().to_vec();
+        rows.push(row);
+        rows.sort_by_key(LivingKeyedV2::living_key);
+        LivingSortedVecV2::new(rows).unwrap()
+    }
+    let base = creator_fixture_with_lane();
+    for kind in 0..6 {
+        let state = base.state();
+        let system = &state.systems.as_slice()[0];
+        let star = &state.stars.as_slice()[0];
+        let world = &state.worlds.as_slice()[0];
+        let lane = &state.lanes.as_slice()[0];
+        let civilization = &state.civilizations.as_slice()[0];
+        let deposit = &state.deposits.as_slice()[0];
+        let op = match kind {
+            0 => LivingCreatorOperationV2::CreateSystem {
+                local: 0,
+                name: name("Collision"),
+            },
+            1 => LivingCreatorOperationV2::CreateStar {
+                local: 0,
+                system: existing(star.system),
+                archetype: star.archetype.clone(),
+                name: name("Collision"),
+            },
+            2 => LivingCreatorOperationV2::CreateWorld {
+                local: 0,
+                system: existing(world.system),
+                archetype: world.archetype.clone(),
+                name: name("Collision"),
+                owner: None,
+                inventory: LivingInventoryV2::default(),
+            },
+            3 => LivingCreatorOperationV2::CreateLane {
+                local: 0,
+                system_a: existing(lane.system_a),
+                system_b: existing(lane.system_b),
+                distance_units: lane.distance_units,
+            },
+            4 => LivingCreatorOperationV2::CreateCivilization {
+                local: 0,
+                name: name("Collision"),
+                policy: civilization.policy.clone(),
+                status: LivingCivilizationStatusV2::Dormant,
+            },
+            _ => LivingCreatorOperationV2::CreateDeposit {
+                local: 0,
+                world: existing(deposit.world),
+                resource: deposit.resource,
+                remaining_units: deposit.remaining_units,
+            },
+        };
+        let envelope = LivingCommandEnvelopeV2 {
+            expected_committed_revision: None,
+            expected_tick: LivingTickV2(0),
+            expected_pending_sequence: 0,
+            mode: LivingCommandModeV2::Running,
+            command: batch(vec![op]),
+        };
+        let accepted = LivingAcceptedCommandV2 {
+            accepted_sequence: 1,
+            application_tick: LivingTickV2(1),
+            envelope: envelope.clone(),
+        };
+        let revision =
+            LivingRevisionV2::seal(base.catalog().catalog_hash(), SEED, None, &accepted).unwrap();
+        let derived = revision.created_entities()[0].2;
+        let mut state = state.clone();
+        match kind {
+            0 => {
+                let mut row = system.clone();
+                row.id = derived;
+                state.systems = add(&state.systems, row);
+            }
+            1 => {
+                let mut row = star.clone();
+                row.id = derived;
+                state.stars = add(&state.stars, row);
+            }
+            2 => {
+                let mut row = world.clone();
+                row.id = derived;
+                row.owner = None;
+                state.worlds = add(&state.worlds, row);
+            }
+            3 => {
+                let mut row = lane.clone();
+                row.id = derived;
+                state.lanes = add(&state.lanes, row);
+            }
+            4 => {
+                let mut row = civilization.clone();
+                row.id = derived;
+                row.status = LivingCivilizationStatusV2::Dormant;
+                state.civilizations = add(&state.civilizations, row);
+            }
+            _ => {
+                let mut row = deposit.clone();
+                row.id = derived;
+                state.deposits = add(&state.deposits, row);
+            }
+        }
+        let genesis = validate_living_genesis_manifest_v2(
+            LivingGenesisManifestV2 {
+                kind: LIVING_GENESIS_KIND_V2.to_owned(),
+                format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+                rules_version: LIVING_RULES_VERSION,
+                state,
+            },
+            base.catalog(),
+        )
+        .unwrap();
+        let mut actual = LivingGalaxyAuthorityV2::from_genesis(
+            base.catalog().clone(),
+            SEED,
+            generator(),
+            genesis,
+        )
+        .unwrap();
+        let before = actual.state().clone();
+        let cursor = actual.published_cursor();
+        assert_eq!(
+            actual.submit(envelope),
+            Err(LivingCommandRejectionV2::Projection(
+                LivingValidationErrorV2::DuplicateIdentity {
+                    context: "creator batch"
+                }
+            ))
+        );
+        assert_eq!(actual.state(), &before);
+        assert_eq!(actual.published_cursor(), cursor);
+        assert_eq!(actual.accepted_sequence_high_water(), 0);
+        assert!(actual.revisions().is_empty());
+    }
+}
+
+fn creator_fixture_with_lane() -> LivingGalaxyAuthorityV2 {
+    use nyon_workshop_core::living::*;
+    let original = builtin_living_sandbox_v2().unwrap();
+    let mut state = original.state().clone();
+    let first = state.systems.as_slice()[0].id;
+    let second = LivingEntityIdV2([0xf4; 16]);
+    let mut systems = state.systems.into_vec();
+    systems.push(LivingSystemV2 {
+        id: second,
+        name: name("Second system"),
+    });
+    systems.sort_by_key(|row| row.id);
+    state.systems = LivingSortedVecV2::new(systems).unwrap();
+    state.lanes = LivingSortedVecV2::new(vec![LivingLaneV2 {
+        id: LivingEntityIdV2([0xf5; 16]),
+        system_a: first.min(second),
+        system_b: first.max(second),
+        distance_units: 100,
+    }])
+    .unwrap();
+    let genesis = validate_living_genesis_manifest_v2(
+        LivingGenesisManifestV2 {
+            kind: LIVING_GENESIS_KIND_V2.to_owned(),
+            format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+            rules_version: LIVING_RULES_VERSION,
+            state,
+        },
+        original.catalog(),
+    )
+    .unwrap();
+    LivingGalaxyAuthorityV2::from_genesis(original.catalog().clone(), SEED, generator(), genesis)
+        .unwrap()
+}
+
+#[test]
+fn colony_public_stale_success_keeps_newly_accepted_tail_and_restarts() {
+    use nyon_workshop_core::living::{
+        LivingStepJobErrorV2, LivingStepPreparationV2, LivingStepProgressV2,
+        builtin_living_sandbox_v2,
+    };
+    for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+        let mut authority = builtin_living_sandbox_v2().unwrap();
+        let colony = authority.state().colonies.as_slice()[0].clone();
+        let operation = LivingCreatorOperationV2::CreateColony {
+            world: LivingCommandTargetV2::Existing { id: colony.world },
+            owner: LivingCommandTargetV2::Existing { id: colony.owner },
+        };
+        let request = running(&authority, batch(vec![operation]));
+        authority.submit(request).unwrap();
+        let mut job = authority.begin_step().unwrap();
+        let mut done = false;
+        for attempt in 0..100_000 {
+            let budget = schedule[attempt % schedule.len()];
+            let progress = job.poll(budget).unwrap();
+            assert!(job.last_poll_visits() <= budget);
+            assert_ne!(
+                progress,
+                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+            );
+            if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                done = true;
+                break;
+            }
+            assert!(job.last_poll_visits() > 0);
+        }
+        assert!(done);
+        let LivingStepPreparationV2::Ready(prepared) =
+            job.finish_synchronously(&authority).unwrap()
+        else {
+            panic!("colony success")
+        };
+        let request = running(
+            &authority,
+            batch(vec![LivingCreatorOperationV2::RemoveColony {
+                world: LivingCommandTargetV2::Existing { id: colony.world },
+            }]),
+        );
+        authority.submit(request).unwrap();
+        let before = authority.state().canonical_bytes().unwrap();
+        let cursor = authority.published_cursor();
+        let high_water = authority.accepted_sequence_high_water();
+        let rejected = authority.commit_step(prepared).unwrap_err();
+        assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+        assert_eq!(authority.state().canonical_bytes().unwrap(), before);
+        assert_eq!(authority.published_cursor(), cursor);
+        assert_eq!(authority.accepted_sequence_high_water(), high_water);
+        assert_eq!(authority.capture_boundary().unwrap().pending_count(), 2);
+        assert!(authority.fault().is_none());
+        authority.step().unwrap();
+        assert_eq!(authority.capture_boundary().unwrap().pending_count(), 0);
+        assert!(
+            !authority
+                .state()
+                .colonies
+                .as_slice()
+                .iter()
+                .any(|row| row.world == colony.world)
+        );
+        assert_eq!(
+            authority
+                .state()
+                .worlds
+                .as_slice()
+                .iter()
+                .find(|row| row.id == colony.world)
+                .unwrap()
+                .owner,
+            Some(colony.owner)
+        );
+    }
+}
+
+#[test]
+fn diplomacy_public_stale_success_preserves_accepted_tail() {
+    use nyon_workshop_core::living::{
+        LivingStepJobErrorV2, LivingStepPreparationV2, LivingStepProgressV2,
+        builtin_living_sandbox_v2,
+    };
+    for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+        let mut authority = builtin_living_sandbox_v2().unwrap();
+        let owner = authority.state().colonies.as_slice()[0].owner;
+        authority
+            .submit(running(
+                &authority,
+                batch(vec![LivingCreatorOperationV2::ForcePeace {
+                    participant_a: LivingCommandTargetV2::Existing { id: owner },
+                    participant_b: LivingCommandTargetV2::Existing { id: owner },
+                }]),
+            ))
+            .unwrap();
+        let mut job = authority.begin_step().unwrap();
+        let mut done = false;
+        for poll in 0..100_000 {
+            let budget = schedule[poll % schedule.len()];
+            let progress = job.poll(budget).unwrap();
+            assert!(job.last_poll_visits() <= budget);
+            assert_ne!(
+                progress,
+                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+            );
+            if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                done = true;
+                break;
+            }
+        }
+        assert!(done);
+        let LivingStepPreparationV2::Ready(prepared) =
+            job.finish_synchronously(&authority).unwrap()
+        else {
+            panic!("diplomacy success")
+        };
+        authority
+            .submit(running(
+                &authority,
+                batch(vec![LivingCreatorOperationV2::CreateSystem {
+                    local: 0,
+                    name: name("Accepted diplomacy tail"),
+                }]),
+            ))
+            .unwrap();
+        let before = authority.state().canonical_bytes().unwrap();
+        let cursor = authority.published_cursor();
+        let high = authority.accepted_sequence_high_water();
+        let rejected = authority.commit_step(prepared).unwrap_err();
+        assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+        assert_eq!(authority.state().canonical_bytes().unwrap(), before);
+        assert_eq!(authority.published_cursor(), cursor);
+        assert_eq!(authority.accepted_sequence_high_water(), high);
+        assert_eq!(authority.capture_boundary().unwrap().pending_count(), 2);
+        assert!(authority.fault().is_none());
+        authority.step().unwrap();
+        assert_eq!(authority.capture_boundary().unwrap().pending_count(), 0);
+        assert!(
+            authority
+                .state()
+                .systems
+                .as_slice()
+                .iter()
+                .any(|r| r.name.as_str() == "Accepted diplomacy tail")
+        );
+    }
+}
+
+#[test]
+fn cancellation_public_stale_success_preserves_accepted_tail_and_restarts() {
+    use nyon_workshop_core::living::*;
+    for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+        let mut a = builtin_first_expansion_v2().unwrap();
+        let colony = a.state().colonies.as_slice()[0].clone();
+        let build = a.catalog().industry("defense_battery").unwrap().clone();
+        let cursor = a.published_cursor();
+        a.apply_paused(LivingCommandEnvelopeV2 {
+            expected_committed_revision: cursor.committed_revision,
+            expected_tick: cursor.tick,
+            expected_pending_sequence: cursor.pending_sequence,
+            mode: LivingCommandModeV2::Paused,
+            command: batch(vec![LivingCreatorOperationV2::CreateConstructionJob {
+                local: 0,
+                world: existing(colony.world),
+                owner: existing(colony.owner),
+                definition: build.id,
+                accepted_tick: LivingTickV2(0),
+                completion_tick: LivingTickV2(u64::from(build.build_ticks)),
+                paid_alloy: build.alloy_cost,
+            }]),
+        })
+        .unwrap();
+        let target = a.state().construction_jobs.as_slice()[0].id;
+        a.submit(running(
+            &a,
+            batch(vec![LivingCreatorOperationV2::CancelConstructionJob {
+                target: existing(target),
+            }]),
+        ))
+        .unwrap();
+        let mut job = a.begin_step().unwrap();
+        let mut done = false;
+        for attempt in 0..100_000 {
+            let b = schedule[attempt % schedule.len()];
+            let progress = job.poll(b).unwrap();
+            assert!(job.last_poll_visits() <= b);
+            assert_ne!(
+                progress,
+                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+            );
+            if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                done = true;
+                break;
+            }
+        }
+        assert!(done, "finite cancellation public Step guard");
+        let LivingStepPreparationV2::Ready(prepared) = job.finish_synchronously(&a).unwrap() else {
+            panic!("cancellation success")
+        };
+        a.submit(running(
+            &a,
+            batch(vec![system(0, "Accepted cancellation tail")]),
+        ))
+        .unwrap();
+        let before = a.state().canonical_bytes().unwrap();
+        let cursor = a.published_cursor();
+        let high = a.accepted_sequence_high_water();
+        let rejected = a.commit_step(prepared).unwrap_err();
+        assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+        assert_eq!(a.state().canonical_bytes().unwrap(), before);
+        assert_eq!(a.published_cursor(), cursor);
+        assert_eq!(a.accepted_sequence_high_water(), high);
+        assert_eq!(a.capture_boundary().unwrap().pending_count(), 2);
+        assert!(a.fault().is_none());
+        a.step().unwrap();
+        assert!(a.state().construction_jobs.as_slice().is_empty());
+        assert_eq!(a.capture_boundary().unwrap().pending_count(), 0);
+    }
+}
+
+#[test]
+fn geometry_public_local_prefix_bridge_and_genuine_stale_tail() {
+    use nyon_workshop_core::living::*;
+    for bridge in [false, true] {
+        for stale in [false, true] {
+            for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+                let mut a = authority();
+                let local = |local| LivingCommandTargetV2::Local { local };
+                let mut ops = vec![
+                    system(0, "A"),
+                    system(1, "B"),
+                    LivingCreatorOperationV2::CreateWorld {
+                        local: 2,
+                        system: local(0),
+                        archetype: slug("barren"),
+                        name: name("World"),
+                        owner: None,
+                        inventory: Default::default(),
+                    },
+                    LivingCreatorOperationV2::CreateLane {
+                        local: 3,
+                        system_a: local(0),
+                        system_b: local(1),
+                        distance_units: 10,
+                    },
+                    LivingCreatorOperationV2::EditWorld {
+                        target: local(2),
+                        system: local(1),
+                        archetype: slug("barren"),
+                        name: name("Moved"),
+                    },
+                    LivingCreatorOperationV2::EditLane {
+                        target: local(3),
+                        system_a: local(1),
+                        system_b: local(0),
+                        distance_units: 20,
+                    },
+                ];
+                if bridge {
+                    ops.push(system(4, "Removed suffix target"));
+                    ops.push(LivingCreatorOperationV2::RemoveEntity {
+                        target: local(4),
+                        cascade: LivingCascadeDispositionV2::RemoveReviewed {
+                            dependents: Vec::new(),
+                            derived: Vec::new(),
+                        },
+                    });
+                }
+                a.submit(running(&a, batch(ops))).unwrap();
+                let mut reference = a.clone();
+                reference.step().unwrap();
+                let mut job = a.begin_step().unwrap();
+                let mut ready = false;
+                for attempt in 0..100000 {
+                    let b = schedule[attempt % schedule.len()];
+                    let progress = job.poll(b).unwrap();
+                    assert!(job.last_poll_visits() <= b);
+                    if progress != LivingStepProgressV2::Pending {
+                        assert_eq!(
+                            progress,
+                            if bridge {
+                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+                            } else {
+                                LivingStepProgressV2::NeedsSynchronousCompletion
+                            }
+                        );
+                        ready = true;
+                        break;
+                    }
+                    assert!(job.last_poll_visits() > 0);
+                }
+                assert!(ready);
+                let LivingStepPreparationV2::Ready(token) =
+                    job.take_synchronous_preparation(&a).unwrap()
+                else {
+                    panic!("geometry local preparation")
+                };
+                assert!(job.take_synchronous_preparation(&a).is_err());
+                if stale {
+                    a.submit(running(
+                        &a,
+                        batch(vec![system(0, "Geometry accepted tail")]),
+                    ))
+                    .unwrap();
+                    let before = a.state().canonical_bytes().unwrap();
+                    let cursor = a.published_cursor();
+                    let high = a.accepted_sequence_high_water();
+                    let rejected = a.commit_step(token).unwrap_err();
+                    assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+                    assert_eq!(a.state().canonical_bytes().unwrap(), before);
+                    assert_eq!(a.published_cursor(), cursor);
+                    assert_eq!(a.accepted_sequence_high_water(), high);
+                    assert_eq!(a.capture_boundary().unwrap().pending_count(), 2);
+                    assert!(a.fault().is_none());
+                    reference = a.clone();
+                    reference.step().unwrap();
+                    a.step().unwrap();
+                } else {
+                    drop(a.commit_step(token).unwrap());
+                }
+                assert_eq!(
+                    a.state().canonical_bytes().unwrap(),
+                    reference.state().canonical_bytes().unwrap()
+                );
+                assert_eq!(a.last_receipt(), reference.last_receipt());
+                assert_eq!(a.last_decision(), reference.last_decision());
+                assert_eq!(a.last_event_facts(), reference.last_event_facts());
+                assert_eq!(
+                    a.last_creator_recoveries(),
+                    reference.last_creator_recoveries()
+                );
+                assert_eq!(a.revisions(), reference.revisions());
+                assert_eq!(a.published_cursor(), reference.published_cursor());
+                assert_eq!(
+                    a.accepted_sequence_high_water(),
+                    reference.accepted_sequence_high_water()
+                );
+                assert_eq!(a.capture_boundary().unwrap().pending_count(), 0);
+                assert!(a.fault().is_none());
+                let bytes = encode_living_archive_v2(&a).unwrap();
+                let loaded = decode_living_archive_v2(&bytes, a.catalog())
+                    .unwrap()
+                    .into_authority();
+                assert_eq!(loaded.bookmark().unwrap(), a.bookmark().unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn fleet_hull_public_local_prefix_bridge_and_genuine_stale_tail() {
+    use nyon_workshop_core::living::*;
+    for bridge in [false, true] {
+        for stale in [false, true] {
+            for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+                let mut a = builtin_first_expansion_v2().unwrap();
+                let world = a.state().colonies.as_slice()[0].world;
+                let owner = a.state().colonies.as_slice()[0].owner;
+                let local = |local| LivingCommandTargetV2::Local { local };
+                let mut ops = vec![
+                    LivingCreatorOperationV2::CreateFleet {
+                        local: 0,
+                        owner: existing(owner),
+                        world: existing(world),
+                    },
+                    LivingCreatorOperationV2::CreateHull {
+                        local: 1,
+                        fleet: local(0),
+                        definition: slug("scout"),
+                        hit_points: 1,
+                        return_credit: false,
+                    },
+                    LivingCreatorOperationV2::EditHull {
+                        target: local(1),
+                        definition: slug("escort"),
+                        hit_points: 1,
+                        return_credit: true,
+                    },
+                    LivingCreatorOperationV2::EditFleet {
+                        target: local(0),
+                        owner: existing(owner),
+                        world: existing(world),
+                    },
+                ];
+                if bridge {
+                    ops.push(system(2, "Removed metadata suffix target"));
+                    ops.push(LivingCreatorOperationV2::RemoveEntity {
+                        target: local(2),
+                        cascade: LivingCascadeDispositionV2::RemoveReviewed {
+                            dependents: Vec::new(),
+                            derived: Vec::new(),
+                        },
+                    });
+                }
+                a.submit(running(&a, batch(ops))).unwrap();
+                let mut reference = a.clone();
+                reference.step().unwrap();
+                let mut job = a.begin_step().unwrap();
+                let mut ready = false;
+                for attempt in 0..100000 {
+                    let b = schedule[attempt % schedule.len()];
+                    let progress = job.poll(b).unwrap();
+                    assert!(job.last_poll_visits() <= b);
+                    if progress != LivingStepProgressV2::Pending {
+                        assert_eq!(
+                            progress,
+                            if bridge {
+                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+                            } else {
+                                LivingStepProgressV2::NeedsSynchronousCompletion
+                            }
+                        );
+                        ready = true;
+                        break;
+                    }
+                    assert!(job.last_poll_visits() > 0);
+                }
+                assert!(ready);
+                let LivingStepPreparationV2::Ready(token) =
+                    job.take_synchronous_preparation(&a).unwrap()
+                else {
+                    panic!("fleet hull local preparation")
+                };
+                assert!(job.take_synchronous_preparation(&a).is_err());
+                if stale {
+                    a.submit(running(
+                        &a,
+                        batch(vec![system(0, "Fleet hull accepted tail")]),
+                    ))
+                    .unwrap();
+                    let before = a.state().canonical_bytes().unwrap();
+                    let cursor = a.published_cursor();
+                    let high = a.accepted_sequence_high_water();
+                    let rejected = a.commit_step(token).unwrap_err();
+                    assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+                    assert_eq!(a.state().canonical_bytes().unwrap(), before);
+                    assert_eq!(a.published_cursor(), cursor);
+                    assert_eq!(a.accepted_sequence_high_water(), high);
+                    assert_eq!(a.capture_boundary().unwrap().pending_count(), 2);
+                    assert!(a.fault().is_none());
+                    reference = a.clone();
+                    reference.step().unwrap();
+                    a.step().unwrap();
+                } else {
+                    drop(a.commit_step(token).unwrap());
+                }
+                assert_eq!(
+                    a.state().canonical_bytes().unwrap(),
+                    reference.state().canonical_bytes().unwrap()
+                );
+                assert_eq!(a.last_receipt(), reference.last_receipt());
+                assert_eq!(a.last_decision(), reference.last_decision());
+                assert_eq!(a.last_event_facts(), reference.last_event_facts());
+                assert_eq!(
+                    a.last_creator_recoveries(),
+                    reference.last_creator_recoveries()
+                );
+                assert_eq!(a.revisions(), reference.revisions());
+                assert_eq!(a.published_cursor(), reference.published_cursor());
+                assert_eq!(
+                    a.accepted_sequence_high_water(),
+                    reference.accepted_sequence_high_water()
+                );
+                assert_eq!(a.capture_boundary().unwrap().pending_count(), 0);
+                assert!(a.fault().is_none());
+                let bytes = encode_living_archive_v2(&a).unwrap();
+                let loaded = decode_living_archive_v2(&bytes, a.catalog())
+                    .unwrap()
+                    .into_authority();
+                assert_eq!(loaded.bookmark().unwrap(), a.bookmark().unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn structural_public_local_successive_split_merge_bridge_and_genuine_stale_tail() {
+    use nyon_workshop_core::living::*;
+    for bridge in [false, true] {
+        for stale in [false, true] {
+            for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+                let mut a = builtin_first_expansion_v2().unwrap();
+                let world = a.state().colonies.as_slice()[0].world;
+                let owner = a.state().colonies.as_slice()[0].owner;
+                let local = |local| LivingCommandTargetV2::Local { local };
+                let mut ops = vec![
+                    LivingCreatorOperationV2::CreateFleet {
+                        local: 0,
+                        owner: existing(owner),
+                        world: existing(world),
+                    },
+                    LivingCreatorOperationV2::CreateHull {
+                        local: 1,
+                        fleet: local(0),
+                        definition: slug("scout"),
+                        hit_points: 1,
+                        return_credit: false,
+                    },
+                    LivingCreatorOperationV2::CreateHull {
+                        local: 2,
+                        fleet: local(0),
+                        definition: slug("scout"),
+                        hit_points: 7,
+                        return_credit: true,
+                    },
+                    LivingCreatorOperationV2::CreateHull {
+                        local: 3,
+                        fleet: local(0),
+                        definition: slug("escort"),
+                        hit_points: 7,
+                        return_credit: true,
+                    },
+                    LivingCreatorOperationV2::SplitFleet {
+                        local: 4,
+                        source: local(0),
+                        hulls: vec![local(1)],
+                    },
+                    LivingCreatorOperationV2::MergeFleets {
+                        target: local(0),
+                        source: local(4),
+                    },
+                    LivingCreatorOperationV2::SplitFleet {
+                        local: 5,
+                        source: local(0),
+                        hulls: vec![local(2)],
+                    },
+                    LivingCreatorOperationV2::MergeFleets {
+                        target: local(5),
+                        source: local(0),
+                    },
+                ];
+                if bridge {
+                    ops.push(system(6, "Removed structural suffix target"));
+                    ops.push(LivingCreatorOperationV2::RemoveEntity {
+                        target: local(6),
+                        cascade: LivingCascadeDispositionV2::RemoveReviewed {
+                            dependents: Vec::new(),
+                            derived: Vec::new(),
+                        },
+                    });
+                }
+                a.submit(running(&a, batch(ops))).unwrap();
+                let mut reference = a.clone();
+                reference.step().unwrap();
+                let mut job = a.begin_step().unwrap();
+                let mut ready = false;
+                for attempt in 0..100000 {
+                    let b = schedule[attempt % schedule.len()];
+                    let progress = job.poll(b).unwrap();
+                    assert!(job.last_poll_visits() <= b);
+                    if progress != LivingStepProgressV2::Pending {
+                        assert_eq!(
+                            progress,
+                            if bridge {
+                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
+                            } else {
+                                LivingStepProgressV2::NeedsSynchronousCompletion
+                            }
+                        );
+                        ready = true;
+                        break;
+                    }
+                    assert!(job.last_poll_visits() > 0);
+                }
+                assert!(ready);
+                let LivingStepPreparationV2::Ready(token) =
+                    job.take_synchronous_preparation(&a).unwrap()
+                else {
+                    panic!("structural local preparation")
+                };
+                assert!(job.take_synchronous_preparation(&a).is_err());
+                if stale {
+                    a.submit(running(
+                        &a,
+                        batch(vec![system(0, "Structural accepted tail")]),
+                    ))
+                    .unwrap();
+                    let before = a.state().canonical_bytes().unwrap();
+                    let cursor = a.published_cursor();
+                    let high = a.accepted_sequence_high_water();
+                    let rejected = a.commit_step(token).unwrap_err();
+                    assert_eq!(rejected.reason(), &LivingStepJobErrorV2::Stale);
+                    assert_eq!(a.state().canonical_bytes().unwrap(), before);
+                    assert_eq!(a.published_cursor(), cursor);
+                    assert_eq!(a.accepted_sequence_high_water(), high);
+                    assert_eq!(a.capture_boundary().unwrap().pending_count(), 2);
+                    assert!(a.fault().is_none());
+                    reference = a.clone();
+                    reference.step().unwrap();
+                    a.step().unwrap();
+                } else {
+                    drop(a.commit_step(token).unwrap());
+                }
+                assert_eq!(
+                    a.state().canonical_bytes().unwrap(),
+                    reference.state().canonical_bytes().unwrap()
+                );
+                assert_eq!(a.last_receipt(), reference.last_receipt());
+                assert_eq!(a.last_decision(), reference.last_decision());
+                assert_eq!(a.last_event_facts(), reference.last_event_facts());
+                assert_eq!(
+                    a.last_creator_recoveries(),
+                    reference.last_creator_recoveries()
+                );
+                assert_eq!(a.revisions(), reference.revisions());
+                assert_eq!(a.published_cursor(), reference.published_cursor());
+                assert_eq!(
+                    a.accepted_sequence_high_water(),
+                    reference.accepted_sequence_high_water()
+                );
+                assert_eq!(a.capture_boundary().unwrap().pending_count(), 0);
+                assert!(a.fault().is_none());
+                let bytes = encode_living_archive_v2(&a).unwrap();
+                assert_eq!(bytes, encode_living_archive_v2(&reference).unwrap());
+                let loaded = decode_living_archive_v2(&bytes, a.catalog())
+                    .unwrap()
+                    .into_authority();
+                assert_eq!(loaded.bookmark().unwrap(), a.bookmark().unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn removal_public_local_multipass_prefix_suffix_current_and_genuine_stale_tail() {
+    use nyon_workshop_core::living::*;
+    for stale in [false, true] {
+        for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
+            let template = builtin_first_expansion_v2().unwrap();
+            let mut state = template.state().clone();
+            let world = state.colonies.as_slice()[0].world;
+            let owner = state.colonies.as_slice()[0].owner;
+            let frontier = state
+                .worlds
+                .as_slice()
+                .iter()
+                .find(|w| w.id != world)
+                .unwrap()
+                .clone();
+            let lane = state.lanes.as_slice()[0].id;
+            let mut fleets = state.fleets.into_vec();
+            let fleet = fleets[0].id;
+            let mut dependents = fleets[0]
+                .hulls
+                .as_slice()
+                .iter()
+                .map(|h| existing(h.id))
+                .collect::<Vec<_>>();
+            dependents.push(existing(fleet));
+            dependents.push(LivingCommandTargetV2::Local { local: 0 });
+            fleets[0].order = Some(LivingFleetOrderV2 {
+                kind: LivingFleetOrderKindV2::Move,
+                target_world: Some(frontier.id),
+                not_before_tick: LivingTickV2(100),
+                lane_path: vec![lane; 33],
+            });
+            state.fleets = LivingSortedVecV2::new(fleets).unwrap();
+            let genesis = validate_living_genesis_manifest_v2(
+                LivingGenesisManifestV2 {
+                    kind: LIVING_GENESIS_KIND_V2.into(),
+                    format_version: LIVING_GENESIS_FORMAT_VERSION_V2,
+                    rules_version: LIVING_RULES_VERSION,
+                    state,
+                },
+                template.catalog(),
+            )
+            .unwrap();
+            let mut a = LivingGalaxyAuthorityV2::from_genesis(
+                template.catalog().clone(),
+                SEED,
+                generator(),
+                genesis,
+            )
+            .unwrap();
+            let local = |local| LivingCommandTargetV2::Local { local };
+            a.submit(running(
+                &a,
+                batch(vec![
+                    LivingCreatorOperationV2::CreateHullJob {
+                        local: 0,
+                        world: existing(world),
+                        owner: existing(owner),
+                        definition: slug("scout"),
+                        accepted_tick: LivingTickV2(0),
+                        completion_tick: LivingTickV2(100),
+                        paid_alloy: 40,
+                        target_fleet: Some(existing(fleet)),
+                    },
+                    LivingCreatorOperationV2::RemoveEntity {
+                        target: existing(lane),
+                        cascade: LivingCascadeDispositionV2::RemoveListed { dependents },
+                    },
+                    system(1, "Transient removal system"),
+                    LivingCreatorOperationV2::EditWorld {
+                        target: existing(frontier.id),
+                        system: local(1),
+                        archetype: frontier.archetype.clone(),
+                        name: frontier.name.clone(),
+                    },
+                    LivingCreatorOperationV2::RemoveEntity {
+                        target: local(1),
+                        cascade: LivingCascadeDispositionV2::RemoveListed {
+                            dependents: vec![existing(frontier.id)],
+                        },
+                    },
+                    system(2, "Surviving removal suffix"),
+                ]),
+            ))
+            .unwrap();
+            let mut reference = a.clone();
+            reference.step().unwrap();
+            let mut job = a.begin_step().unwrap();
+            let mut done = false;
+            for attempt in 0..100000 {
+                let b = schedule[attempt % schedule.len()];
+                let p = job.poll(b).unwrap();
+                assert!(job.last_poll_visits() <= b);
+                assert_ne!(p, LivingStepProgressV2::NeedsSynchronousCreatorOperation);
+                if p == LivingStepProgressV2::NeedsSynchronousCompletion {
+                    done = true;
+                    break;
+                }
+                assert!(job.last_poll_visits() > 0);
+            }
+            assert!(done);
+            let LivingStepPreparationV2::Ready(token) =
+                job.take_synchronous_preparation(&a).unwrap()
+            else {
+                panic!("removal preparation")
+            };
+            assert!(job.take_synchronous_preparation(&a).is_err());
+            if stale {
+                a.submit(running(&a, batch(vec![system(0, "Genuine removal tail")])))
+                    .unwrap();
+                // Archives deliberately refuse authorities with queued commands.
+                assert!(matches!(
+                    encode_living_archive_v2(&a),
+                    Err(LivingArchiveErrorV2::PendingQueue)
+                ));
+                let before = a.state().canonical_bytes().unwrap();
+                let cursor = a.published_cursor();
+                let high = a.accepted_sequence_high_water();
+                assert_eq!(
+                    a.commit_step(token).unwrap_err().reason(),
+                    &LivingStepJobErrorV2::Stale
+                );
+                assert_eq!(a.state().canonical_bytes().unwrap(), before);
+                assert_eq!(a.published_cursor(), cursor);
+                assert_eq!(a.accepted_sequence_high_water(), high);
+                assert_eq!(a.capture_boundary().unwrap().pending_count(), 2);
+                assert!(a.fault().is_none());
+                reference = a.clone();
+                reference.step().unwrap();
+                let mut fresh = a.begin_step().unwrap();
+                loop {
+                    if fresh.poll(64).unwrap() != LivingStepProgressV2::Pending {
+                        break;
+                    }
+                }
+                let LivingStepPreparationV2::Ready(token) =
+                    fresh.take_synchronous_preparation(&a).unwrap()
+                else {
+                    panic!("fresh removal")
+                };
+                drop(a.commit_step(token).unwrap());
+            } else {
+                drop(a.commit_step(token).unwrap());
+            }
+            assert_eq!(a.state(), reference.state());
+            assert_eq!(a.last_receipt(), reference.last_receipt());
+            assert_eq!(a.last_decision(), reference.last_decision());
+            assert_eq!(a.last_event_facts(), reference.last_event_facts());
+            assert_eq!(
+                a.last_creator_recoveries(),
+                reference.last_creator_recoveries()
+            );
+            assert_eq!(a.revisions(), reference.revisions());
+            assert_eq!(a.published_cursor(), reference.published_cursor());
+            assert_eq!(
+                a.accepted_sequence_high_water(),
+                reference.accepted_sequence_high_water()
+            );
+            assert_eq!(a.fault(), reference.fault());
+            assert_eq!(a.capture_boundary().unwrap().pending_count(), 0);
+            assert_eq!(
+                encode_living_archive_v2(&a).unwrap(),
+                encode_living_archive_v2(&reference).unwrap()
+            );
+        }
+    }
+}

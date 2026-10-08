@@ -1,0 +1,10 @@
+{
+  "status": "Partial foundation, independent derivation and literal review required",
+  "genesis_cases": 427,
+  "complete_bootstrap_profiles": 57,
+  "structural_cases": 111,
+  "source_files": 8,
+  "protected_old_files": 66,
+  "corrected_pack_sha256": "52a64c125d4be640b6887c014fa620b390764a870ecbb8e52c8d7015c69521bd",
+  "limitations": "See full-package-coverage.json; no full-package, human or runtime approval."
+}

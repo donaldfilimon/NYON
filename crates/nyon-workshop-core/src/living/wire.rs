@@ -228,6 +228,30 @@ where
         Ok(())
     }
 
+    /// Actual backing capacity, used by retained storage preparation.
+    pub(crate) fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+
+    /// Check fixed keys before moving a retained record into prepared storage.
+    pub(crate) fn push_sorted_retained(
+        &mut self,
+        pending: &mut Option<T>,
+    ) -> Result<(), LivingWireErrorV2> {
+        let item = pending.as_ref().expect("retained append requires a record");
+        if self
+            .0
+            .last()
+            .is_some_and(|last| last.living_key() >= item.living_key())
+        {
+            return Err(LivingWireErrorV2::KeyedOrder);
+        }
+        assert!(self.0.len() < self.0.capacity(), "prepared sorted capacity");
+        self.0
+            .push(pending.take().expect("borrowed retained record"));
+        Ok(())
+    }
+
     /// The records in stable identifier order.
     pub fn as_slice(&self) -> &[T] {
         &self.0
@@ -303,6 +327,34 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_sorted_append_checks_key_before_take_or_capacity() {
+        use crate::living::{catalog::LivingNameV2, ids::LivingEntityIdV2, model::LivingSystemV2};
+        let row = |key| LivingSystemV2 {
+            id: LivingEntityIdV2([key; 16]),
+            name: LivingNameV2::new("Retained").unwrap(),
+        };
+        let mut output = LivingSortedVecV2::new(Vec::with_capacity(1)).unwrap();
+        let pointer = output.as_slice().as_ptr();
+        let mut pending = Some(row(1));
+        output.push_sorted_retained(&mut pending).unwrap();
+        assert!(pending.is_none());
+        assert_eq!(output.as_slice().as_ptr(), pointer);
+        assert_eq!(output.capacity(), 1);
+        for key in [0, 1] {
+            let mut pending = Some(row(key));
+            let name = pending.as_ref().unwrap().name.as_str().as_ptr();
+            assert_eq!(
+                output.push_sorted_retained(&mut pending),
+                Err(LivingWireErrorV2::KeyedOrder)
+            );
+            assert_eq!(pending.as_ref().unwrap().name.as_str().as_ptr(), name);
+            assert_eq!(output.as_slice().as_ptr(), pointer);
+            assert_eq!(output.as_slice().len(), 1);
+            assert_eq!(output.capacity(), 1);
+        }
+    }
 
     #[test]
     fn the_structural_pre_scan_ignores_braces_and_digits_inside_strings() {

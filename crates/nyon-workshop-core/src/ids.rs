@@ -111,6 +111,14 @@ impl std::fmt::Display for CatalogId {
     }
 }
 
+impl std::str::FromStr for CatalogId {
+    type Err = IdentifierError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
 impl TryFrom<&str> for CatalogId {
     type Error = IdentifierError;
 
@@ -151,6 +159,14 @@ impl ObjectName {
 impl std::fmt::Display for ObjectName {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ObjectName {
+    type Err = IdentifierError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
     }
 }
 

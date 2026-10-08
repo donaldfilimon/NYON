@@ -12,6 +12,7 @@ use std::vec::IntoIter;
 #[path = "production_job.rs"]
 mod production_job;
 pub use production_job::LivingProductionJobV2;
+pub(crate) use production_job::ProductionFailure;
 
 #[derive(Clone)]
 pub(crate) enum LivingPhaseCatalogV2<'a> {
@@ -63,6 +64,9 @@ pub enum LivingLifecycleJobErrorV2 {
     /// The caller requested the candidate before processing all its records.
     #[error("Living lifecycle job is not ready")]
     NotReady,
+    /// Local output preparation cannot represent its allocation size.
+    #[error("Living lifecycle preparation capacity exceeded")]
+    PreparationCapacity,
     /// Arithmetic, collection ordering, or receipt capacity failed.
     #[error("Living lifecycle phase failed: {0}")]
     Fault(#[from] LivingDeterministicFaultV2),
@@ -70,24 +74,135 @@ pub enum LivingLifecycleJobErrorV2 {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Cursor {
+    PrepareWars,
+    PrepareOccupations,
     Agreements,
     Wars,
+    WarOutput,
+    PrepareAgreements,
     AgreementOutput,
+    AgreementCommit,
     WorldOwners,
     Occupations,
+    OccupationOutput,
     HazardStarts,
     HazardEnds,
-    RetireIndices,
+    Append,
+    AppendExtract,
+    RetireOwners,
+    RetirePairs,
     Ready,
 }
 
-/// An owned phase-2 candidate that cannot mutate a resident authority.
-///
-/// Each work unit visits one source or output record. Tree key comparisons and
-/// scalar field checks are bounded metadata work; no nested entity collection
-/// is cloned. Unchanged state collections are moved through the job verbatim.
-/// The caller must validate and seal the complete boundary before publishing it.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecyclePreparationCause {
+    OutputCapacity,
+    EventStorageCapacity,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecycleFailure {
+    Arithmetic,
+    KeyedOrder,
+    TooManyEvents,
+    ExplainedTooManyEvents,
+    Facts,
+    Json,
+    Capacity,
+    PreparationCapacity(LifecyclePreparationCause),
+    ProtocolInvariant,
+}
+impl LifecycleFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        use super::receipt::{LivingPendingEventAppendErrorV2, LivingReceiptErrorV2};
+        let fault = match self {
+            Self::Arithmetic => LivingDeterministicFaultV2::Arithmetic,
+            Self::KeyedOrder => {
+                LivingDeterministicFaultV2::Wire(super::wire::LivingWireErrorV2::KeyedOrder)
+            }
+            Self::TooManyEvents => {
+                let error: LivingReceiptErrorV2 = LivingPendingEventAppendErrorV2::TooManyEvents
+                    .receipt_error()
+                    .expect("ordinary receipt error");
+                LivingDeterministicFaultV2::Receipt(error)
+            }
+            Self::ExplainedTooManyEvents => LivingDeterministicFaultV2::EventFacts(
+                LivingPendingEventAppendErrorV2::TooManyEvents
+                    .facts_error()
+                    .unwrap(),
+            ),
+            Self::Facts => LivingDeterministicFaultV2::EventFacts(
+                LivingPendingEventAppendErrorV2::Facts
+                    .facts_error()
+                    .unwrap(),
+            ),
+            Self::Json => LivingDeterministicFaultV2::EventFacts(
+                LivingPendingEventAppendErrorV2::Json.facts_error().unwrap(),
+            ),
+            Self::Capacity => LivingDeterministicFaultV2::EventFacts(
+                LivingPendingEventAppendErrorV2::Capacity
+                    .facts_error()
+                    .unwrap(),
+            ),
+            Self::PreparationCapacity(_) => return LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::ProtocolInvariant => LivingDeterministicFaultV2::Invariant,
+        };
+        LivingLifecycleJobErrorV2::Fault(fault)
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => {
+                Self::PreparationCapacity(LifecyclePreparationCause::OutputCapacity)
+            }
+            LivingStorageJobErrorV2::KeyedOrder => Self::KeyedOrder,
+            LivingStorageJobErrorV2::Budget
+            | LivingStorageJobErrorV2::Cancelled
+            | LivingStorageJobErrorV2::NotReady => Self::ProtocolInvariant,
+        }
+    }
+    fn append(error: super::receipt::LivingPendingEventAppendErrorV2) -> Self {
+        use super::receipt::LivingPendingEventAppendErrorV2 as E;
+        match error {
+            E::TooManyEvents => Self::TooManyEvents,
+            E::Storage(LivingStorageJobErrorV2::CapacityOverflow) => {
+                Self::PreparationCapacity(LifecyclePreparationCause::EventStorageCapacity)
+            }
+            E::Budget
+            | E::Cancelled
+            | E::NotReady
+            | E::Storage(
+                LivingStorageJobErrorV2::Budget
+                | LivingStorageJobErrorV2::Cancelled
+                | LivingStorageJobErrorV2::NotReady
+                | LivingStorageJobErrorV2::KeyedOrder,
+            ) => Self::ProtocolInvariant,
+            E::Facts => Self::Facts,
+            E::Json => Self::Json,
+            E::Capacity => Self::Capacity,
+        }
+    }
+    fn explained_append(error: super::receipt::LivingPendingEventAppendErrorV2) -> Self {
+        match error {
+            super::receipt::LivingPendingEventAppendErrorV2::TooManyEvents => {
+                Self::ExplainedTooManyEvents
+            }
+            other => Self::append(other),
+        }
+    }
+}
+
+// The admitted creator prefix has at most 1024*1024 additional diplomatic rows.
+// This proves representability on both supported widths, independent of allocator OOM.
+const _: () = {
+    assert!(std::mem::size_of::<LivingAgreementV2>() <= 256);
+    assert!(std::mem::size_of::<LivingWarV2>() <= 256);
+    assert!(std::mem::size_of::<LivingOccupationV2>() <= 256);
+    assert!(1_049_056_u64 * 256 <= i32::MAX as u64);
+    assert!(1_049_056_u64 * 256 <= isize::MAX as u64);
+};
+
+/// Owned unpublished lifecycle candidate. Every output buffer is prepared while
+/// empty; append and original-owner retirement share the actual remaining budget.
+/// Arbitrary public inputs retain capacity errors, outside admitted count bounds.
 pub struct LivingLifecycleJobV2 {
     delivered: bool,
     state: LivingGalaxyStateV2,
@@ -101,17 +216,32 @@ pub struct LivingLifecycleJobV2 {
         Option<std::collections::btree_map::IntoIter<AgreementKey, LivingAgreementV2>>,
     ended_pairs: BTreeSet<Pair>,
     owners: BTreeMap<LivingEntityIdV2, Option<LivingEntityIdV2>>,
+    pending_agreement: Option<LivingAgreementV2>,
+    pending_war: Option<LivingWarV2>,
+    pending_occupation: Option<LivingOccupationV2>,
+    agreement_storage: Option<LivingSortedStorageJobV2<'static, LivingAgreementV2>>,
+    war_storage: Option<LivingSortedStorageJobV2<'static, LivingWarV2>>,
+    occupation_storage: Option<LivingSortedStorageJobV2<'static, LivingOccupationV2>>,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    retirement: PhaseRetirementLane<'static>,
+    resume: Cursor,
     cursor: Cursor,
     index: usize,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<LifecycleFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
-
+impl std::fmt::Debug for LivingLifecycleJobV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LivingLifecycleJobV2")
+            .field("cursor", &self.cursor)
+            .field("fault", &self.fault)
+            .finish_non_exhaustive()
+    }
+}
 impl LivingLifecycleJobV2 {
-    /// Move one unpublished candidate and its existing phase-1 events into a job.
-    /// No records are visited until `poll` is called.
+    /// Root moves only; no allocation or records until polling.
     pub fn begin(
         mut state: LivingGalaxyStateV2,
         events: LivingPendingEventsV2,
@@ -134,7 +264,16 @@ impl LivingLifecycleJobV2 {
             agreement_output: None,
             ended_pairs: BTreeSet::new(),
             owners: BTreeMap::new(),
-            cursor: Cursor::Agreements,
+            pending_agreement: None,
+            pending_war: None,
+            pending_occupation: None,
+            agreement_storage: None,
+            war_storage: None,
+            occupation_storage: None,
+            append: None,
+            retirement: PhaseRetirementLane::default(),
+            resume: Cursor::Ready,
+            cursor: Cursor::PrepareWars,
             index: 0,
             cancelled: false,
             fault: None,
@@ -142,81 +281,92 @@ impl LivingLifecycleJobV2 {
             total_visits: 0,
         }
     }
-
-    /// Invalidate the unpublished candidate without touching any authority.
+    #[cfg(test)]
+    pub(crate) fn inject_output_capacity_failure(&mut self) {
+        assert_eq!(self.cursor, Cursor::PrepareWars);
+        assert!(self.war_storage.is_none());
+        self.war_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+    }
+    #[cfg(test)]
+    fn inject_event_capacity_failure(&mut self) -> bool {
+        self.append
+            .as_mut()
+            .is_some_and(|child| child.inject_entry_capacity_failure())
+    }
+    /// Cancel without destroying any owner or prior diagnostic.
     pub fn cancel(&mut self) {
         self.cancelled = true;
     }
-
-    /// Actual source/output record visits made by the preceding poll.
+    /// Actual visits in the preceding poll.
     pub const fn last_poll_visits(&self) -> usize {
         self.last_poll_visits
     }
-
-    /// Actual source/output record visits since beginning this job.
+    /// Actual visits since begin.
     pub const fn total_visits(&self) -> u64 {
         self.total_visits
     }
-
-    /// Process at most `budget` record visits, retaining all intermediate cursors.
+    fn charge(&mut self, count: usize) {
+        self.last_poll_visits += count;
+        self.total_visits += count as u64;
+    }
+    /// Poll with a shared actual record budget. Failure survives cancellation;
+    /// invalid uncancelled polls never replace the original diagnostic.
     pub fn poll(
         &mut self,
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self.fault.map_or(
+                LivingLifecycleJobErrorV2::Cancelled,
+                LifecycleFailure::public,
+            ));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        while self.last_poll_visits < budget && self.cursor != Cursor::Ready {
-            match self.visit_next() {
-                Ok(true) => {
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                }
-                Ok(false) => {}
-                Err(fault) => {
-                    // The failed record was visited too; retain the fault so a
-                    // retry cannot accidentally finish a partially applied phase.
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
-                }
+        while self.last_poll_visits < budget {
+            if self.retirement.visit() {
+                self.charge(1);
+                continue;
+            }
+            if self.cursor == Cursor::Ready {
+                break;
+            }
+            if let Err(fault) = self.advance(budget - self.last_poll_visits) {
+                self.fault = Some(fault);
+                return Err(fault.public());
             }
         }
-        Ok(if self.cursor == Cursor::Ready {
-            LivingLifecycleProgressV2::Ready
-        } else {
-            LivingLifecycleProgressV2::Pending
-        })
+        Ok(
+            if self.cursor == Cursor::Ready && self.retirement.is_empty() {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            },
+        )
     }
-
-    /// Consume a ready candidate; cancelled or faulted candidates never escape.
+    /// Legacy consuming extraction; Err consumes the caller's job. Use borrowed
+    /// extraction and explicit retirement for retained ownership.
     pub fn finish(
         mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
         self.take_ready_result()
     }
-    /// Borrowed one-time extraction; rejected calls preserve every owner.
+    /// Once-only borrowed extraction. Cancellation always forbids publication.
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        if self.cursor != Cursor::Ready {
-            return Err(LivingLifecycleJobErrorV2::NotReady);
-        }
-        if self.delivered {
+        if self.cursor != Cursor::Ready || !self.retirement.is_empty() || self.delivered {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
         self.delivered = true;
@@ -225,38 +375,103 @@ impl LivingLifecycleJobV2 {
             std::mem::take(&mut self.events),
         ))
     }
-
-    fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
-        self.events.record(
-            LivingEventProvenanceV2::Autonomous {
-                phase: LivingPhaseV2::ExpireLifecycles,
-            },
-            kind,
-        )?;
-        Ok(())
+    fn emit(&mut self, kind: LivingEventKindV2, resume: Cursor) {
+        self.append = Some(
+            super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                std::mem::take(&mut self.events),
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ExpireLifecycles,
+                },
+                kind,
+            ),
+        );
+        self.resume = resume;
+        self.cursor = Cursor::Append;
     }
-
-    fn visit_next(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn advance(&mut self, remaining: usize) -> Result<(), LifecycleFailure> {
+        use Cursor as C;
         match self.cursor {
-            Cursor::Agreements => {
+            C::PrepareWars => {
+                let child = self
+                    .war_storage
+                    .get_or_insert_with(|| LivingSortedStorageJobV2::begin_empty(self.wars.len()));
+                let result = child.poll(remaining);
+                let count = child.last_poll_visits();
+                self.charge(count);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready {
+                    self.state.wars = self
+                        .war_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    // Known-empty setup has no source, pending, or cleanup allocation.
+                    let shell = self.war_storage.as_ref().unwrap();
+                    assert!(
+                        shell.original.is_none()
+                            && shell.source.is_none()
+                            && shell.destination.is_none()
+                            && shell.pending_transfer.is_none()
+                            && shell.retirement.is_empty(),
+                        "empty known-count storage shell"
+                    );
+                    self.war_storage = None;
+                    self.cursor = C::PrepareOccupations;
+                }
+            }
+            C::PrepareOccupations => {
+                let child = self.occupation_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.occupations.len())
+                });
+                let result = child.poll(remaining);
+                let count = child.last_poll_visits();
+                self.charge(count);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready {
+                    self.state.occupations = self
+                        .occupation_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    let shell = self.occupation_storage.as_ref().unwrap();
+                    assert!(
+                        shell.original.is_none()
+                            && shell.source.is_none()
+                            && shell.destination.is_none()
+                            && shell.pending_transfer.is_none()
+                            && shell.retirement.is_empty(),
+                        "empty known-count storage shell"
+                    );
+                    self.occupation_storage = None;
+                    self.cursor = C::Agreements;
+                }
+            }
+            C::Agreements => {
                 if let Some(row) = self.agreements.next() {
+                    self.charge(1);
                     if row.end_tick.0 <= self.tick.0 {
-                        self.emit(LivingEventKindV2::AgreementExpired)?;
+                        self.pending_agreement = Some(row);
+                        self.emit(LivingEventKindV2::AgreementExpired, C::Agreements);
                     } else {
                         self.agreement_rows.insert(row.living_key(), row);
                     }
-                    return Ok(true);
+                } else {
+                    self.charge(1);
+                    self.retirement.start(std::mem::take(&mut self.agreements));
+                    self.cursor = C::Wars;
                 }
-                self.cursor = Cursor::Wars;
             }
-            Cursor::Wars => {
+            C::Wars => {
                 if let Some(row) = self.wars.next() {
+                    self.charge(1);
+                    self.pending_war = Some(row);
+                    let row = self.pending_war.as_ref().unwrap();
                     if row.end_tick.0 <= self.tick.0 {
                         let end = row
                             .end_tick
                             .0
                             .checked_add(TRUCE_DURATION_TICKS)
-                            .ok_or(LivingDeterministicFaultV2::Arithmetic)?;
+                            .ok_or(LifecycleFailure::Arithmetic)?;
                         let truce = LivingAgreementV2 {
                             kind: LivingAgreementKindV2::Truce,
                             participant_a: row.participant_a,
@@ -266,36 +481,86 @@ impl LivingLifecycleJobV2 {
                         };
                         self.agreement_rows.insert(truce.living_key(), truce);
                         self.ended_pairs.insert(row.living_key());
-                        self.emit(LivingEventKindV2::WarEnded)?;
+                        self.emit(LivingEventKindV2::WarEnded, C::Wars);
                     } else {
-                        self.state.wars.push_sorted(row)?;
+                        self.cursor = C::WarOutput;
                     }
-                    return Ok(true);
+                } else {
+                    self.charge(1);
+                    self.retirement.start(std::mem::take(&mut self.wars));
+                    self.cursor = C::PrepareAgreements;
                 }
-                self.agreement_output = Some(std::mem::take(&mut self.agreement_rows).into_iter());
-                self.cursor = Cursor::AgreementOutput;
             }
-            Cursor::AgreementOutput => {
-                if let Some((_, row)) = self.agreement_output.as_mut().and_then(Iterator::next) {
-                    self.state.agreements.push_sorted(row)?;
-                    return Ok(true);
+            C::WarOutput => {
+                self.charge(1);
+                LivingSortedStorageJobV2::commit_one(&mut self.state.wars, &mut self.pending_war)
+                    .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::Wars;
+            }
+            C::PrepareAgreements => {
+                let child = self.agreement_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.agreement_rows.len())
+                });
+                let result = child.poll(remaining);
+                let count = child.last_poll_visits();
+                self.charge(count);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready {
+                    self.state.agreements = self
+                        .agreement_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    let shell = self.agreement_storage.as_ref().unwrap();
+                    assert!(
+                        shell.original.is_none()
+                            && shell.source.is_none()
+                            && shell.destination.is_none()
+                            && shell.pending_transfer.is_none()
+                            && shell.retirement.is_empty(),
+                        "empty known-count storage shell"
+                    );
+                    self.agreement_storage = None;
+                    self.agreement_output =
+                        Some(std::mem::take(&mut self.agreement_rows).into_iter());
+                    self.cursor = C::AgreementOutput;
                 }
-                self.cursor = Cursor::WorldOwners;
             }
-            Cursor::WorldOwners => {
+            C::AgreementOutput => {
+                if let Some((_, row)) = self.agreement_output.as_mut().unwrap().next() {
+                    self.charge(1);
+                    self.pending_agreement = Some(row);
+                    self.cursor = C::AgreementCommit;
+                } else {
+                    self.charge(1);
+                    self.retirement.start(self.agreement_output.take().unwrap());
+                    self.cursor = C::WorldOwners;
+                }
+            }
+            C::AgreementCommit => {
+                self.charge(1);
+                LivingSortedStorageJobV2::commit_one(
+                    &mut self.state.agreements,
+                    &mut self.pending_agreement,
+                )
+                .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::AgreementOutput;
+            }
+            C::WorldOwners => {
                 if self.ended_pairs.is_empty() {
-                    self.cursor = Cursor::Occupations;
+                    self.cursor = C::Occupations;
                 } else if let Some(row) = self.state.worlds.as_slice().get(self.index) {
                     self.owners.insert(row.id, row.owner);
                     self.index += 1;
-                    return Ok(true);
+                    self.charge(1);
                 } else {
                     self.index = 0;
-                    self.cursor = Cursor::Occupations;
+                    self.cursor = C::Occupations;
                 }
             }
-            Cursor::Occupations => {
+            C::Occupations => {
                 if let Some(row) = self.occupations.next() {
+                    self.charge(1);
                     let removed =
                         self.owners
                             .get(&row.world)
@@ -310,44 +575,89 @@ impl LivingLifecycleJobV2 {
                                 self.ended_pairs.contains(&pair)
                             });
                     if !removed {
-                        self.state.occupations.push_sorted(row)?;
+                        self.pending_occupation = Some(row);
+                        self.cursor = C::OccupationOutput;
                     }
-                    return Ok(true);
+                } else {
+                    self.charge(1);
+                    self.retirement.start(std::mem::take(&mut self.occupations));
+                    self.cursor = C::HazardStarts;
                 }
-                self.cursor = Cursor::HazardStarts;
             }
-            Cursor::HazardStarts => {
+            C::OccupationOutput => {
+                self.charge(1);
+                LivingSortedStorageJobV2::commit_one(
+                    &mut self.state.occupations,
+                    &mut self.pending_occupation,
+                )
+                .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::Occupations;
+            }
+            C::HazardStarts | C::HazardEnds => {
                 if let Some(row) = self.state.hazards.as_slice().get(self.index) {
-                    let started = row.start_tick == self.tick;
+                    let starts = self.cursor == C::HazardStarts;
+                    let emitted = if starts {
+                        row.start_tick == self.tick
+                    } else {
+                        row.end_tick == self.tick
+                    };
                     self.index += 1;
-                    if started {
-                        self.emit(LivingEventKindV2::HazardStarted)?;
+                    self.charge(1);
+                    if emitted {
+                        self.emit(
+                            if starts {
+                                LivingEventKindV2::HazardStarted
+                            } else {
+                                LivingEventKindV2::HazardEnded
+                            },
+                            self.cursor,
+                        );
                     }
-                    return Ok(true);
+                } else {
+                    self.index = 0;
+                    self.cursor = if self.cursor == C::HazardStarts {
+                        C::HazardEnds
+                    } else {
+                        C::RetireOwners
+                    };
                 }
-                self.index = 0;
-                self.cursor = Cursor::HazardEnds;
             }
-            Cursor::HazardEnds => {
-                if let Some(row) = self.state.hazards.as_slice().get(self.index) {
-                    let ended = row.end_tick == self.tick;
-                    self.index += 1;
-                    if ended {
-                        self.emit(LivingEventKindV2::HazardEnded)?;
-                    }
-                    return Ok(true);
+            C::Append => {
+                let child = self.append.as_mut().unwrap();
+                let result = child.poll(remaining);
+                let count = child.last_poll_visits();
+                self.charge(count);
+                if result.map_err(LifecycleFailure::append)? == LivingLifecycleProgressV2::Ready {
+                    self.cursor = C::AppendExtract;
                 }
-                self.cursor = Cursor::RetireIndices;
             }
-            Cursor::RetireIndices => {
-                if self.owners.pop_first().is_some() || self.ended_pairs.pop_first().is_some() {
-                    return Ok(true);
-                }
-                self.cursor = Cursor::Ready;
+            C::AppendExtract => {
+                self.charge(1);
+                self.events = self
+                    .append
+                    .as_mut()
+                    .unwrap()
+                    .take_ready_result()
+                    .map_err(LifecycleFailure::append)?
+                    .0;
+                self.retirement.start(self.append.take().unwrap());
+                self.pending_agreement = None;
+                self.pending_war = None;
+                self.cursor = self.resume;
             }
-            Cursor::Ready => {}
+            C::RetireOwners => {
+                self.charge(1);
+                self.retirement.start(std::mem::take(&mut self.owners));
+                self.cursor = C::RetirePairs;
+            }
+            C::RetirePairs => {
+                self.charge(1);
+                self.retirement.start(std::mem::take(&mut self.ended_pairs));
+                self.cursor = C::Ready;
+            }
+            C::Ready => {}
         }
-        Ok(false)
+        Ok(())
     }
 }
 
@@ -438,34 +748,38 @@ impl CostSearch {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ArrivalCursor {
+    PrepareFleets,
+    PrepareShipments,
+    PrepareArrivals,
     Fleets,
+    FleetCommit,
+    FleetOutput,
     Worlds,
-    Systems,
-    Lanes,
     Wars,
     Relations,
     Shipments,
+    PrepareRelations,
     RelationOutput,
+    RelationCommit,
+    Append,
+    AppendExtract,
     RetireIndices,
     Ready,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CargoCursor {
-    Travel,
-    RetireSearch,
     Return,
     Credit,
     Relation,
     Output,
+    Consumed,
 }
 
 /// Resumable phase-3 fleet arrivals and freight resolution.
 ///
 /// Unchanged nested hulls are moved, not cloned. Indexed world metadata, active
-/// wars and relation records are built incrementally. Return route search visits
-/// one cached system or lane per work unit. Inventory and relation changes stay
+/// wars and relation records are built incrementally. Inventory and relation changes stay
 /// in the owned private candidate until a complete boundary can be published.
-#[derive(Debug)]
 pub struct LivingArrivalJobV2 {
     retirement: PhaseRetirementLane<'static>,
     active_fleet: Option<LivingFleetV2>,
@@ -477,19 +791,35 @@ pub struct LivingArrivalJobV2 {
     shipments: IntoIter<LivingShipmentV2>,
     relations: IntoIter<LivingRelationV2>,
     world_meta: BTreeMap<LivingEntityIdV2, (usize, Option<LivingEntityIdV2>, LivingEntityIdV2)>,
-    graph: Graph,
     active_wars: BTreeSet<Pair>,
     relation_rows: BTreeMap<Pair, LivingRelationV2>,
     relation_output: Option<std::collections::btree_map::IntoIter<Pair, LivingRelationV2>>,
     arrivals: Vec<LivingEntityIdV2>,
+    pending_arrival: Option<LivingEntityIdV2>,
+    pending_relation: Option<LivingRelationV2>,
+    fleet_storage: Option<LivingSortedStorageJobV2<'static, LivingFleetV2>>,
+    shipment_storage: Option<LivingSortedStorageJobV2<'static, LivingShipmentV2>>,
+    relation_storage: Option<LivingSortedStorageJobV2<'static, LivingRelationV2>>,
+    arrival_storage: Option<LivingVecStorageJobV2<'static, LivingEntityIdV2>>,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    append_explained: bool,
+    resume: ArrivalCursor,
     cursor: ArrivalCursor,
     index: usize,
     cargo: Option<(LivingShipmentV2, CargoCursor)>,
-    search: Option<CostSearch>,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<LifecycleFailure>,
     last_poll_visits: usize,
     total_visits: u64,
+}
+
+impl std::fmt::Debug for LivingArrivalJobV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LivingArrivalJobV2")
+            .field("cursor", &self.cursor)
+            .field("fault", &self.fault)
+            .finish_non_exhaustive()
+    }
 }
 
 impl LivingArrivalJobV2 {
@@ -513,15 +843,22 @@ impl LivingArrivalJobV2 {
             shipments,
             relations,
             world_meta: BTreeMap::new(),
-            graph: BTreeMap::new(),
             active_wars: BTreeSet::new(),
             relation_rows: BTreeMap::new(),
             relation_output: None,
             arrivals: Vec::new(),
-            cursor: ArrivalCursor::Fleets,
+            pending_arrival: None,
+            pending_relation: None,
+            fleet_storage: None,
+            shipment_storage: None,
+            relation_storage: None,
+            arrival_storage: None,
+            append: None,
+            append_explained: false,
+            resume: ArrivalCursor::Ready,
+            cursor: ArrivalCursor::PrepareFleets,
             index: 0,
             cargo: None,
-            search: None,
             cancelled: false,
             fault: None,
             last_poll_visits: 0,
@@ -549,40 +886,40 @@ impl LivingArrivalJobV2 {
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self.fault.map_or(
+                LivingLifecycleJobErrorV2::Cancelled,
+                LifecycleFailure::public,
+            ));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        while self.last_poll_visits < budget && self.cursor != ArrivalCursor::Ready {
+        while self.last_poll_visits < budget {
             if self.retirement.visit() {
-                self.last_poll_visits += 1;
-                self.total_visits += 1;
+                self.charge(1);
                 continue;
             }
-
-            match self.visit_next() {
-                Ok(true) => {
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                }
-                Ok(false) => {}
+            if self.cursor == ArrivalCursor::Ready {
+                break;
+            }
+            match self.advance(budget - self.last_poll_visits) {
+                Ok(()) => {}
                 Err(fault) => {
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(fault);
+                    return Err(fault.public());
                 }
             }
         }
-        Ok(if self.cursor == ArrivalCursor::Ready {
-            LivingLifecycleProgressV2::Ready
-        } else {
-            LivingLifecycleProgressV2::Pending
-        })
+        Ok(
+            if self.cursor == ArrivalCursor::Ready && self.retirement.is_empty() {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            },
+        )
     }
 
     /// Consume a ready phase and its exact list of arrived fleet identities.
@@ -612,10 +949,10 @@ impl LivingArrivalJobV2 {
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        if self.cursor != ArrivalCursor::Ready {
+        if self.cursor != ArrivalCursor::Ready || !self.retirement.is_empty() {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
         if self.delivered {
@@ -629,149 +966,277 @@ impl LivingArrivalJobV2 {
         ))
     }
 
-    fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
-        self.events.record(
-            LivingEventProvenanceV2::Autonomous {
-                phase: LivingPhaseV2::ResolveArrivals,
-            },
-            kind,
-        )?;
-        Ok(())
+    fn charge(&mut self, visits: usize) {
+        self.last_poll_visits += visits;
+        self.total_visits += visits as u64;
     }
 
-    fn visit_next(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn emit(
+        &mut self,
+        kind: LivingEventKindV2,
+        facts: Option<super::event_facts::LivingEventFactsV2>,
+        resume: ArrivalCursor,
+    ) {
+        let provenance = LivingEventProvenanceV2::Autonomous {
+            phase: LivingPhaseV2::ResolveArrivals,
+        };
+        let events = std::mem::take(&mut self.events);
+        self.append_explained = facts.is_some();
+        self.append = Some(match facts {
+            Some(facts) => super::receipt::LivingPendingEventAppendJobV2::begin_explained(
+                events, provenance, kind, facts,
+            ),
+            None => super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                events, provenance, kind,
+            ),
+        });
+        self.resume = resume;
+        self.cursor = ArrivalCursor::Append;
+    }
+
+    fn advance(&mut self, remaining: usize) -> Result<(), LifecycleFailure> {
+        use ArrivalCursor as C;
         match self.cursor {
-            ArrivalCursor::Fleets => {
-                if let Some(fleet) = self.fleets.as_slice().first() {
-                    ensure_retained_sorted(&self.state.fleets, fleet)?;
+            C::PrepareFleets => {
+                let child = self.fleet_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.fleets.len())
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.state.fleets = self
+                        .fleet_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.fleet_storage.take().unwrap());
+                    self.cursor = C::PrepareShipments;
                 }
-                self.active_fleet = self.fleets.next();
-                if let Some(fleet) = self.active_fleet.as_mut() {
-                    if let LivingFleetLocationV2::Travelling {
-                        destination_world,
-                        arrival_tick,
-                        ..
-                    } = fleet.location
-                        && arrival_tick.0 <= self.tick.0
-                    {
-                        let kind = fleet.order.as_ref().map(|order| order.kind);
-                        let target = fleet.order.as_ref().and_then(|order| order.target_world);
-                        fleet.location = LivingFleetLocationV2::Docked {
-                            world: destination_world,
-                        };
-                        let clear = match kind {
-                            Some(LivingFleetOrderKindV2::Move | LivingFleetOrderKindV2::Return) => {
-                                true
-                            }
-                            Some(
-                                LivingFleetOrderKindV2::Attack | LivingFleetOrderKindV2::Settle,
-                            ) => target != Some(destination_world),
-                            Some(
-                                LivingFleetOrderKindV2::Explore | LivingFleetOrderKindV2::Defend,
-                            ) => target.is_none() || target == Some(destination_world),
-                            None => false,
-                        };
-                        if clear {
-                            self.retirement.start(fleet.order.take());
-                        }
-                        self.arrivals.push(fleet.id);
-                        self.emit(LivingEventKindV2::FleetArrived)?;
-                    }
-                    self.state
-                        .fleets
-                        .push_sorted(self.active_fleet.take().expect("retained arriving fleet"))?;
-                    return Ok(true);
-                }
-                self.cursor = ArrivalCursor::Worlds;
             }
-            ArrivalCursor::Worlds => {
+            C::PrepareShipments => {
+                let child = self.shipment_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.shipments.len())
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.state.shipments = self
+                        .shipment_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.shipment_storage.take().unwrap());
+                    self.cursor = C::PrepareArrivals;
+                }
+            }
+            C::PrepareArrivals => {
+                let child = self
+                    .arrival_storage
+                    .get_or_insert_with(|| LivingVecStorageJobV2::begin_empty(self.fleets.len()));
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.arrivals = self
+                        .arrival_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.arrival_storage.take().unwrap());
+                    self.cursor = C::Fleets;
+                }
+            }
+            C::Fleets => {
+                self.charge(1);
+                if let Some(fleet) = self.fleets.as_slice().first() {
+                    ensure_retained_sorted(&self.state.fleets, fleet)
+                        .map_err(|_| LifecycleFailure::KeyedOrder)?;
+                }
+                let Some(mut fleet) = self.fleets.next() else {
+                    self.retirement.start(std::mem::take(&mut self.fleets));
+                    self.cursor = C::Worlds;
+                    return Ok(());
+                };
+                if let LivingFleetLocationV2::Travelling {
+                    destination_world,
+                    arrival_tick,
+                    ..
+                } = fleet.location
+                    && arrival_tick.0 <= self.tick.0
+                {
+                    let kind = fleet.order.as_ref().map(|order| order.kind);
+                    let target = fleet.order.as_ref().and_then(|order| order.target_world);
+                    fleet.location = LivingFleetLocationV2::Docked {
+                        world: destination_world,
+                    };
+                    let clear = match kind {
+                        Some(LivingFleetOrderKindV2::Move | LivingFleetOrderKindV2::Return) => true,
+                        Some(LivingFleetOrderKindV2::Attack | LivingFleetOrderKindV2::Settle) => {
+                            target != Some(destination_world)
+                        }
+                        Some(LivingFleetOrderKindV2::Explore | LivingFleetOrderKindV2::Defend) => {
+                            target.is_none() || target == Some(destination_world)
+                        }
+                        None => false,
+                    };
+                    if clear {
+                        self.retirement.start(fleet.order.take());
+                    }
+                    self.pending_arrival = Some(fleet.id);
+                    self.active_fleet = Some(fleet);
+                    self.emit(LivingEventKindV2::FleetArrived, None, C::FleetCommit);
+                } else {
+                    self.active_fleet = Some(fleet);
+                    self.cursor = C::FleetOutput;
+                }
+            }
+            C::FleetCommit => {
+                self.charge(1);
+                LivingVecStorageJobV2::commit_one(&mut self.arrivals, &mut self.pending_arrival)
+                    .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::FleetOutput;
+            }
+            C::FleetOutput => {
+                self.charge(1);
+                LivingSortedStorageJobV2::commit_one(
+                    &mut self.state.fleets,
+                    &mut self.active_fleet,
+                )
+                .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::Fleets;
+            }
+            C::Worlds => {
+                self.charge(1);
                 if let Some(world) = self.state.worlds.as_slice().get(self.index) {
                     self.world_meta
                         .insert(world.id, (self.index, world.owner, world.system));
                     self.index += 1;
-                    return Ok(true);
+                } else {
+                    self.index = 0;
+                    self.cursor = C::Wars;
                 }
-                self.index = 0;
-                self.cursor = ArrivalCursor::Systems;
             }
-            ArrivalCursor::Systems => {
-                if let Some(system) = self.state.systems.as_slice().get(self.index) {
-                    self.graph.insert(system.id, Vec::new());
-                    self.index += 1;
-                    return Ok(true);
-                }
-                self.index = 0;
-                self.cursor = ArrivalCursor::Lanes;
-            }
-            ArrivalCursor::Lanes => {
-                if let Some(lane) = self.state.lanes.as_slice().get(self.index) {
-                    if self.graph.contains_key(&lane.system_a)
-                        && self.graph.contains_key(&lane.system_b)
-                    {
-                        let cost = lane.distance_units.div_ceil(10).max(10);
-                        self.graph
-                            .get_mut(&lane.system_a)
-                            .unwrap()
-                            .push((lane.system_b, cost));
-                        self.graph
-                            .get_mut(&lane.system_b)
-                            .unwrap()
-                            .push((lane.system_a, cost));
-                    }
-                    self.index += 1;
-                    return Ok(true);
-                }
-                self.index = 0;
-                self.cursor = ArrivalCursor::Wars;
-            }
-            ArrivalCursor::Wars => {
+            C::Wars => {
+                self.charge(1);
                 if let Some(war) = self.state.wars.as_slice().get(self.index) {
                     if war.start_tick.0 <= self.tick.0 && self.tick.0 < war.end_tick.0 {
                         self.active_wars.insert(war.living_key());
                     }
                     self.index += 1;
-                    return Ok(true);
+                } else {
+                    self.cursor = C::Relations;
                 }
-                self.cursor = ArrivalCursor::Relations;
             }
-            ArrivalCursor::Relations => {
+            C::Relations => {
+                self.charge(1);
                 if let Some(row) = self.relations.next() {
                     self.relation_rows.insert(row.living_key(), row);
-                    return Ok(true);
+                } else {
+                    self.retirement.start(std::mem::take(&mut self.relations));
+                    self.cursor = C::Shipments;
                 }
-                self.cursor = ArrivalCursor::Shipments;
             }
-            ArrivalCursor::Shipments => return self.visit_cargo(),
-            ArrivalCursor::RelationOutput => {
+            C::Shipments => self.visit_cargo()?,
+            C::PrepareRelations => {
+                let child = self.relation_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.relation_rows.len())
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.state.relations = self
+                        .relation_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.relation_storage.take().unwrap());
+                    self.relation_output =
+                        Some(std::mem::take(&mut self.relation_rows).into_iter());
+                    self.cursor = C::RelationOutput;
+                }
+            }
+            C::RelationOutput => {
+                self.charge(1);
                 if let Some((_, row)) = self.relation_output.as_mut().and_then(Iterator::next) {
-                    self.state.relations.push_sorted(row)?;
-                    return Ok(true);
+                    self.pending_relation = Some(row);
+                    self.cursor = C::RelationCommit;
+                } else {
+                    self.retirement.start(self.relation_output.take().unwrap());
+                    self.cursor = C::RetireIndices;
                 }
-                self.cursor = ArrivalCursor::RetireIndices;
             }
-            ArrivalCursor::RetireIndices => {
-                if self.world_meta.pop_first().is_some() || self.active_wars.pop_first().is_some() {
-                    return Ok(true);
-                }
-                if let Some(mut entry) = self.graph.first_entry() {
-                    if entry.get_mut().pop().is_none() {
-                        entry.remove();
-                    }
-                    return Ok(true);
-                }
-                self.cursor = ArrivalCursor::Ready;
+            C::RelationCommit => {
+                self.charge(1);
+                LivingSortedStorageJobV2::commit_one(
+                    &mut self.state.relations,
+                    &mut self.pending_relation,
+                )
+                .map_err(LifecycleFailure::storage)?;
+                self.cursor = C::RelationOutput;
             }
-            ArrivalCursor::Ready => {}
+            C::Append => {
+                let child = self.append.as_mut().expect("pending append");
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                let mapped = if self.append_explained {
+                    result.map_err(LifecycleFailure::explained_append)
+                } else {
+                    result.map_err(LifecycleFailure::append)
+                }?;
+                if mapped == LivingLifecycleProgressV2::Ready {
+                    self.cursor = C::AppendExtract;
+                }
+            }
+            C::AppendExtract => {
+                self.charge(1);
+                self.events = self
+                    .append
+                    .as_mut()
+                    .unwrap()
+                    .take_ready_result()
+                    .map_err(LifecycleFailure::append)?
+                    .0;
+                self.retirement.start(self.append.take().unwrap());
+                self.cursor = self.resume;
+            }
+            C::RetireIndices => {
+                self.charge(1);
+                if self.world_meta.pop_first().is_none() && self.active_wars.pop_first().is_none() {
+                    self.cursor = C::Ready;
+                }
+            }
+            C::Ready => {}
         }
-        Ok(false)
+        Ok(())
     }
 
-    fn visit_cargo(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
-        let Some((mut cargo, cursor)) = self.cargo.take() else {
+    fn visit_cargo(&mut self) -> Result<(), LifecycleFailure> {
+        let Some((_, cursor)) = self.cargo.as_ref() else {
+            self.charge(1);
             let Some(cargo) = self.shipments.next() else {
-                self.relation_output = Some(std::mem::take(&mut self.relation_rows).into_iter());
-                self.cursor = ArrivalCursor::RelationOutput;
-                return Ok(false);
+                self.retirement.start(std::mem::take(&mut self.shipments));
+                self.cursor = ArrivalCursor::PrepareRelations;
+                return Ok(());
             };
             let due = cargo.disposition == LivingShipmentDispositionV2::WaitingForStorage
                 || cargo.arrival_tick.0 <= self.tick.0;
@@ -792,144 +1257,44 @@ impl LivingArrivalJobV2 {
                 && owner == Some(cargo.intended_receiver)
                 && self.active_wars.contains(&pair)
             {
-                let from = self
-                    .world_meta
-                    .get(&cargo.destination_world)
-                    .map(|row| row.2);
-                let to = self.world_meta.get(&cargo.source_world).map(|row| row.2);
-                self.search = Some(CostSearch::begin(from, to, &self.graph));
-                CargoCursor::Travel
+                CargoCursor::Return
             } else {
                 CargoCursor::Credit
             };
             self.cargo = Some((cargo, cursor));
-            return Ok(true);
+            return Ok(());
         };
-        match cursor {
-            CargoCursor::Travel => {
-                let search = self
-                    .search
-                    .as_mut()
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                if search.result.is_some() {
-                    self.cargo = Some((cargo, CargoCursor::RetireSearch));
-                    return Ok(false);
-                }
-                let visited = search.visit(&self.graph);
-                self.cargo = Some((cargo, CargoCursor::Travel));
-                return Ok(visited);
-            }
-            CargoCursor::RetireSearch => {
-                let search = self
-                    .search
-                    .as_mut()
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                if search.distance.pop_first().is_some() || search.frontier.pop_first().is_some() {
-                    self.cargo = Some((cargo, CargoCursor::RetireSearch));
-                    return Ok(true);
-                }
-                self.cargo = Some((cargo, CargoCursor::Return));
-                return Ok(false);
-            }
+        match *cursor {
             CargoCursor::Return => {
-                let cost = self
-                    .search
-                    .take()
-                    .and_then(|search| search.result)
-                    .flatten()
-                    .unwrap_or(10);
+                self.charge(1);
+                let (cargo, cursor) = self.cargo.as_mut().unwrap();
+                let duration = cargo
+                    .arrival_tick
+                    .0
+                    .checked_sub(cargo.departure_tick.0)
+                    .filter(|duration| *duration > 0)
+                    .ok_or(LifecycleFailure::Arithmetic)?;
+                let arrival = self
+                    .tick
+                    .0
+                    .checked_add(duration)
+                    .ok_or(LifecycleFailure::Arithmetic)?;
+                cargo.departure_tick = self.tick;
+                cargo.arrival_tick = LivingTickV2(arrival);
                 cargo.disposition = LivingShipmentDispositionV2::Returning;
                 cargo.returning_to_source = false;
-                cargo.departure_tick = self.tick;
-                cargo.arrival_tick = LivingTickV2(
-                    self.tick
-                        .0
-                        .checked_add(cost)
-                        .ok_or(LivingDeterministicFaultV2::Arithmetic)?,
-                );
-                self.cargo = Some((cargo, CargoCursor::Output));
+                *cursor = CargoCursor::Output;
             }
             CargoCursor::Credit => {
-                let returning = cargo.disposition == LivingShipmentDispositionV2::Returning
-                    || cargo.returning_to_source;
-                let destination = if returning {
-                    cargo.source_world
-                } else {
-                    cargo.destination_world
-                };
-                let meta = self.world_meta.get(&destination).copied();
-                let mut credited = false;
-                if let Some((index, _, _)) = meta {
-                    let world = self
-                        .state
-                        .worlds
-                        .record_at_mut(index)
-                        .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                    if let Some(next) = world
-                        .inventory
-                        .quantity(cargo.resource)
-                        .checked_add(cargo.units)
-                        && next <= LIVING_RESOURCE_STORAGE_LIMIT_V2
-                    {
-                        match cargo.resource {
-                            LivingResourceV2::Energy => world.inventory.energy = next,
-                            LivingResourceV2::Ore => world.inventory.ore = next,
-                            LivingResourceV2::Alloy => world.inventory.alloy = next,
-                        }
-                        credited = true;
-                    }
-                }
-                if !credited {
-                    cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
-                    cargo.returning_to_source = returning;
-                    self.emit(LivingEventKindV2::ShipmentWaiting)?;
-                    self.cargo = Some((cargo, CargoCursor::Output));
-                } else {
-                    let captured =
-                        !returning && meta.and_then(|row| row.1) != Some(cargo.intended_receiver);
-                    if captured {
-                        self.emit(LivingEventKindV2::ShipmentCaptured)?;
-                    } else if returning {
-                        self.emit(LivingEventKindV2::ShipmentReturned)?;
-                    } else {
-                        self.events.record_explained(
-                            LivingEventProvenanceV2::Autonomous {
-                                phase: LivingPhaseV2::ResolveArrivals,
-                            },
-                            LivingEventKindV2::ShipmentDelivered,
-                            super::event_facts::LivingEventFactsV2 {
-                                delivery: Some(super::event_facts::LivingDeliveryFactV2 {
-                                    source_world: cargo.source_world,
-                                    destination_world: cargo.destination_world,
-                                    dispatch_owner: cargo.dispatch_owner,
-                                    intended_receiver: cargo.intended_receiver,
-                                    recipient: cargo.intended_receiver,
-                                    resource: cargo.resource,
-                                    units: cargo.units,
-                                    dispatch_kind: cargo.dispatch_kind,
-                                    source_system: self
-                                        .world_meta
-                                        .get(&cargo.source_world)
-                                        .map(|row| row.2),
-                                    destination_system: meta.map(|row| row.2),
-                                }),
-                                ..Default::default()
-                            },
-                        )?;
-                    }
-                    if !captured
-                        && !returning
-                        && cargo.dispatch_owner != cargo.intended_receiver
-                        && matches!(
-                            cargo.dispatch_kind,
-                            Some(LivingRouteKindV2::Aid | LivingRouteKindV2::Trade)
-                        )
-                    {
-                        self.cargo = Some((cargo, CargoCursor::Relation));
-                    }
-                }
+                self.charge(1);
+                let (mut cargo, _) = self.cargo.take().unwrap();
+                let next = self.credit_cargo(&mut cargo);
+                self.cargo = Some((cargo, next.as_ref().copied().unwrap_or(CargoCursor::Credit)));
+                next?;
             }
             CargoCursor::Relation => {
+                self.charge(1);
+                let cargo = &self.cargo.as_ref().unwrap().0;
                 let from = cargo.intended_receiver;
                 let to = cargo.dispatch_owner;
                 let relation = self
@@ -945,15 +1310,127 @@ impl LivingArrivalJobV2 {
                     relation,
                     cargo
                         .dispatch_kind
-                        .ok_or(LivingDeterministicFaultV2::Invariant)?,
+                        .ok_or(LifecycleFailure::ProtocolInvariant)?,
                     cargo.units,
-                )?;
+                )
+                .map_err(|error| match error {
+                    LivingDeterministicFaultV2::Arithmetic => LifecycleFailure::Arithmetic,
+                    _ => LifecycleFailure::ProtocolInvariant,
+                })?;
+                self.cargo.as_mut().unwrap().1 = CargoCursor::Consumed;
             }
             CargoCursor::Output => {
-                self.state.shipments.push_sorted(cargo)?;
+                self.charge(1);
+                let (cargo, _) = self.cargo.take().unwrap();
+                let mut pending = Some(cargo);
+                let result =
+                    LivingSortedStorageJobV2::commit_one(&mut self.state.shipments, &mut pending);
+                if let Err(error) = result {
+                    self.cargo = Some((pending.expect("retained cargo"), CargoCursor::Output));
+                    return Err(LifecycleFailure::storage(error));
+                }
+            }
+            CargoCursor::Consumed => {
+                self.charge(1);
+                let (cargo, _) = self.cargo.take().unwrap();
+                self.retirement.start(cargo);
             }
         }
-        Ok(true)
+        Ok(())
+    }
+
+    fn credit_cargo(
+        &mut self,
+        cargo: &mut LivingShipmentV2,
+    ) -> Result<CargoCursor, LifecycleFailure> {
+        let returning = cargo.disposition == LivingShipmentDispositionV2::Returning
+            || cargo.returning_to_source;
+        let destination = if returning {
+            cargo.source_world
+        } else {
+            cargo.destination_world
+        };
+        let meta = self.world_meta.get(&destination).copied();
+        let mut credited = false;
+        if let Some((index, _, _)) = meta {
+            let world = self
+                .state
+                .worlds
+                .record_at_mut(index)
+                .ok_or(LifecycleFailure::ProtocolInvariant)?;
+            if let Some(next) = world
+                .inventory
+                .quantity(cargo.resource)
+                .checked_add(cargo.units)
+                && next <= LIVING_RESOURCE_STORAGE_LIMIT_V2
+            {
+                match cargo.resource {
+                    LivingResourceV2::Energy => world.inventory.energy = next,
+                    LivingResourceV2::Ore => world.inventory.ore = next,
+                    LivingResourceV2::Alloy => world.inventory.alloy = next,
+                }
+                credited = true;
+            }
+        }
+        if !credited {
+            cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+            cargo.returning_to_source = returning;
+            self.emit(
+                LivingEventKindV2::ShipmentWaiting,
+                None,
+                ArrivalCursor::Shipments,
+            );
+            return Ok(CargoCursor::Output);
+        }
+        let captured = !returning && meta.and_then(|row| row.1) != Some(cargo.intended_receiver);
+        if captured {
+            self.emit(
+                LivingEventKindV2::ShipmentCaptured,
+                None,
+                ArrivalCursor::Shipments,
+            );
+        } else if returning {
+            self.emit(
+                LivingEventKindV2::ShipmentReturned,
+                None,
+                ArrivalCursor::Shipments,
+            );
+        } else {
+            let facts = super::event_facts::LivingEventFactsV2 {
+                delivery: Some(super::event_facts::LivingDeliveryFactV2 {
+                    source_world: cargo.source_world,
+                    destination_world: cargo.destination_world,
+                    dispatch_owner: cargo.dispatch_owner,
+                    intended_receiver: cargo.intended_receiver,
+                    recipient: cargo.intended_receiver,
+                    resource: cargo.resource,
+                    units: cargo.units,
+                    dispatch_kind: cargo.dispatch_kind,
+                    source_system: self.world_meta.get(&cargo.source_world).map(|row| row.2),
+                    destination_system: meta.map(|row| row.2),
+                }),
+                ..Default::default()
+            };
+            self.emit(
+                LivingEventKindV2::ShipmentDelivered,
+                Some(facts),
+                ArrivalCursor::Shipments,
+            );
+        }
+        Ok(
+            if !captured
+                && !returning
+                && cargo.dispatch_owner != cargo.intended_receiver
+                && matches!(
+                    cargo.dispatch_kind,
+                    Some(LivingRouteKindV2::Aid | LivingRouteKindV2::Trade)
+                )
+            {
+                CargoCursor::Relation
+            } else {
+                CargoCursor::Consumed
+            },
+        )
     }
 }
 
@@ -989,6 +1466,49 @@ pub struct LivingScheduledPhasesJobV2 {
 }
 
 impl LivingScheduledPhasesJobV2 {
+    #[cfg(test)]
+    pub(crate) fn inject_capacity_failure(&mut self, event_storage: bool) -> bool {
+        let ScheduledCursor::Lifecycles(child) = &mut self.cursor else {
+            return false;
+        };
+        if event_storage {
+            child.inject_event_capacity_failure()
+        } else if child.cursor == Cursor::PrepareWars && child.war_storage.is_none() {
+            child.inject_output_capacity_failure();
+            true
+        } else {
+            false
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn lifecycle_identity(&self) -> Option<*const LivingLifecycleJobV2> {
+        match &self.cursor {
+            ScheduledCursor::Lifecycles(child) => Some(&**child as *const _),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_arrival_capacity_failure(&mut self, event_storage: bool) -> bool {
+        if !self.retirement.is_empty() {
+            return false;
+        }
+        let ScheduledCursor::Arrivals(child) = &mut self.cursor else {
+            return false;
+        };
+        if event_storage {
+            child
+                .append
+                .as_mut()
+                .is_some_and(|append| append.inject_entry_capacity_failure())
+        } else if child.cursor == ArrivalCursor::PrepareFleets && child.fleet_storage.is_none() {
+            child.fleet_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+            true
+        } else {
+            false
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn phase(&self) -> Option<LivingPhaseV2> {
         match &self.cursor {
@@ -1035,7 +1555,10 @@ impl LivingScheduledPhasesJobV2 {
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self
+                .fault
+                .clone()
+                .unwrap_or(LivingLifecycleJobErrorV2::Cancelled));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
@@ -2466,6 +2989,37 @@ impl LivingCopyHashRetirementJobV2 {
 /// Resumable recipe reservation and application on private scalar inventory.
 /// Resource amounts and emitted blocked reasons are separate visited records.
 /// This is a component of phase five, not a complete production phase.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecipeFailure {
+    Invariant,
+    KeyedOrder,
+    PreparationCapacity,
+}
+type RecipeReasonStorage = LivingSortedStorageJobV2<'static, super::model::LivingBlockedReasonV2>;
+impl RecipeFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Invariant => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+            }
+            Self::KeyedOrder => {
+                LivingLifecycleJobErrorV2::Fault(super::wire::LivingWireErrorV2::KeyedOrder.into())
+            }
+            Self::PreparationCapacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+        }
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => Self::PreparationCapacity,
+            LivingStorageJobErrorV2::KeyedOrder => Self::KeyedOrder,
+            LivingStorageJobErrorV2::Budget
+            | LivingStorageJobErrorV2::Cancelled
+            | LivingStorageJobErrorV2::NotReady => Self::Invariant,
+        }
+    }
+}
+const _: () = assert!(std::mem::size_of::<super::model::LivingBlockedReasonV2>() <= 256);
+const _: () = assert!(7 * 256 <= i32::MAX as usize);
 pub(crate) struct LivingRecipeJobV2 {
     delivered: bool,
     inventory: super::model::LivingInventoryV2,
@@ -2479,7 +3033,9 @@ pub(crate) struct LivingRecipeJobV2 {
     reasons: BTreeMap<(&'static str, &'static str), super::model::LivingBlockedReasonV2>,
     reason_output: LivingSortedVecV2<super::model::LivingBlockedReasonV2>,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<RecipeFailure>,
+    reason_storage: Option<RecipeReasonStorage>,
+    retirement: PhaseRetirementLane<'static>,
     last_poll_visits: usize,
     total_visits: u64,
 }
@@ -2493,6 +3049,30 @@ pub struct LivingRecipeOutputV2 {
     pub blocked_reasons: LivingSortedVecV2<super::model::LivingBlockedReasonV2>,
 }
 impl LivingRecipeJobV2 {
+    #[cfg(test)]
+    fn inject_capacity_failure(&mut self) -> bool {
+        // Scalar transitions to setup are uncharged; select the boundary after
+        // the last real check/payment rather than requiring stage6 to be yielded.
+        let at_setup = self.pending_reason.is_none()
+            && match self.stage {
+                0 => {
+                    self.index == self.inputs.len()
+                        && self.deposit_units == 0
+                        && self.outputs.is_empty()
+                        && (!self.reasons.is_empty() || self.inputs.is_empty())
+                }
+                2 => self.index == self.outputs.len() && !self.reasons.is_empty(),
+                5 => self.index == self.outputs.len(),
+                6 => true,
+                _ => false,
+            };
+        if !at_setup || self.reason_storage.is_some() {
+            return false;
+        }
+        self.reason_storage = Some(RecipeReasonStorage::begin_empty(usize::MAX));
+        true
+    }
+
     /// Move the bounded catalog amount lists and capture scalar local resources.
     #[cfg(test)]
     pub fn begin(
@@ -2531,6 +3111,8 @@ impl LivingRecipeJobV2 {
             reason_output: LivingSortedVecV2::default(),
             cancelled: false,
             fault: None,
+            reason_storage: None,
+            retirement: PhaseRetirementLane::default(),
             last_poll_visits: 0,
             total_visits: 0,
         }
@@ -2556,15 +3138,57 @@ impl LivingRecipeJobV2 {
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self
+                .fault
+                .map_or(LivingLifecycleJobErrorV2::Cancelled, RecipeFailure::public));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        while self.stage < 7 && self.last_poll_visits < budget {
+        while self.stage < 11 && self.last_poll_visits < budget {
+            if self.retirement.visit() {
+                self.last_poll_visits += 1;
+                self.total_visits += 1;
+                continue;
+            }
+            if self.stage == 6 {
+                let storage = self
+                    .reason_storage
+                    .get_or_insert_with(|| RecipeReasonStorage::begin_empty(self.reasons.len()));
+                let result = storage.poll(budget - self.last_poll_visits);
+                let used = storage.last_poll_visits();
+                self.last_poll_visits += used;
+                self.total_visits += used as u64;
+                let result = match result {
+                    Ok(LivingLifecycleProgressV2::Ready) => storage.take_ready_result(),
+                    Ok(LivingLifecycleProgressV2::Pending) => continue,
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Ok(output) => {
+                        self.reason_output = output;
+                        // Only the empty inline control shell may leave scope.
+                        assert!(
+                            storage.original.is_none()
+                                && storage.source.is_none()
+                                && storage.destination.is_none()
+                                && storage.pending_transfer.is_none()
+                                && storage.retirement.is_empty()
+                        );
+                        self.reason_storage = None;
+                        self.stage = 7;
+                    }
+                    Err(error) => {
+                        let failure = RecipeFailure::storage(error);
+                        self.fault = Some(failure);
+                        return Err(failure.public());
+                    }
+                }
+                continue;
+            }
             match self.visit_recipe() {
                 Ok(visited) => {
                     if visited {
@@ -2572,22 +3196,23 @@ impl LivingRecipeJobV2 {
                         self.total_visits += 1;
                     }
                 }
-                Err(LivingLifecycleJobErrorV2::Fault(fault)) => {
+                Err(failure) => {
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(failure);
+                    return Err(failure.public());
                 }
-                Err(error) => return Err(error),
             }
         }
-        Ok(if self.stage == 7 {
+        Ok(if self.stage == 11 && self.retirement.is_empty() {
             LivingLifecycleProgressV2::Ready
         } else {
             LivingLifecycleProgressV2::Pending
         })
     }
-    /// Consume the complete result. Interrupted partial payment never escapes.
+
+    /// Legacy consuming extraction; errors cannot retain the caller's owner.
+    /// Resident callers use borrowed extraction and explicit retirement.
     #[allow(dead_code)]
     pub fn finish(mut self) -> Result<LivingRecipeOutputV2, LivingLifecycleJobErrorV2> {
         self.take_ready_result()
@@ -2597,10 +3222,10 @@ impl LivingRecipeJobV2 {
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        if self.stage != 7 {
+        if self.stage != 11 || !self.retirement.is_empty() {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
         if self.delivered {
@@ -2613,9 +3238,11 @@ impl LivingRecipeJobV2 {
             blocked_reasons: std::mem::take(&mut self.reason_output),
         })
     }
-    fn visit_recipe(&mut self) -> Result<bool, LivingLifecycleJobErrorV2> {
+    fn visit_recipe(&mut self) -> Result<bool, RecipeFailure> {
         use super::model::LivingBlockedReasonV2;
-        if let Some(reason) = self.pending_reason.take() {
+        if self.stage < 6
+            && let Some(reason) = self.pending_reason.take()
+        {
             self.reasons.insert(reason.living_key(), reason);
             return Ok(true);
         }
@@ -2668,12 +3295,9 @@ impl LivingRecipeJobV2 {
                 if let Some((resource, required)) = self.inputs.get(self.index).copied() {
                     let current = recipe_quantity(self.inventory, resource);
                     // Catalog amounts are unique per resource; all were reserved above.
-                    let remaining =
-                        current
-                            .checked_sub(required)
-                            .ok_or(LivingLifecycleJobErrorV2::Fault(
-                                LivingDeterministicFaultV2::Invariant,
-                            ))?;
+                    let remaining = current
+                        .checked_sub(required)
+                        .ok_or(RecipeFailure::Invariant)?;
                     recipe_set_quantity(&mut self.inventory, resource, remaining);
                     self.index += 1;
                     return Ok(true);
@@ -2686,9 +3310,7 @@ impl LivingRecipeJobV2 {
                     self.remaining_deposit = self
                         .remaining_deposit
                         .checked_sub(u64::from(self.deposit_units))
-                        .ok_or(LivingLifecycleJobErrorV2::Fault(
-                            LivingDeterministicFaultV2::Invariant,
-                        ))?;
+                        .ok_or(RecipeFailure::Invariant)?;
                     return Ok(true);
                 }
                 return Ok(false);
@@ -2699,21 +3321,36 @@ impl LivingRecipeJobV2 {
                     let produced = current
                         .checked_add(quantity)
                         .filter(|value| *value <= LIVING_RESOURCE_STORAGE_LIMIT_V2)
-                        .ok_or(LivingLifecycleJobErrorV2::Fault(
-                            LivingDeterministicFaultV2::Invariant,
-                        ))?;
+                        .ok_or(RecipeFailure::Invariant)?;
                     recipe_set_quantity(&mut self.inventory, resource, produced);
                     self.index += 1;
                     return Ok(true);
                 }
             }
-            6 => {
+            7 => {
                 if let Some((_, reason)) = self.reasons.pop_first() {
-                    self.reason_output
-                        .push_sorted(reason)
-                        .map_err(|error| LivingLifecycleJobErrorV2::Fault(error.into()))?;
+                    self.pending_reason = Some(reason);
+                    self.stage = 8;
                     return Ok(true);
                 }
+                self.stage = 9;
+                return Ok(false);
+            }
+            8 => {
+                RecipeReasonStorage::commit_one(&mut self.reason_output, &mut self.pending_reason)
+                    .map_err(RecipeFailure::storage)?;
+                self.stage = 7;
+                return Ok(true);
+            }
+            9 => {
+                self.retirement.start(std::mem::take(&mut self.reasons));
+                self.stage = 10;
+                return Ok(true);
+            }
+            10 => {
+                assert!(self.retirement.is_empty());
+                self.stage = 11;
+                return Ok(false);
             }
             _ => {}
         }
@@ -2722,6 +3359,263 @@ impl LivingRecipeJobV2 {
         Ok(false)
     }
 }
+#[cfg(test)]
+use super::model;
+
+// Exact pre-Task2D.1 recipe policy; synchronous test-only oracle.
+#[cfg(test)]
+pub(crate) mod recipe_legacy_oracle {
+    use super::*;
+    pub(crate) struct Recipe {
+        delivered: bool,
+        inventory: super::model::LivingInventoryV2,
+        remaining_deposit: u64,
+        deposit_units: u32,
+        inputs: PhaseArc<Vec<(LivingResourceV2, u32)>>,
+        outputs: PhaseArc<Vec<(LivingResourceV2, u32)>>,
+        stage: u8,
+        index: usize,
+        pending_reason: Option<super::model::LivingBlockedReasonV2>,
+        reasons: BTreeMap<(&'static str, &'static str), super::model::LivingBlockedReasonV2>,
+        reason_output: LivingSortedVecV2<super::model::LivingBlockedReasonV2>,
+        cancelled: bool,
+        fault: Option<LivingDeterministicFaultV2>,
+        last_poll_visits: usize,
+        total_visits: u64,
+    }
+    impl Recipe {
+        /// Move the bounded catalog amount lists and capture scalar local resources.
+        #[cfg(test)]
+        pub fn begin(
+            inventory: super::model::LivingInventoryV2,
+            remaining_deposit: u64,
+            deposit_units: u32,
+            inputs: Vec<(LivingResourceV2, u32)>,
+            outputs: Vec<(LivingResourceV2, u32)>,
+        ) -> Self {
+            Self::begin_shared(
+                inventory,
+                remaining_deposit,
+                deposit_units,
+                std::sync::Arc::new(inputs),
+                std::sync::Arc::new(outputs),
+            )
+        }
+        fn begin_shared(
+            inventory: super::model::LivingInventoryV2,
+            remaining_deposit: u64,
+            deposit_units: u32,
+            inputs: std::sync::Arc<Vec<(LivingResourceV2, u32)>>,
+            outputs: std::sync::Arc<Vec<(LivingResourceV2, u32)>>,
+        ) -> Self {
+            Self {
+                delivered: false,
+                inventory,
+                remaining_deposit,
+                deposit_units,
+                inputs: inputs.into(),
+                outputs: outputs.into(),
+                stage: 0,
+                index: 0,
+                pending_reason: None,
+                reasons: BTreeMap::new(),
+                reason_output: LivingSortedVecV2::default(),
+                cancelled: false,
+                fault: None,
+                last_poll_visits: 0,
+                total_visits: 0,
+            }
+        }
+        /// Cancel without exposing a partially consumed inventory.
+        #[cfg(test)]
+        pub fn cancel(&mut self) {
+            self.cancelled = true;
+        }
+        /// Visits used by the preceding poll.
+        pub const fn last_poll_visits(&self) -> usize {
+            self.last_poll_visits
+        }
+        /// Visits used since creation.
+        #[cfg(test)]
+        pub const fn total_visits(&self) -> u64 {
+            self.total_visits
+        }
+        /// Visit individual input/output amounts, deposit records and blocked reasons.
+        pub fn poll(
+            &mut self,
+            budget: usize,
+        ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+            self.last_poll_visits = 0;
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
+                return Err(LivingLifecycleJobErrorV2::Budget);
+            }
+            if let Some(fault) = &self.fault {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+            }
+            while self.stage < 7 && self.last_poll_visits < budget {
+                match self.visit_recipe() {
+                    Ok(visited) => {
+                        if visited {
+                            self.last_poll_visits += 1;
+                            self.total_visits += 1;
+                        }
+                    }
+                    Err(LivingLifecycleJobErrorV2::Fault(fault)) => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        self.fault = Some(fault.clone());
+                        return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(if self.stage == 7 {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            })
+        }
+        /// Consume the complete result. Interrupted partial payment never escapes.
+        #[allow(dead_code)]
+        pub fn finish(mut self) -> Result<LivingRecipeOutputV2, LivingLifecycleJobErrorV2> {
+            self.take_ready_result()
+        }
+        /// Borrowed one-time extraction; rejected calls preserve every owner.
+        pub fn take_ready_result(
+            &mut self,
+        ) -> Result<LivingRecipeOutputV2, LivingLifecycleJobErrorV2> {
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if let Some(fault) = self.fault.clone() {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault));
+            }
+            if self.stage != 7 {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            if self.delivered {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            self.delivered = true;
+            Ok(LivingRecipeOutputV2 {
+                inventory: self.inventory,
+                remaining_deposit: self.remaining_deposit,
+                blocked_reasons: std::mem::take(&mut self.reason_output),
+            })
+        }
+        fn visit_recipe(&mut self) -> Result<bool, LivingLifecycleJobErrorV2> {
+            use super::model::LivingBlockedReasonV2;
+            if let Some(reason) = self.pending_reason.take() {
+                self.reasons.insert(reason.living_key(), reason);
+                return Ok(true);
+            }
+            match self.stage {
+                0 => {
+                    if let Some((resource, required)) = self.inputs.get(self.index).copied() {
+                        let available = recipe_quantity(self.inventory, resource);
+                        if available < required {
+                            self.pending_reason = Some(LivingBlockedReasonV2::MissingInput {
+                                resource,
+                                required,
+                                available,
+                            });
+                        }
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                }
+                1 => {
+                    self.stage = 2;
+                    self.index = 0;
+                    if self.deposit_units > 0 {
+                        if self.remaining_deposit < u64::from(self.deposit_units) {
+                            self.pending_reason = Some(LivingBlockedReasonV2::MissingDeposit {
+                                required: self.deposit_units,
+                                available: u32::try_from(self.remaining_deposit)
+                                    .unwrap_or(u32::MAX),
+                            });
+                        }
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                }
+                2 => {
+                    if let Some((resource, quantity)) = self.outputs.get(self.index).copied() {
+                        if recipe_quantity(self.inventory, resource).saturating_add(quantity)
+                            > LIVING_RESOURCE_STORAGE_LIMIT_V2
+                        {
+                            self.pending_reason =
+                                Some(LivingBlockedReasonV2::OutputFull { resource });
+                        }
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                    if !self.reasons.is_empty() {
+                        self.stage = 6;
+                        self.index = 0;
+                        return Ok(false);
+                    }
+                }
+                3 => {
+                    if let Some((resource, required)) = self.inputs.get(self.index).copied() {
+                        let current = recipe_quantity(self.inventory, resource);
+                        // Catalog amounts are unique per resource; all were reserved above.
+                        let remaining = current.checked_sub(required).ok_or(
+                            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant),
+                        )?;
+                        recipe_set_quantity(&mut self.inventory, resource, remaining);
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                }
+                4 => {
+                    self.stage = 5;
+                    self.index = 0;
+                    if self.deposit_units > 0 {
+                        self.remaining_deposit = self
+                            .remaining_deposit
+                            .checked_sub(u64::from(self.deposit_units))
+                            .ok_or(LivingLifecycleJobErrorV2::Fault(
+                                LivingDeterministicFaultV2::Invariant,
+                            ))?;
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                }
+                5 => {
+                    if let Some((resource, quantity)) = self.outputs.get(self.index).copied() {
+                        let current = recipe_quantity(self.inventory, resource);
+                        let produced = current
+                            .checked_add(quantity)
+                            .filter(|value| *value <= LIVING_RESOURCE_STORAGE_LIMIT_V2)
+                            .ok_or(LivingLifecycleJobErrorV2::Fault(
+                                LivingDeterministicFaultV2::Invariant,
+                            ))?;
+                        recipe_set_quantity(&mut self.inventory, resource, produced);
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                }
+                6 => {
+                    if let Some((_, reason)) = self.reasons.pop_first() {
+                        self.reason_output
+                            .push_sorted(reason)
+                            .map_err(|error| LivingLifecycleJobErrorV2::Fault(error.into()))?;
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+            self.stage += 1;
+            self.index = 0;
+            Ok(false)
+        }
+    }
+}
+
 fn recipe_quantity(inventory: super::model::LivingInventoryV2, resource: LivingResourceV2) -> u32 {
     match resource {
         LivingResourceV2::Energy => inventory.energy,
@@ -2745,42 +3639,84 @@ fn recipe_set_quantity(
 enum RepairCursor {
     Worlds,
     Definitions,
+    Industries,
     Fleet,
     Hull,
+    Facilities,
+    Insert,
+    Select,
     Energy,
     Update,
-    HullOutput,
-    FleetOutput,
     RetireIndices,
+    Cleanup,
     Ready,
 }
-
-/// Resumable hull repairs on an unpublished candidate. Fleet orders and their
-/// paths are moved unchanged; each hull read and output is a separate visit.
+#[derive(Clone, Copy)]
+enum RepairAsset {
+    Hull {
+        fleet: usize,
+        fleet_id: LivingEntityIdV2,
+        hull: usize,
+    },
+    Battery {
+        facility: usize,
+    },
+}
+/// Fixed indexes only; never owns a row, path, or catalog string.
+#[derive(Clone, Copy)]
+struct RepairTarget {
+    id: LivingEntityIdV2,
+    world: LivingEntityIdV2,
+    world_index: usize,
+    maximum: u32,
+    due: LivingTickV2,
+    asset: RepairAsset,
+}
+#[derive(Clone, Copy)]
+enum RepairFailure {
+    Invariant,
+    Arithmetic,
+    KeyedOrder,
+}
+impl RepairFailure {
+    fn public(self) -> LivingDeterministicFaultV2 {
+        match self {
+            Self::Invariant => LivingDeterministicFaultV2::Invariant,
+            Self::Arithmetic => LivingDeterministicFaultV2::Arithmetic,
+            Self::KeyedOrder => {
+                LivingDeterministicFaultV2::Wire(super::wire::LivingWireErrorV2::KeyedOrder)
+            }
+        }
+    }
+}
+/// Resumable combined hull/battery repair. Source containers remain in place;
+/// only fixed indexes enter the globally entity-ordered candidate map.
 pub struct LivingRepairJobV2<'a> {
+    retirement: PhaseRetirementLane<'a>,
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     state: LivingGalaxyStateV2,
     tick: LivingTickV2,
-    source: IntoIter<super::model::LivingFleetV2>,
     world_index: BTreeMap<LivingEntityIdV2, (usize, Option<LivingEntityIdV2>)>,
     hit_points: BTreeMap<String, u32>,
+    battery_hit_points: BTreeMap<String, u32>,
+    targets: BTreeMap<LivingEntityIdV2, RepairTarget>,
+    exclusions: BTreeSet<LivingEntityIdV2>,
+    pending: Option<RepairTarget>,
     index: usize,
-    cursor: RepairCursor,
-    fleet: Option<super::model::LivingFleetV2>,
-    hull_source: IntoIter<super::model::LivingHullV2>,
-    hull_output: LivingSortedVecV2<super::model::LivingHullV2>,
-    hull: Option<super::model::LivingHullV2>,
+    hull_index: usize,
     world_position: Option<usize>,
-    maximum: u32,
+    cursor: RepairCursor,
+    resume: RepairCursor,
+    cleanup_index: u8,
     paid: bool,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<RepairFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
 impl<'a> LivingRepairJobV2<'a> {
-    /// Capture owned inputs without traversing fleets, hulls, or catalog rows.
+    /// Standalone phase input is prequalified with no conflict exclusions.
     pub fn begin(
         catalog: &'a super::catalog::ValidatedLivingCatalogPackV2,
         state: LivingGalaxyStateV2,
@@ -2788,9 +3724,9 @@ impl<'a> LivingRepairJobV2<'a> {
     ) -> Self {
         Self::begin_with_catalog(LivingPhaseCatalogV2::Borrowed(catalog), state, tick)
     }
-    /// Capture an immutable catalog owner for a resident job without cloning rows.
+    /// Capture an immutable catalog owner without copying rows.
     pub fn begin_owned(
-        catalog: std::sync::Arc<super::catalog::ValidatedLivingCatalogPackV2>,
+        catalog: Arc<super::catalog::ValidatedLivingCatalogPackV2>,
         state: LivingGalaxyStateV2,
         tick: LivingTickV2,
     ) -> LivingRepairJobV2<'static> {
@@ -2798,26 +3734,35 @@ impl<'a> LivingRepairJobV2<'a> {
     }
     pub(crate) fn begin_with_catalog(
         catalog: LivingPhaseCatalogV2<'a>,
-        mut state: LivingGalaxyStateV2,
+        state: LivingGalaxyStateV2,
         tick: LivingTickV2,
     ) -> Self {
-        let source = std::mem::take(&mut state.fleets).into_vec().into_iter();
+        Self::with_exclusions(catalog, state, tick, BTreeSet::new())
+    }
+    pub(crate) fn with_exclusions(
+        catalog: LivingPhaseCatalogV2<'a>,
+        state: LivingGalaxyStateV2,
+        tick: LivingTickV2,
+        exclusions: BTreeSet<LivingEntityIdV2>,
+    ) -> Self {
         Self {
+            retirement: Default::default(),
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             state,
             tick,
-            source,
             world_index: BTreeMap::new(),
             hit_points: BTreeMap::new(),
+            battery_hit_points: BTreeMap::new(),
+            targets: BTreeMap::new(),
+            exclusions,
+            pending: None,
             index: 0,
-            cursor: RepairCursor::Worlds,
-            fleet: None,
-            hull_source: Vec::new().into_iter(),
-            hull_output: LivingSortedVecV2::default(),
-            hull: None,
+            hull_index: 0,
             world_position: None,
-            maximum: 1,
+            cursor: RepairCursor::Worlds,
+            resume: RepairCursor::Hull,
+            cleanup_index: 0,
             paid: false,
             cancelled: false,
             fault: None,
@@ -2825,46 +3770,53 @@ impl<'a> LivingRepairJobV2<'a> {
             total_visits: 0,
         }
     }
-    /// Discard the unpublished repair attempt.
+    /// Cancel private work. Existing diagnostics remain sticky in polling.
     pub fn cancel(&mut self) {
         self.cancelled = true;
     }
-    /// Source, metadata, inventory and output visits in the preceding poll.
+    /// Actual work in the preceding poll.
     pub const fn last_poll_visits(&self) -> usize {
         self.last_poll_visits
     }
-    /// Actual visits made by this candidate.
+    /// Actual work since construction.
     pub const fn total_visits(&self) -> u64 {
         self.total_visits
     }
-    /// Repair at most the requested number of individual records.
+    /// Poll with the parent's remaining budget.
     pub fn poll(
         &mut self,
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+        use LivingLifecycleJobErrorV2 as Error;
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self
+                .fault
+                .map_or(Error::Cancelled, |f| Error::Fault(f.public())));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
-            return Err(LivingLifecycleJobErrorV2::Budget);
+            return Err(Error::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+        if let Some(fault) = self.fault {
+            return Err(Error::Fault(fault.public()));
         }
         while self.cursor != RepairCursor::Ready && self.last_poll_visits < budget {
-            match self.visit_repair() {
-                Ok(visited) => {
-                    if visited {
-                        self.last_poll_visits += 1;
-                        self.total_visits += 1;
-                    }
+            let result = if self.retirement.visit() {
+                Ok(true)
+            } else {
+                self.visit_repair()
+            };
+            match result {
+                Ok(false) => {}
+                Ok(true) => {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
                 }
                 Err(fault) => {
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(fault);
+                    return Err(Error::Fault(fault.public()));
                 }
             }
         }
@@ -2874,159 +3826,295 @@ impl<'a> LivingRepairJobV2<'a> {
             LivingLifecycleProgressV2::Pending
         })
     }
-    /// Publish only the complete private repair result to its phase owner.
+    /// Synchronous compatibility extraction.
     pub fn finish(mut self) -> Result<LivingGalaxyStateV2, LivingLifecycleJobErrorV2> {
         self.take_ready_result()
     }
-    /// Borrowed one-time extraction; rejected calls preserve every owner.
+    /// Borrowed extraction preserves owners on cancellation and failure.
     pub fn take_ready_result(&mut self) -> Result<LivingGalaxyStateV2, LivingLifecycleJobErrorV2> {
+        use LivingLifecycleJobErrorV2 as Error;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(Error::Cancelled);
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
+        if let Some(fault) = self.fault {
+            return Err(Error::Fault(fault.public()));
         }
-        if self.cursor != RepairCursor::Ready {
-            return Err(LivingLifecycleJobErrorV2::NotReady);
-        }
-        if self.delivered {
-            return Err(LivingLifecycleJobErrorV2::NotReady);
+        if self.cursor != RepairCursor::Ready || self.delivered {
+            return Err(Error::NotReady);
         }
         self.delivered = true;
         Ok(std::mem::take(&mut self.state))
     }
-    fn visit_repair(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn target_hp(&self, target: RepairTarget) -> Result<u32, RepairFailure> {
+        let world = self
+            .state
+            .worlds
+            .as_slice()
+            .get(target.world_index)
+            .ok_or(RepairFailure::Invariant)?;
+        if world.id != target.world {
+            return Err(RepairFailure::Invariant);
+        }
+        match target.asset {
+            RepairAsset::Hull {
+                fleet,
+                fleet_id,
+                hull,
+            } => {
+                let row = self
+                    .state
+                    .fleets
+                    .as_slice()
+                    .get(fleet)
+                    .ok_or(RepairFailure::Invariant)?;
+                if row.id != fleet_id {
+                    return Err(RepairFailure::Invariant);
+                }
+                let row = row
+                    .hulls
+                    .as_slice()
+                    .get(hull)
+                    .ok_or(RepairFailure::Invariant)?;
+                if row.id != target.id {
+                    return Err(RepairFailure::Invariant);
+                }
+                Ok(row.hit_points)
+            }
+            RepairAsset::Battery { facility } => {
+                let row = self
+                    .state
+                    .facilities
+                    .as_slice()
+                    .get(facility)
+                    .ok_or(RepairFailure::Invariant)?;
+                if row.id != target.id {
+                    return Err(RepairFailure::Invariant);
+                }
+                Ok(row.hit_points)
+            }
+        }
+    }
+    fn visit_repair(&mut self) -> Result<bool, RepairFailure> {
         use super::model::LivingFleetLocationV2;
+        use RepairCursor::*;
         match self.cursor {
-            RepairCursor::Worlds => {
+            Worlds => {
                 if let Some(row) = self.state.worlds.as_slice().get(self.index) {
                     self.world_index.insert(row.id, (self.index, row.owner));
                     self.index += 1;
                     return Ok(true);
                 }
                 self.index = 0;
-                self.cursor = RepairCursor::Definitions;
+                self.cursor = Definitions;
             }
-            RepairCursor::Definitions => {
+            Definitions => {
                 if let Some(row) = self.catalog.hulls().get(self.index) {
                     self.hit_points
                         .insert(row.id.as_str().to_owned(), row.hit_points);
                     self.index += 1;
                     return Ok(true);
                 }
-                self.cursor = RepairCursor::Fleet;
+                self.index = 0;
+                self.cursor = Industries;
             }
-            RepairCursor::Fleet => {
-                if let Some(mut fleet) = self.source.next() {
+            Industries => {
+                if let Some(row) = self.catalog.industries().get(self.index) {
+                    if let super::catalog::LivingIndustryEffectV2::Defense { hit_points, .. } =
+                        row.effect
+                    {
+                        self.battery_hit_points
+                            .insert(row.id.as_str().to_owned(), hit_points);
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.index = 0;
+                self.cursor = Fleet;
+            }
+            Fleet => {
+                if let Some(fleet) = self.state.fleets.as_slice().get(self.index) {
                     self.world_position = match fleet.location {
-                        LivingFleetLocationV2::Docked { world } => self
-                            .world_index
-                            .get(&world)
-                            .filter(|(_, owner)| *owner == Some(fleet.owner))
-                            .map(|(position, _)| *position),
-                        LivingFleetLocationV2::Travelling { .. } => None,
-                    };
-                    self.hull_source = std::mem::take(&mut fleet.hulls).into_vec().into_iter();
-                    self.fleet = Some(fleet);
-                    self.cursor = RepairCursor::Hull;
-                    return Ok(true);
-                }
-                self.cursor = RepairCursor::RetireIndices;
-            }
-            RepairCursor::Hull => {
-                if let Some(hull) = self.hull_source.next() {
-                    let due = self.world_position.is_some()
-                        && hull.next_repair.is_some_and(|due| due.0 <= self.tick.0);
-                    self.maximum = self
-                        .hit_points
-                        .get(hull.definition.as_str())
-                        .copied()
-                        .unwrap_or(1);
-                    self.paid = false;
-                    self.cursor = if due {
-                        if hull.hit_points >= self.maximum {
-                            RepairCursor::Update
-                        } else {
-                            RepairCursor::Energy
+                        LivingFleetLocationV2::Docked { world }
+                            if !self.exclusions.contains(&world) =>
+                        {
+                            self.world_index
+                                .get(&world)
+                                .filter(|(_, owner)| *owner == Some(fleet.owner))
+                                .map(|(index, _)| *index)
                         }
-                    } else {
-                        RepairCursor::HullOutput
+                        _ => None,
                     };
-                    self.hull = Some(hull);
+                    self.hull_index = 0;
+                    self.cursor = Hull;
                     return Ok(true);
                 }
-                self.cursor = RepairCursor::FleetOutput;
+                self.index = 0;
+                self.cursor = Facilities;
             }
-            RepairCursor::Energy => {
-                let position = self
-                    .world_position
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
+            Hull => {
+                let fleet = &self.state.fleets.as_slice()[self.index];
+                if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
+                    if let Some(world_index) = self.world_position
+                        && hull.hit_points > 0
+                        && let Some(due) = hull.next_repair.filter(|due| *due <= self.tick)
+                    {
+                        self.pending = Some(RepairTarget {
+                            id: hull.id,
+                            world: self.state.worlds.as_slice()[world_index].id,
+                            world_index,
+                            maximum: self
+                                .hit_points
+                                .get(hull.definition.as_str())
+                                .copied()
+                                .unwrap_or(1),
+                            due,
+                            asset: RepairAsset::Hull {
+                                fleet: self.index,
+                                fleet_id: fleet.id,
+                                hull: self.hull_index,
+                            },
+                        });
+                        self.resume = Hull;
+                        self.cursor = Insert;
+                    }
+                    self.hull_index += 1;
+                    return Ok(true);
+                }
+                self.index += 1;
+                self.cursor = Fleet;
+            }
+            Facilities => {
+                if let Some(row) = self.state.facilities.as_slice().get(self.index) {
+                    if row.hit_points > 0
+                        && !self.exclusions.contains(&row.world)
+                        && let Some((world_index, Some(_))) = self.world_index.get(&row.world)
+                        && let Some(maximum) = self.battery_hit_points.get(row.definition.as_str())
+                        && let Some(due) = row.next_repair.filter(|due| *due <= self.tick)
+                    {
+                        self.pending = Some(RepairTarget {
+                            id: row.id,
+                            world: row.world,
+                            world_index: *world_index,
+                            maximum: *maximum,
+                            due,
+                            asset: RepairAsset::Battery {
+                                facility: self.index,
+                            },
+                        });
+                        self.resume = Facilities;
+                        self.cursor = Insert;
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.cursor = Select;
+            }
+            Insert => {
+                let target = self.pending.ok_or(RepairFailure::Invariant)?;
+                if self.targets.contains_key(&target.id) {
+                    return Err(RepairFailure::KeyedOrder);
+                }
+                self.targets.insert(target.id, target);
+                self.pending = None;
+                self.cursor = self.resume;
+                return Ok(true);
+            }
+            Select => {
+                if let Some((_, target)) = self.targets.pop_first() {
+                    self.pending = Some(target);
+                    self.paid = false;
+                    self.cursor = if self.target_hp(target)? >= target.maximum {
+                        Update
+                    } else {
+                        Energy
+                    };
+                    return Ok(true);
+                }
+                self.cursor = RetireIndices;
+            }
+            Energy => {
+                let target = self.pending.ok_or(RepairFailure::Invariant)?;
+                self.target_hp(target)?;
                 let world = self
                     .state
                     .worlds
-                    .record_at_mut(position)
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
+                    .record_at_mut(target.world_index)
+                    .ok_or(RepairFailure::Invariant)?;
                 if world.inventory.energy > 0 {
                     world.inventory.energy -= 1;
                     self.paid = true;
                 }
-                self.cursor = RepairCursor::Update;
+                self.cursor = Update;
                 return Ok(true);
             }
-            RepairCursor::Update => {
-                let hull = self
-                    .hull
-                    .as_mut()
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                if hull.hit_points >= self.maximum {
-                    hull.next_repair = None;
-                } else {
-                    if self.paid {
-                        hull.hit_points = hull.hit_points.saturating_add(1).min(self.maximum);
+            Update => {
+                let target = self.pending.ok_or(RepairFailure::Invariant)?;
+                self.target_hp(target)?;
+                let (hp, next) = match target.asset {
+                    RepairAsset::Hull { fleet, hull, .. } => {
+                        let row = self
+                            .state
+                            .fleets
+                            .record_at_mut(fleet)
+                            .and_then(|f| f.hulls.record_at_mut(hull))
+                            .ok_or(RepairFailure::Invariant)?;
+                        (&mut row.hit_points, &mut row.next_repair)
                     }
-                    hull.next_repair = if hull.hit_points >= self.maximum {
-                        None
-                    } else {
-                        Some(LivingTickV2(
-                            self.tick
-                                .0
-                                .checked_add(10)
-                                .ok_or(LivingDeterministicFaultV2::Arithmetic)?,
-                        ))
-                    };
+                    RepairAsset::Battery { facility } => {
+                        let row = self
+                            .state
+                            .facilities
+                            .record_at_mut(facility)
+                            .ok_or(RepairFailure::Invariant)?;
+                        (&mut row.hit_points, &mut row.next_repair)
+                    }
+                };
+                if self.paid {
+                    *hp = hp.saturating_add(1).min(target.maximum);
                 }
-                self.cursor = RepairCursor::HullOutput;
+                *next = if *hp >= target.maximum {
+                    None
+                } else {
+                    Some(LivingTickV2(
+                        target
+                            .due
+                            .0
+                            .checked_add(10)
+                            .ok_or(RepairFailure::Arithmetic)?,
+                    ))
+                };
+                self.pending = None;
+                self.cursor = Select;
                 return Ok(true);
             }
-            RepairCursor::HullOutput => {
-                let hull = self
-                    .hull
-                    .take()
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                self.hull_output.push_sorted(hull)?;
-                self.cursor = RepairCursor::Hull;
-                return Ok(true);
-            }
-            RepairCursor::FleetOutput => {
-                if let Some(fleet) = self.fleet.as_ref() {
-                    ensure_retained_sorted(&self.state.fleets, fleet)?;
-                }
-                let mut fleet = self
-                    .fleet
-                    .take()
-                    .ok_or(LivingDeterministicFaultV2::Invariant)?;
-                fleet.hulls = std::mem::take(&mut self.hull_output);
-                self.state.fleets.push_sorted(fleet)?;
-                self.cursor = RepairCursor::Fleet;
-                return Ok(true);
-            }
-            RepairCursor::RetireIndices => {
-                if self.world_index.pop_first().is_some() || self.hit_points.pop_first().is_some() {
+            RetireIndices => {
+                if self.world_index.pop_first().is_some()
+                    || self.hit_points.pop_first().is_some()
+                    || self.battery_hit_points.pop_first().is_some()
+                    || self.exclusions.pop_first().is_some()
+                {
                     return Ok(true);
                 }
-                self.cursor = RepairCursor::Ready;
+                self.cursor = Cleanup;
             }
-            RepairCursor::Ready => {}
+            Cleanup => {
+                match self.cleanup_index {
+                    0 => self.retirement.start(std::mem::take(&mut self.world_index)),
+                    1 => self.retirement.start(std::mem::take(&mut self.hit_points)),
+                    2 => self
+                        .retirement
+                        .start(std::mem::take(&mut self.battery_hit_points)),
+                    3 => self.retirement.start(std::mem::take(&mut self.targets)),
+                    4 => self.retirement.start(std::mem::take(&mut self.exclusions)),
+                    _ => {
+                        self.cursor = Ready;
+                        return Ok(false);
+                    }
+                }
+                self.cleanup_index += 1;
+                return Ok(true);
+            }
+            Ready => {}
         }
         Ok(false)
     }
@@ -3324,7 +4412,7 @@ mod tests {
         );
     }
 
-    fn fixture() -> LivingGalaxyStateV2 {
+    pub(super) fn fixture() -> LivingGalaxyStateV2 {
         let mut state = builtin_living_sandbox_v2().unwrap().state().clone();
         let left = state.civilizations.as_slice()[0].id;
         let right = state.civilizations.as_slice()[1].id;
@@ -3409,6 +4497,16 @@ mod tests {
 
     #[test]
     fn lifecycle_budget_one_matches_large_polls_and_preserves_event_order() {
+        // Independent allocation shape check for this exact native fixture.
+        // Production inspects actual capacity; requested sizes are not assumed
+        // to be physical capacity for arbitrary inputs/allocators.
+        for requested in [1, 2, 4] {
+            assert_eq!(
+                Vec::<super::super::receipt::LivingEventPayloadV2>::with_capacity(requested)
+                    .capacity(),
+                requested
+            );
+        }
         let original = fixture();
         let a = run(original.clone(), 1, 10);
         let b = run(original.clone(), 64, 10);
@@ -3418,7 +4516,13 @@ mod tests {
         // Two input agreements, one war, one output truce, every owner record,
         // one occupation, two independent passes over two hazards, plus each
         // owner index and the ended pair reclaimed before Ready.
-        assert_eq!(a.2, 10 + 2 * original.worlds.as_slice().len() as u64);
+        let worlds = original.worlds.as_slice().len() as u64;
+        // 3 empty preparations; 4 sources; 2 agreement output visits;
+        // 4 hazard visits; W owner scans; 4 exhausted sources*3;
+        // owner-map 3+3W (its key/Option<Id> pair is an existing leaf);
+        // pair-set6; appends63/64/65/59: capacities1,2,4 then spare.
+        // Each append includes delivered subtree52 + lane setup/node release2.
+        assert_eq!(a.2, 285 + 4 * worlds);
         assert_eq!(a.0.agreements.as_slice().len(), 1);
         assert_eq!(a.0.agreements.as_slice()[0].start_tick, LivingTickV2(10));
         assert_eq!(a.0.agreements.as_slice()[0].end_tick, LivingTickV2(610));
@@ -3506,7 +4610,9 @@ mod tests {
         let error = LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic);
         assert_eq!(job.poll(1_024), Err(error.clone()));
         let visits = job.total_visits();
-        assert_eq!(visits, 3);
+        // 2 output preparations + 2 agreement source visits + first
+        // growth append63 + second growth append64 + source cleanup3 + war attempt1.
+        assert_eq!(visits, 135);
         assert_eq!(job.poll(1), Err(error.clone()));
         assert_eq!(job.total_visits(), visits);
         assert_eq!(job.last_poll_visits(), 0);
@@ -3544,10 +4650,11 @@ mod tests {
         assert_eq!(job.poll(1_024), Ok(LivingLifecycleProgressV2::Pending));
         assert_eq!(job.last_poll_visits(), 1_024);
         assert_eq!(job.total_visits(), 1_024);
-        assert_eq!(job.poll(1_024), Ok(LivingLifecycleProgressV2::Ready));
-        // Source/output visits leave 8 records after the first poll, then
-        // retirement visits all 512 owner entries and the one ended pair.
-        assert_eq!(job.last_poll_visits(), 8 + 512 + 1);
+        // Counted typed map/append/storage disposal now spans further polls.
+        while job.poll(1_024).unwrap() != LivingLifecycleProgressV2::Ready {
+            assert_eq!(job.last_poll_visits(), 1_024);
+        }
+        assert!(job.last_poll_visits() <= 1_024);
         assert_eq!(job.total_visits(), expected.2);
         let result = job.finish().unwrap();
         assert_eq!(result, (expected.0, expected.1));
@@ -3639,14 +4746,872 @@ mod tests {
         (job.finish().unwrap(), visits)
     }
 
+    fn wartime_arrival() -> LivingGalaxyStateV2 {
+        let mut state = arrival_fixture();
+        let sender = state.civilizations.as_slice()[0].id;
+        let receiver = state.civilizations.as_slice()[1].id;
+        state.wars = LivingSortedVecV2::new(vec![LivingWarV2 {
+            participant_a: sender,
+            participant_b: receiver,
+            declarer: sender,
+            start_tick: LivingTickV2(1),
+            end_tick: LivingTickV2(100),
+        }])
+        .unwrap();
+        state.shipments =
+            LivingSortedVecV2::new(vec![state.shipments.as_slice()[0].clone()]).unwrap();
+        state
+    }
+
+    #[test]
+    fn paid_return_precedes_full_destination_and_waiting_keeps_original_interval() {
+        let mut source = wartime_arrival();
+        source.worlds.record_at_mut(1).unwrap().inventory.ore = LIVING_RESOURCE_STORAGE_LIMIT_V2;
+        let (state, events, _) = run_arrivals(source.clone(), 1).0;
+        let cargo = &state.shipments.as_slice()[0];
+        assert_eq!(cargo.disposition, LivingShipmentDispositionV2::Returning);
+        assert_eq!(
+            (cargo.departure_tick, cargo.arrival_tick),
+            (LivingTickV2(10), LivingTickV2(20))
+        );
+        assert!(
+            events
+                .payloads()
+                .iter()
+                .all(|event| event.kind == LivingEventKindV2::FleetArrived)
+        );
+        let mut waiting = source;
+        let cargo = waiting.shipments.record_at_mut(0).unwrap();
+        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        cargo.departure_tick = LivingTickV2(0);
+        cargo.arrival_tick = LivingTickV2(20);
+        let (state, _, _) = run_arrivals(waiting, 64).0;
+        let cargo = &state.shipments.as_slice()[0];
+        assert_eq!(cargo.disposition, LivingShipmentDispositionV2::Returning);
+        assert_eq!(
+            (cargo.departure_tick, cargo.arrival_tick),
+            (LivingTickV2(10), LivingTickV2(30))
+        );
+    }
+
+    #[test]
+    fn changed_owner_captures_before_war_return_and_returning_storage_credits_once() {
+        let mut captured = wartime_arrival();
+        let sender = captured.civilizations.as_slice()[0].id;
+        captured.worlds.record_at_mut(1).unwrap().owner = Some(sender);
+        let old_capture = old_arrival_reference::run(
+            captured.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            64,
+        )
+        .unwrap();
+        let actual_capture = run_arrivals(captured, 64).0;
+        assert_eq!(actual_capture, old_capture);
+        let (state, events, _) = actual_capture;
+        assert!(state.shipments.as_slice().is_empty());
+        assert_eq!(
+            events
+                .payloads()
+                .iter()
+                .filter(|event| event.kind == LivingEventKindV2::ShipmentCaptured)
+                .count(),
+            1
+        );
+
+        let mut returning = wartime_arrival();
+        returning.shipments.record_at_mut(0).unwrap().disposition =
+            LivingShipmentDispositionV2::Returning;
+        let (mut state, events, _) = run_arrivals(returning, 1).0;
+        assert_eq!(
+            events
+                .payloads()
+                .iter()
+                .filter(|event| event.kind == LivingEventKindV2::ShipmentWaiting)
+                .count(),
+            1
+        );
+        let cargo = &state.shipments.as_slice()[0];
+        assert_eq!(
+            cargo.disposition,
+            LivingShipmentDispositionV2::WaitingForStorage
+        );
+        assert!(cargo.returning_to_source);
+        assert_eq!(
+            (cargo.departure_tick, cargo.arrival_tick),
+            (LivingTickV2(0), LivingTickV2(10))
+        );
+        state.worlds.record_at_mut(0).unwrap().inventory.ore -= cargo.units;
+        let mut job =
+            LivingArrivalJobV2::begin(state, LivingPendingEventsV2::new(), LivingTickV2(11));
+        while job.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+        let (state, events, _) = job.take_ready_result().unwrap();
+        assert!(state.shipments.as_slice().is_empty());
+        assert_eq!(
+            state.worlds.as_slice()[0].inventory.ore,
+            LIVING_RESOURCE_STORAGE_LIMIT_V2
+        );
+        assert_eq!(
+            events
+                .payloads()
+                .iter()
+                .filter(|event| event.kind == LivingEventKindV2::ShipmentReturned)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn paid_return_checked_fault_keeps_exact_cargo_and_later_input() {
+        for (departure, arrival, expected) in [
+            (0, u64::MAX, LifecycleFailure::Arithmetic),
+            (10, 10, LifecycleFailure::Arithmetic),
+        ] {
+            let mut source = wartime_arrival();
+            let mut first = source.shipments.as_slice()[0].clone();
+            first.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+            first.departure_tick = LivingTickV2(departure);
+            first.arrival_tick = LivingTickV2(arrival);
+            let mut second = first.clone();
+            second.id.0[0] += 1;
+            second.departure_tick = LivingTickV2(0);
+            second.arrival_tick = LivingTickV2(10);
+            source.shipments = LivingSortedVecV2::new(vec![first.clone(), second.clone()]).unwrap();
+            let mut job =
+                LivingArrivalJobV2::begin(source, LivingPendingEventsV2::new(), LivingTickV2(10));
+            assert_eq!(job.poll(1024), Err(expected.public()));
+            assert!(job.last_poll_visits() > 0);
+            assert_eq!(job.cargo.as_ref().unwrap().0, first);
+            assert_eq!(job.shipments.as_slice(), &[second]);
+            let visits = job.total_visits();
+            for budget in [1, 64, 1024] {
+                assert_eq!(job.poll(budget), Err(expected.public()));
+                assert_eq!(job.last_poll_visits(), 0);
+            }
+            assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.total_visits(), visits);
+            assert_eq!(job.take_ready_result(), Err(expected.public()));
+            job.cancel();
+            assert_eq!(job.poll(1), Err(expected.public()));
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::Cancelled)
+            );
+        }
+    }
+
+    #[test]
+    fn arrival_preparation_and_append_failures_keep_original_child_owners() {
+        let source = arrival_fixture();
+        let mut storage = LivingArrivalJobV2::begin(
+            source.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        );
+        let original = storage.fleets.as_slice().as_ptr();
+        storage.fleet_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+        assert_eq!(
+            storage.poll(1),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(storage.last_poll_visits(), 1);
+        assert_eq!(storage.fleets.as_slice().as_ptr(), original);
+        assert!(storage.fleet_storage.is_some());
+        assert_eq!(
+            storage.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+
+        let mut append =
+            LivingArrivalJobV2::begin(source, LivingPendingEventsV2::new(), LivingTickV2(10));
+        let mut attempts = 0;
+        while !append
+            .append
+            .as_mut()
+            .is_some_and(|child| child.inject_entry_capacity_failure())
+        {
+            append.poll(1).unwrap();
+            attempts += 1;
+            assert!(attempts < 256);
+        }
+        let child = append.append.as_ref().unwrap() as *const _;
+        assert_eq!(
+            append.poll(64),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(append.append.as_ref().unwrap() as *const _, child);
+        assert!(append.active_fleet.is_some());
+        assert!(append.pending_arrival.is_some());
+        assert_eq!(
+            append.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        append.cancel();
+        assert_eq!(
+            append.poll(1),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+    }
+
+    #[test]
+    fn explained_delivery_append_capacity_retains_cargo_and_original_child() {
+        let source = arrival_fixture();
+        let original = source.shipments.as_slice()[0].clone();
+        let mut totals = Vec::new();
+        for (trigger, retirement_schedule) in [
+            (1, &[1][..]),
+            (64, &[64][..]),
+            (7, &[1, 64, 7, 1024][..]),
+            (1024, &[1024][..]),
+        ] {
+            let mut job = Box::new(LivingArrivalJobV2::begin(
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            ));
+            let root = std::ptr::from_ref(job.as_ref());
+            let mut guard = 0;
+            while !job.retirement.is_empty()
+                || !job.append_explained
+                || !job.cargo.is_some()
+                || !job
+                    .append
+                    .as_mut()
+                    .is_some_and(|child| child.inject_entry_capacity_failure())
+            {
+                assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                guard += 1;
+                assert!(guard < 4096);
+            }
+            assert_eq!(job.cursor, ArrivalCursor::Append);
+            assert_eq!(job.cargo.as_ref().unwrap().0, original);
+            let append = std::ptr::from_ref(job.append.as_ref().unwrap());
+            let cargo = std::ptr::from_ref(job.cargo.as_ref().unwrap());
+            let before = job.total_visits();
+            assert_eq!(
+                job.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(job.total_visits(), before + 1);
+            assert_eq!(
+                job.fault,
+                Some(LifecycleFailure::PreparationCapacity(
+                    LifecyclePreparationCause::EventStorageCapacity
+                ))
+            );
+            assert_eq!(std::ptr::from_ref(job.as_ref()), root);
+            assert_eq!(std::ptr::from_ref(job.append.as_ref().unwrap()), append);
+            assert_eq!(std::ptr::from_ref(job.cargo.as_ref().unwrap()), cargo);
+            assert_eq!(job.cargo.as_ref().unwrap().0, original);
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(
+                job.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+            job.cancel();
+            assert_eq!(
+                job.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+            let mut retirement =
+                job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+            let mut n = 0;
+            loop {
+                let budget = retirement_schedule[n % retirement_schedule.len()];
+                n += 1;
+                if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(retirement.last_poll_visits() > 0);
+            }
+            totals.push(retirement.total_visits());
+        }
+        assert!(totals.iter().all(|n| *n == totals[0]));
+    }
+
+    fn ledger_delivery_fixture() -> LivingGalaxyStateV2 {
+        let sandbox = builtin_living_sandbox_v2().unwrap();
+        let source = sandbox.state().worlds.as_slice()[0].clone();
+        let mut destination = sandbox.state().worlds.as_slice()[1].clone();
+        destination.inventory.ore = 0;
+        LivingGalaxyStateV2 {
+            worlds: LivingSortedVecV2::new(vec![source.clone(), destination.clone()]).unwrap(),
+            shipments: LivingSortedVecV2::new(vec![LivingShipmentV2 {
+                id: LivingEntityIdV2([0xfd; 16]),
+                dispatch_owner: source.owner.unwrap(),
+                intended_receiver: destination.owner.unwrap(),
+                source_world: source.id,
+                destination_world: destination.id,
+                resource: LivingResourceV2::Ore,
+                units: 10,
+                departure_tick: LivingTickV2(0),
+                arrival_tick: LivingTickV2(10),
+                disposition: LivingShipmentDispositionV2::Outbound,
+                dispatch_kind: Some(LivingRouteKindV2::Trade),
+                returning_to_source: false,
+            }])
+            .unwrap(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn arrival_delivery_forward_and_complete_retirement_match_source_ledger() {
+        // Derived before polling from named fixture inventory and stage charges:
+        // three empty storage children 3*(setup1+handoff1+shell23);
+        // empty fleet iterator3, two worlds+terminal3, empty wars1,
+        // empty relation iterator3; source+credit+explained append+relation+
+        // consumed/retired cargo+source exhaustion = 1+1+179+1+1+2+1+2;
+        // relation storage25, one relation output+commit+terminal+empty
+        // iterator retirement5, and two world-index rows+terminal3.
+        const FORWARD: u64 =
+            3 * 25 + 3 + 3 + 1 + 3 + (1 + 1 + 179 + 1 + 1 + 2 + 1 + 2) + 25 + 5 + 3;
+        // Arrival root20 children =>41. Empty lane7; state20 collection
+        // moves+20 releases+two worlds+one relation+root=44; collector root5
+        // fields with one event and one explained (facts have three empty Vecs)
+        // =43; the other 17 children are empty Option/Vec/iterator/map roots.
+        const RETIRE: u64 = 41 + 7 + 44 + 43 + 17;
+        for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+            let mut job = LivingArrivalJobV2::begin(
+                ledger_delivery_fixture(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            let mut n = 0;
+            loop {
+                let budget = schedule[n % schedule.len()];
+                n += 1;
+                if job.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(job.last_poll_visits() > 0);
+            }
+            assert_eq!(job.total_visits(), FORWARD);
+            assert_eq!(job.state.shipments.as_slice().len(), 0);
+            assert_eq!(job.state.relations.as_slice().len(), 1);
+            assert_eq!(
+                job.events.payloads()[0].kind,
+                LivingEventKindV2::ShipmentDelivered
+            );
+            assert_eq!(job.events.explained.len(), 1);
+            let mut retirement =
+                job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+            let mut n = 0;
+            loop {
+                let budget = schedule[n % schedule.len()];
+                n += 1;
+                if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(retirement.last_poll_visits() > 0);
+            }
+            assert_eq!(retirement.total_visits(), RETIRE);
+        }
+    }
+
+    #[test]
+    fn arrival_explained_failure_forward_and_stopped_retirement_match_source_ledger() {
+        // Same fixture: three output preparations75, exhausted fleet3,
+        // worlds3, wars1, exhausted relations3, cargo source+credit2,
+        // then explained append Mode1+FactsValidation5+Ordinal1+
+        // JSON token chunks80+Accounting1+failed entry-storage Inspect1.
+        const FORWARD: u64 = 75 + 3 + 3 + 1 + 3 + 2 + (1 + 5 + 1 + 80 + 1 + 1);
+        // Root41 + empty lane7 + absent fleet1 + state43 (two worlds) +
+        // empty moved-out collector16 + three exhausted/remaining source
+        // iterator roots3 + two-entry world index31 + ten other empty
+        // fields10 + retained append91 + retained (cargo,cursor) Option4.
+        // Append91 = Option3 + child root15 + events Option19 + facts
+        // Option13 + payload Option4 + absent pair1 + failed Vec-storage
+        // Option28 + absent explained-storage1 + empty cleanup lane7.
+        // World map root1 + two child attachments/releases4 + two
+        // (Id, triple) entries13 each =31. The triple adapter remaps into
+        // leaf pairs but its own LEAF flag is false, so each map pair has
+        // RetiredPair shell5 + key Option4 + value Option(3+1)=4.
+        const RETIRE: u64 = 41 + 7 + 1 + 43 + 16 + 3 + 31 + 10 + 91 + 4;
+        for (trigger, retirement_schedule) in [
+            (1, &[1][..]),
+            (64, &[64][..]),
+            (7, &[1, 64, 7, 1024][..]),
+            (1024, &[1024][..]),
+        ] {
+            let mut job = LivingArrivalJobV2::begin(
+                ledger_delivery_fixture(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            let mut guard = 0;
+            while !job.append_explained
+                || !job
+                    .append
+                    .as_mut()
+                    .is_some_and(|child| child.inject_entry_capacity_failure())
+            {
+                assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                guard += 1;
+                assert!(guard < 4096);
+            }
+            assert_eq!(
+                job.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(job.total_visits(), FORWARD);
+            assert_eq!(job.append.as_ref().unwrap().total_visits(), 89);
+            assert!(job.cargo.is_some());
+            let mut retirement =
+                job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+            let mut n = 0;
+            loop {
+                let budget = retirement_schedule[n % retirement_schedule.len()];
+                n += 1;
+                if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(retirement.last_poll_visits() > 0);
+            }
+            assert_eq!(retirement.total_visits(), RETIRE);
+        }
+    }
+
+    #[test]
+    fn unaffected_arrival_key_failure_matches_frozen_old_oracle() {
+        let mut source = arrival_fixture();
+        let duplicate = source.fleets.as_slice()[0].id;
+        source.fleets.record_at_mut(1).unwrap().id = duplicate;
+        let old = old_arrival_reference::run(
+            source.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            64,
+        );
+        let mut current =
+            LivingArrivalJobV2::begin(source, LivingPendingEventsV2::new(), LivingTickV2(10));
+        let error = loop {
+            match current.poll(1) {
+                Ok(LivingLifecycleProgressV2::Pending) => {}
+                Ok(LivingLifecycleProgressV2::Ready) => panic!("duplicate key reached Ready"),
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(old, Err(error.clone()));
+        assert_eq!(
+            error,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Wire(
+                super::super::wire::LivingWireErrorV2::KeyedOrder
+            ))
+        );
+        assert!(current.active_fleet.is_none());
+        assert!(!current.fleets.as_slice().is_empty());
+    }
+
+    #[test]
+    fn arrival_mixed_forward_budgets_match_old_complete_outputs_and_paid_rule() {
+        for (source, corrected) in [(arrival_fixture(), false), (wartime_arrival(), true)] {
+            let old = old_arrival_reference::run(
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+                64,
+            )
+            .unwrap();
+            let mut expected_visits = None;
+            let mut expected_output = None;
+            for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+                let mut job = LivingArrivalJobV2::begin(
+                    source.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                );
+                let mut index = 0;
+                loop {
+                    let budget = budgets[index % budgets.len()];
+                    index += 1;
+                    let progress = job.poll(budget).unwrap();
+                    assert!(job.last_poll_visits() <= budget);
+                    if progress == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(job.last_poll_visits() > 0);
+                }
+                let visits = job.total_visits();
+                let output = job.take_ready_result().unwrap();
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                if let Some(expected) = expected_visits {
+                    assert_eq!(visits, expected);
+                } else {
+                    expected_visits = Some(visits);
+                }
+                if let Some(ref expected) = expected_output {
+                    assert_eq!(&output, expected);
+                } else {
+                    expected_output = Some(output.clone());
+                }
+                if corrected {
+                    assert_eq!(
+                        output.0.shipments.as_slice()[0].arrival_tick,
+                        LivingTickV2(20)
+                    );
+                    let mut old_except_paid_tick = old.clone();
+                    old_except_paid_tick
+                        .0
+                        .shipments
+                        .record_at_mut(0)
+                        .unwrap()
+                        .arrival_tick = LivingTickV2(20);
+                    assert_eq!(output, old_except_paid_tick);
+                } else {
+                    assert_eq!(output, old);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn paid_return_first_fault_position_and_retirement_match_all_partitions() {
+        let mut source = wartime_arrival();
+        let mut first = source.shipments.as_slice()[0].clone();
+        first.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        first.departure_tick = LivingTickV2(10);
+        first.arrival_tick = LivingTickV2(10);
+        let mut second = first.clone();
+        second.id.0[0] += 1;
+        second.departure_tick = LivingTickV2(0);
+        source.shipments = LivingSortedVecV2::new(vec![first.clone(), second.clone()]).unwrap();
+        let mut first_position = None;
+        let mut first_retirement = None;
+        for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+            let mut job = Box::new(LivingArrivalJobV2::begin(
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            ));
+            let root = &*job as *const _;
+            let input = job.shipments.as_slice().as_ptr();
+            let mut index = 0;
+            let error = loop {
+                let budget = budgets[index % budgets.len()];
+                index += 1;
+                match job.poll(budget) {
+                    Ok(LivingLifecycleProgressV2::Pending) => assert!(job.last_poll_visits() > 0),
+                    Ok(LivingLifecycleProgressV2::Ready) => panic!("invalid first cargo completed"),
+                    Err(error) => break error,
+                }
+                assert!(job.last_poll_visits() <= budget);
+            };
+            assert_eq!(
+                error,
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+            );
+            assert!(job.last_poll_visits() > 0);
+            assert_eq!(&*job as *const _, root);
+            assert_eq!(job.shipments.as_slice().as_ptr(), input.wrapping_add(1));
+            assert_eq!(job.shipments.as_slice(), &[second.clone()]);
+            assert_eq!(job.cargo.as_ref().unwrap().0, first);
+            if let Some(expected) = first_position {
+                assert_eq!(job.total_visits(), expected);
+            } else {
+                first_position = Some(job.total_visits());
+            }
+            let mut retirement =
+                job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+            let mut retire_index = 0;
+            loop {
+                let budget = budgets[retire_index % budgets.len()];
+                retire_index += 1;
+                if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(retirement.last_poll_visits() > 0);
+            }
+            if let Some(expected) = first_retirement {
+                assert_eq!(retirement.total_visits(), expected);
+            } else {
+                first_retirement = Some(retirement.total_visits());
+            }
+        }
+    }
+
+    #[test]
+    fn arrival_each_failure_category_reaches_each_trigger_budget() {
+        let mut invalid = wartime_arrival();
+        let cargo = invalid.shipments.record_at_mut(0).unwrap();
+        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        cargo.departure_tick = LivingTickV2(10);
+        cargo.arrival_tick = LivingTickV2(10);
+        let original_cargo = cargo.clone();
+        let mut probe = LivingArrivalJobV2::begin(
+            invalid.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        );
+        loop {
+            if probe.poll(1).is_err() {
+                break;
+            }
+        }
+        let arithmetic_position = probe.total_visits();
+        assert!(arithmetic_position > 1);
+        for (category, source) in [(0, invalid), (1, arrival_fixture()), (2, arrival_fixture())] {
+            let mut retirement_totals = Vec::new();
+            for (trigger, retirement_schedule) in [
+                (1, &[1][..]),
+                (64, &[64][..]),
+                (7, &[1, 64, 7, 1024][..]),
+                (1024, &[1024][..]),
+            ] {
+                let mut job = Box::new(LivingArrivalJobV2::begin(
+                    source.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                ));
+                let original_box = std::ptr::from_ref(job.as_ref());
+                match category {
+                    0 => {
+                        for _ in 1..arithmetic_position {
+                            assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                        }
+                    }
+                    1 => {
+                        job.fleet_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+                    }
+                    _ => {
+                        let mut guard = 0;
+                        while !job
+                            .append
+                            .as_mut()
+                            .is_some_and(|child| child.inject_entry_capacity_failure())
+                        {
+                            assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                            guard += 1;
+                            assert!(guard < 1024);
+                        }
+                    }
+                }
+                let before = job.total_visits();
+                let result = job.poll(trigger);
+                let expected = if category == 0 {
+                    LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+                } else {
+                    LivingLifecycleJobErrorV2::PreparationCapacity
+                };
+                assert_eq!(result, Err(expected.clone()));
+                assert_eq!(job.last_poll_visits(), 1);
+                assert_eq!(job.total_visits(), before + 1);
+                assert_eq!(std::ptr::from_ref(job.as_ref()), original_box);
+                match category {
+                    0 => assert_eq!(job.cargo.as_ref().unwrap().0, original_cargo),
+                    1 => assert!(job.fleet_storage.is_some()),
+                    _ => {
+                        assert!(job.append.is_some());
+                        assert!(job.active_fleet.is_some());
+                        assert!(job.pending_arrival.is_some());
+                    }
+                }
+                assert_eq!(job.poll(trigger), Err(expected));
+                assert_eq!(job.last_poll_visits(), 0);
+                let mut retirement =
+                    job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+                let mut i = 0;
+                loop {
+                    let budget = retirement_schedule[i % retirement_schedule.len()];
+                    i += 1;
+                    if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(retirement.last_poll_visits() > 0);
+                }
+                retirement_totals.push(retirement.total_visits());
+            }
+            assert!(retirement_totals.iter().all(|n| *n == retirement_totals[0]));
+        }
+    }
+
+    #[test]
+    fn arrival_every_forward_cut_cancels_and_retirement_is_budget_invariant() {
+        let mut delivery = arrival_fixture();
+        delivery.relations = LivingSortedVecV2::default();
+        let mut aid = arrival_fixture();
+        let mut aid_cargo = aid.shipments.as_slice()[1].clone();
+        aid_cargo.arrival_tick = LivingTickV2(10);
+        aid.shipments = LivingSortedVecV2::new(vec![aid_cargo]).unwrap();
+        aid.relations = LivingSortedVecV2::default();
+        let mut capture = arrival_fixture();
+        let sender = capture.civilizations.as_slice()[0].id;
+        capture.worlds.record_at_mut(1).unwrap().owner = Some(sender);
+        let mut wait = arrival_fixture();
+        wait.worlds.record_at_mut(1).unwrap().inventory.ore = LIVING_RESOURCE_STORAGE_LIMIT_V2;
+        for (branch, source) in [
+            ("delivery", delivery),
+            ("aid", aid),
+            ("capture", capture),
+            ("wait", wait),
+            ("return", wartime_arrival()),
+        ] {
+            let ((state, events, _), full) = run_arrivals(source.clone(), 1);
+            match branch {
+                "delivery" | "aid" => {
+                    assert!(
+                        events
+                            .payloads()
+                            .iter()
+                            .any(|e| e.kind == LivingEventKindV2::ShipmentDelivered)
+                    );
+                    assert!(!state.relations.as_slice().is_empty());
+                    if branch == "aid" {
+                        assert_eq!(state.relations.as_slice()[0].reasons.delivered_aid, 0);
+                        assert_eq!(
+                            state.relations.as_slice()[0].reasons.aid_units_remainder,
+                            10
+                        );
+                    } else {
+                        assert_eq!(state.relations.as_slice()[0].reasons.successful_trade, 1);
+                    }
+                }
+                "capture" => assert!(
+                    events
+                        .payloads()
+                        .iter()
+                        .any(|e| e.kind == LivingEventKindV2::ShipmentCaptured)
+                ),
+                "wait" => assert!(
+                    events
+                        .payloads()
+                        .iter()
+                        .any(|e| e.kind == LivingEventKindV2::ShipmentWaiting)
+                ),
+                _ => assert!(
+                    state
+                        .shipments
+                        .as_slice()
+                        .iter()
+                        .any(|s| s.disposition == LivingShipmentDispositionV2::Returning)
+                ),
+            }
+            let mut visited = [false; 8];
+            for cutoff in 0..=full as usize {
+                let mut expected = None;
+                for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+                    let mut job = LivingArrivalJobV2::begin(
+                        source.clone(),
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(10),
+                    );
+                    for _ in 0..cutoff {
+                        job.poll(1).unwrap();
+                    }
+                    if budgets == [1] {
+                        visited[0] |= job
+                            .cargo
+                            .as_ref()
+                            .is_some_and(|(_, stage)| *stage == CargoCursor::Credit);
+                        visited[1] |= job
+                            .cargo
+                            .as_ref()
+                            .is_some_and(|(_, stage)| *stage == CargoCursor::Relation);
+                        visited[2] |= job
+                            .cargo
+                            .as_ref()
+                            .is_some_and(|(_, stage)| *stage == CargoCursor::Consumed);
+                        visited[3] |= job.cursor == ArrivalCursor::Append
+                            && job.append_explained
+                            && job.cargo.is_some();
+                        visited[4] |= job.cursor == ArrivalCursor::Append
+                            && job.append_explained
+                            && job
+                                .append
+                                .as_ref()
+                                .is_some_and(|child| child.total_visits() > 8);
+                        visited[5] |= job.cursor == ArrivalCursor::AppendExtract
+                            && job.append_explained
+                            && job.cargo.is_some();
+                        visited[6] |= job.cursor == ArrivalCursor::RelationCommit
+                            && job.pending_relation.is_some();
+                        visited[7] |= job.cursor == ArrivalCursor::RelationOutput
+                            && job.relation_output.is_some();
+                    }
+                    let active = job.active_fleet.as_ref().map(|row| row as *const _);
+                    let cargo = job.cargo.as_ref().map(|row| row as *const _);
+                    let storage = job.shipment_storage.as_ref().map(|row| row as *const _);
+                    let append = job.append.as_ref().map(|row| row as *const _);
+                    job.cancel();
+                    assert_eq!(job.active_fleet.as_ref().map(|row| row as *const _), active);
+                    assert_eq!(job.cargo.as_ref().map(|row| row as *const _), cargo);
+                    assert_eq!(
+                        job.shipment_storage.as_ref().map(|row| row as *const _),
+                        storage
+                    );
+                    assert_eq!(job.append.as_ref().map(|row| row as *const _), append);
+                    assert_eq!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    );
+                    for bad in [0, 1, 1025] {
+                        assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Cancelled));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                    let mut retirement =
+                        job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+                    let mut index = 0;
+                    loop {
+                        let budget = budgets[index % budgets.len()];
+                        index += 1;
+                        if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                            break;
+                        }
+                        assert!(retirement.last_poll_visits() > 0);
+                    }
+                    let count = retirement.total_visits();
+                    if let Some(expected) = expected {
+                        assert_eq!(count, expected, "cutoff {cutoff}");
+                    } else {
+                        expected = Some(count);
+                    }
+                    assert_eq!(
+                        retirement.poll(1).unwrap(),
+                        LivingLifecycleProgressV2::Ready
+                    );
+                    assert_eq!(retirement.last_poll_visits(), 0);
+                }
+            }
+            if branch == "delivery" || branch == "aid" {
+                assert!(
+                    visited.iter().all(|reached| *reached),
+                    "delivery path did not reach all new ownership cuts: {visited:?}"
+                );
+            } else if branch != "return" {
+                assert!(visited[0], "{branch} credit cut not reached");
+            }
+        }
+    }
+
     #[test]
     fn arrival_budget_one_matches_large_polls_without_cloning_nested_hulls() {
         let source = arrival_fixture();
         let a = run_arrivals(source.clone(), 1);
         let b = run_arrivals(source.clone(), 64);
         let c = run_arrivals(source.clone(), 1_024);
+        let old = old_arrival_reference::run(
+            source.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            64,
+        )
+        .unwrap();
         assert_eq!(a, b);
         assert_eq!(a, c);
+        assert_eq!(
+            a.0, old,
+            "complete unaffected state, facts and events match old Arrival"
+        );
         let (state, events, arrivals) = a.0;
         assert_eq!(arrivals, vec![source.fleets.as_slice()[0].id]);
         assert!(state.fleets.as_slice()[0].order.is_none());
@@ -3708,6 +5673,16 @@ mod tests {
         assert_eq!(job.poll(1_024), Ok(LivingLifecycleProgressV2::Pending));
         assert_eq!(job.last_poll_visits(), 1_024);
         let completed = run_arrivals(source.clone(), 1_024);
+        assert_eq!(
+            completed.0,
+            old_arrival_reference::run(
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+                64,
+            )
+            .unwrap()
+        );
         assert_eq!(completed, expected);
         assert_eq!(completed.0.0.shipments, source.shipments);
         job.cancel();
@@ -3717,7 +5692,7 @@ mod tests {
     }
 
     #[test]
-    fn freight_return_search_visits_individual_lanes_and_keeps_shortest_duration() {
+    fn freight_return_keeps_paid_outbound_duration_despite_changed_graph() {
         use crate::living::model::{LivingLaneV2, LivingSystemV2};
         let mut source = arrival_fixture();
         let origin = source.worlds.as_slice()[0].system;
@@ -3767,13 +5742,82 @@ mod tests {
         .unwrap();
         source.shipments =
             LivingSortedVecV2::new(vec![source.shipments.as_slice()[0].clone()]).unwrap();
+        // Independent old projection: the pre-correction Arrival built this
+        // current graph, ran CostSearch from destination to source, and used
+        // its shortest duration. The corrected rule reads the paid manifest.
+        let mut old_graph = Graph::new();
+        for system in source.systems.as_slice() {
+            old_graph.insert(system.id, Vec::new());
+        }
+        for lane in source.lanes.as_slice() {
+            let cost = lane.distance_units.div_ceil(10).max(10);
+            old_graph
+                .get_mut(&lane.system_a)
+                .unwrap()
+                .push((lane.system_b, cost));
+            old_graph
+                .get_mut(&lane.system_b)
+                .unwrap()
+                .push((lane.system_a, cost));
+        }
+        let mut old_search = CostSearch::begin(Some(destination), Some(origin), &old_graph);
+        while old_search.result.is_none() {
+            old_search.visit(&old_graph);
+        }
+        assert_eq!(old_search.result.flatten(), Some(20));
+        assert_eq!(
+            LivingTickV2(10 + old_search.result.flatten().unwrap()),
+            LivingTickV2(30)
+        );
+        let old = old_arrival_reference::run(
+            source.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            64,
+        )
+        .unwrap();
+        assert_eq!(old.0.shipments.as_slice()[0].arrival_tick, LivingTickV2(30));
+        let mut shorter = source.clone();
+        for lane in 0..shorter.lanes.as_slice().len() {
+            shorter.lanes.record_at_mut(lane).unwrap().distance_units = 1;
+        }
+        let cargo = shorter.shipments.record_at_mut(0).unwrap();
+        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        cargo.departure_tick = LivingTickV2(0);
+        cargo.arrival_tick = LivingTickV2(40);
+        let old_shorter = old_arrival_reference::run(
+            shorter.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            64,
+        )
+        .unwrap();
+        assert_eq!(
+            old_shorter.0.shipments.as_slice()[0].arrival_tick,
+            LivingTickV2(20)
+        );
+        assert_eq!(
+            run_arrivals(shorter, 64).0.0.shipments.as_slice()[0].arrival_tick,
+            LivingTickV2(50)
+        );
         let small = run_arrivals(source.clone(), 1);
         let large = run_arrivals(source, 1_024);
         assert_eq!(small, large);
+        let mut corrected_old = old;
+        corrected_old
+            .0
+            .shipments
+            .record_at_mut(0)
+            .unwrap()
+            .arrival_tick = LivingTickV2(20);
+        assert_eq!(
+            small.0, corrected_old,
+            "only named paid-duration exception may differ"
+        );
         let returned = &small.0.0.shipments.as_slice()[0];
         assert_eq!(returned.disposition, LivingShipmentDispositionV2::Returning);
         assert_eq!(returned.departure_tick, LivingTickV2(10));
-        assert_eq!(returned.arrival_tick, LivingTickV2(30));
+        assert_eq!(returned.arrival_tick, LivingTickV2(20));
         assert_eq!(
             small
                 .0
@@ -3820,6 +5864,178 @@ mod tests {
             cancelled.finish(),
             Err(LivingLifecycleJobErrorV2::Cancelled)
         );
+    }
+
+    #[test]
+    fn scheduled_parent_preserves_paid_return_across_all_budget_schedules() {
+        let source = wartime_arrival();
+        let (after_lifecycle, events, _) = run(source.clone(), 1, 10);
+        let mut arrival =
+            LivingArrivalJobV2::begin(after_lifecycle, events.clone(), LivingTickV2(10));
+        while arrival.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+        let expected = arrival.take_ready_result().unwrap();
+        for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 64, 7, 1024][..]] {
+            let mut parent = LivingScheduledPhasesJobV2::begin(
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            let mut index = 0;
+            loop {
+                let budget = budgets[index % budgets.len()];
+                index += 1;
+                let progress = parent.poll(budget).unwrap();
+                assert!(parent.last_poll_visits() <= budget);
+                if progress == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(parent.last_poll_visits() > 0);
+            }
+            assert_eq!(parent.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+            assert_eq!(parent.last_poll_visits(), 0);
+            assert_eq!(parent.take_ready_result().unwrap(), expected);
+            assert_eq!(
+                parent.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            );
+        }
+        assert!(
+            events
+                .payloads()
+                .iter()
+                .all(|event| event.kind != LivingEventKindV2::ShipmentDelivered)
+        );
+    }
+
+    #[test]
+    fn scheduled_parent_keeps_original_arrival_box_on_checked_return_failure() {
+        let mut source = wartime_arrival();
+        let cargo = source.shipments.record_at_mut(0).unwrap();
+        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        cargo.departure_tick = LivingTickV2(10);
+        cargo.arrival_tick = LivingTickV2(10);
+        let original_cargo = cargo.clone();
+        let mut parent = LivingScheduledPhasesJobV2::begin(
+            source,
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        );
+        let original_box = loop {
+            if let ScheduledCursor::Arrivals(child) = &parent.cursor {
+                break &**child as *const _;
+            }
+            assert_eq!(parent.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+        };
+        let failure = LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic);
+        loop {
+            match parent.poll(1) {
+                Ok(LivingLifecycleProgressV2::Pending) => {}
+                Ok(LivingLifecycleProgressV2::Ready) => panic!("invalid interval reached Ready"),
+                Err(error) => {
+                    assert_eq!(error, failure);
+                    break;
+                }
+            }
+        }
+        let ScheduledCursor::Arrivals(child) = &parent.cursor else {
+            panic!("lost Arrival Box")
+        };
+        assert_eq!(&**child as *const _, original_box);
+        assert_eq!(child.cargo.as_ref().unwrap().0, original_cargo);
+        assert_eq!(parent.take_ready_result(), Err(failure.clone()));
+        assert_eq!(parent.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+        assert_eq!(parent.poll(1025), Err(LivingLifecycleJobErrorV2::Budget));
+        assert_eq!(parent.poll(1), Err(failure));
+        assert_eq!(parent.last_poll_visits(), 0);
+    }
+
+    #[test]
+    fn scheduled_arrival_failures_reach_each_trigger_budget_and_retire_once() {
+        let mut invalid = wartime_arrival();
+        let cargo = invalid.shipments.record_at_mut(0).unwrap();
+        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+        cargo.departure_tick = LivingTickV2(10);
+        cargo.arrival_tick = LivingTickV2(10);
+        let mut probe = LivingScheduledPhasesJobV2::begin(
+            invalid.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        );
+        loop {
+            if probe.poll(1).is_err() {
+                break;
+            }
+        }
+        let arithmetic_position = probe.total_visits();
+        for (category, source) in [(0, invalid), (1, arrival_fixture()), (2, arrival_fixture())] {
+            let mut totals = Vec::new();
+            for (trigger, retirement_schedule) in [
+                (1, &[1][..]),
+                (64, &[64][..]),
+                (7, &[1, 64, 7, 1024][..]),
+                (1024, &[1024][..]),
+            ] {
+                let mut parent = Box::new(LivingScheduledPhasesJobV2::begin(
+                    source.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                ));
+                let parent_pointer = std::ptr::from_ref(parent.as_ref());
+                if category == 0 {
+                    for _ in 1..arithmetic_position {
+                        assert_eq!(parent.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                    }
+                } else {
+                    let mut guard = 0;
+                    while !parent.inject_arrival_capacity_failure(category == 2) {
+                        assert_eq!(parent.poll(1), Ok(LivingLifecycleProgressV2::Pending));
+                        guard += 1;
+                        assert!(guard < 4096);
+                    }
+                }
+                let ScheduledCursor::Arrivals(child) = &parent.cursor else {
+                    panic!("arrival Box must remain installed");
+                };
+                let child_pointer = std::ptr::from_ref(child.as_ref());
+                let before = parent.total_visits();
+                let expected = if category == 0 {
+                    LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+                } else {
+                    LivingLifecycleJobErrorV2::PreparationCapacity
+                };
+                assert_eq!(parent.poll(trigger), Err(expected.clone()));
+                assert_eq!(parent.last_poll_visits(), 1);
+                assert_eq!(parent.total_visits(), before + 1);
+                assert_eq!(std::ptr::from_ref(parent.as_ref()), parent_pointer);
+                let ScheduledCursor::Arrivals(child) = &parent.cursor else {
+                    panic!("failure removed arrival Box");
+                };
+                assert_eq!(std::ptr::from_ref(child.as_ref()), child_pointer);
+                match category {
+                    0 => assert!(child.cargo.is_some()),
+                    1 => assert!(child.fleet_storage.is_some()),
+                    _ => {
+                        assert!(child.append.is_some());
+                        assert!(child.pending_arrival.is_some());
+                    }
+                }
+                assert_eq!(parent.poll(trigger), Err(expected));
+                assert_eq!(parent.last_poll_visits(), 0);
+                let mut retirement =
+                    parent.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+                let mut i = 0;
+                loop {
+                    let budget = retirement_schedule[i % retirement_schedule.len()];
+                    i += 1;
+                    if retirement.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(retirement.last_poll_visits() > 0);
+                }
+                totals.push(retirement.total_visits());
+            }
+            assert!(totals.iter().all(|n| *n == totals[0]));
+        }
     }
 
     fn validation_index_entries(job: &LivingStateValidationJobV2) -> usize {
@@ -4530,63 +6746,465 @@ impl LivingObservationJobV2 {
     }
 }
 
+// --------------------------------------------- retained output storage
+
+/// Private setup/control errors contain no owning recursive error envelope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LivingStorageJobErrorV2 {
+    Budget,
+    Cancelled,
+    NotReady,
+    CapacityOverflow,
+    KeyedOrder,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StorageStage {
+    Inspect,
+    EmptySetup,
+    Allocate,
+    Transfer,
+    Handoff,
+    Retire,
+    Ready,
+}
+
+fn storage_capacity<T>(len: usize, capacity: usize, additional: usize) -> Option<usize> {
+    let required = len.checked_add(additional)?;
+    if required <= capacity {
+        return Some(capacity);
+    }
+    let geometric = capacity.checked_mul(2).unwrap_or(required).max(required);
+    if storage_capacity_fits::<T>(geometric) {
+        Some(geometric)
+    } else {
+        storage_capacity_fits::<T>(required).then_some(required)
+    }
+}
+
+fn storage_capacity_fits<T>(capacity: usize) -> bool {
+    std::mem::size_of::<T>() == 0
+        || capacity
+            .checked_mul(std::mem::size_of::<T>())
+            .is_some_and(|bytes| bytes <= isize::MAX as usize)
+}
+
+// Shared private control mechanics, instantiated for concrete collections only.
+// There is no arbitrary-container trait, blanket payload leaf or Drop callback.
+macro_rules! storage_job {
+    ($name:ident, $collection:ty, [$($bound:tt)*], $kind:ident,
+     $len:expr, $capacity:expr, $allocate:expr, $append:expr) => {
+        #[allow(dead_code)]
+        pub(crate) struct $name<'a, T> {
+            original: Option<$collection>,
+            source: Option<IntoIter<T>>,
+            destination: Option<$collection>,
+            pending_transfer: Option<T>,
+            retirement: PhaseRetirementLane<'a>,
+            stage: StorageStage,
+            additional: usize,
+            selected_capacity: usize,
+            fault: Option<LivingStorageJobErrorV2>,
+            cancelled: bool,
+            delivered: bool,
+            last_poll_visits: usize,
+            total_visits: u64,
+        }
+        #[allow(dead_code)]
+        impl<'a, T: RetirementFields<'a> $($bound)*> $name<'a, T> {
+            #[cfg(test)]
+            pub(crate) fn inject_structural_empty_capacity_failure(&mut self) -> bool {
+                if self.stage != StorageStage::EmptySetup { return false; }
+                self.selected_capacity = usize::MAX;
+                true
+            }
+            pub(crate) fn begin(original: $collection, additional: usize) -> Self {
+                Self {
+                    original: Some(original),
+                    source: None,
+                    destination: None,
+                    pending_transfer: None,
+                    retirement: PhaseRetirementLane::default(),
+                    stage: StorageStage::Inspect,
+                    additional,
+                    selected_capacity: 0,
+                    fault: None,
+                    cancelled: false,
+                    delivered: false,
+                    last_poll_visits: 0,
+                    total_visits: 0,
+                }
+            }
+            pub(crate) fn begin_empty(required_capacity: usize) -> Self {
+                // No allocation, collection construction or record traversal.
+                Self {
+                    original: None,
+                    source: None,
+                    destination: None,
+                    pending_transfer: None,
+                    retirement: PhaseRetirementLane::default(),
+                    stage: StorageStage::EmptySetup,
+                    additional: 0,
+                    selected_capacity: required_capacity,
+                    fault: None,
+                    cancelled: false,
+                    delivered: false,
+                    last_poll_visits: 0,
+                    total_visits: 0,
+                }
+            }
+            pub(crate) fn poll(&mut self, budget: usize)
+                -> Result<LivingLifecycleProgressV2, LivingStorageJobErrorV2>
+            {
+                self.last_poll_visits = 0;
+                if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
+                    return Err(LivingStorageJobErrorV2::Budget);
+                }
+                if self.cancelled {
+                    return Err(LivingStorageJobErrorV2::Cancelled);
+                }
+                if let Some(error) = self.fault {
+                    return Err(error);
+                }
+                while !self.ready() && self.last_poll_visits < budget {
+                    match self.visit() {
+                        Ok(false) => continue,
+                        Ok(true) => {},
+                        Err(error) => {
+                            self.fault = Some(error);
+                            self.last_poll_visits += 1;
+                            self.total_visits += 1;
+                            return Err(error);
+                        }
+                    }
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                }
+                Ok(if self.ready() { LivingLifecycleProgressV2::Ready }
+                   else { LivingLifecycleProgressV2::Pending })
+            }
+            fn visit(&mut self) -> Result<bool, LivingStorageJobErrorV2> {
+                match self.stage {
+                    StorageStage::Inspect => {
+                        let original = self.original.as_ref().expect("original collection");
+                        let len = ($len)(original);
+                        let capacity = ($capacity)(original);
+                        self.selected_capacity = storage_capacity::<T>(len, capacity, self.additional)
+                            .ok_or(LivingStorageJobErrorV2::CapacityOverflow)?;
+                        self.stage = if self.selected_capacity == capacity {
+                            StorageStage::Ready
+                        } else { StorageStage::Allocate };
+                        Ok(true)
+                    }
+                    StorageStage::EmptySetup => {
+                        if !storage_capacity_fits::<T>(self.selected_capacity) {
+                            return Err(LivingStorageJobErrorV2::CapacityOverflow);
+                        }
+                        self.destination = Some(($allocate)(self.selected_capacity));
+                        self.stage = StorageStage::Ready;
+                        Ok(true)
+                    }
+                    StorageStage::Allocate => {
+                        // Allocation failure retains Vec/VecDeque process-level behavior.
+                        self.destination = Some(($allocate)(self.selected_capacity));
+                        storage_job!(@detach self, $kind);
+                        self.stage = StorageStage::Transfer;
+                        Ok(true)
+                    }
+                    StorageStage::Transfer => {
+                        if storage_job!(@empty self, $kind) {
+                            self.stage = StorageStage::Handoff;
+                            return Ok(false);
+                        }
+                        storage_job!(@preflight self, $kind);
+                        self.pending_transfer = storage_job!(@next self, $kind);
+                        Self::commit_one(
+                            self.destination.as_mut().expect("allocated destination"),
+                            &mut self.pending_transfer,
+                        )?;
+                        Ok(true)
+                    }
+                    StorageStage::Handoff => {
+                        storage_job!(@handoff self, $kind);
+                        self.stage = StorageStage::Retire;
+                        Ok(true)
+                    }
+                    StorageStage::Retire => {
+                        let worked = self.retirement.visit();
+                        if self.retirement.is_empty() {
+                            self.stage = StorageStage::Ready;
+                        }
+                        Ok(worked)
+                    }
+                    StorageStage::Ready => Ok(false),
+                }
+            }
+            pub(crate) fn commit_one(destination: &mut $collection, pending: &mut Option<T>)
+                -> Result<(), LivingStorageJobErrorV2>
+            {
+                ($append)(destination, pending)
+            }
+            pub(crate) fn ready(&self) -> bool {
+                self.stage == StorageStage::Ready && self.fault.is_none() && !self.cancelled
+            }
+            pub(crate) fn take_ready_result(&mut self)
+                -> Result<$collection, LivingStorageJobErrorV2>
+            {
+                if self.cancelled { return Err(LivingStorageJobErrorV2::Cancelled); }
+                if let Some(error) = self.fault { return Err(error); }
+                if !self.ready() || self.delivered { return Err(LivingStorageJobErrorV2::NotReady); }
+                self.delivered = true;
+                Ok(self.original.take().or_else(|| self.destination.take())
+                    .expect("one prepared collection"))
+            }
+            pub(crate) fn cancel(&mut self) { self.cancelled = true; }
+            pub(crate) fn last_poll_visits(&self) -> usize { self.last_poll_visits }
+            pub(crate) fn total_visits(&self) -> u64 { self.total_visits }
+            pub(crate) fn into_phase_retirement(self, policy: LivingStateRetirementPolicyV2)
+                -> LivingPhaseRetirementJobV2<'a, Self>
+            { LivingPhaseRetirementJobV2::begin(self, policy) }
+        }
+        impl<'a, 'storage: 'a, T: RetirementFields<'a> $($bound)*> RetirementFields<'a> for $name<'storage, T> {
+            #[cfg(test)]
+            fn creator_allocations(&self,out:&mut Vec<(usize,usize,Option<usize>,usize)>) {
+                self.original.creator_allocations(out);self.source.creator_allocations(out);
+                self.destination.creator_allocations(out);self.pending_transfer.creator_allocations(out);
+                self.retirement.creator_allocations(out);
+            }
+
+            fn retirement_child(&mut self, index: usize, policy: LivingStateRetirementPolicyV2)
+                -> Option<Box<dyn RetirementPoll + 'a>>
+            {
+                // Exhaustive owner/control destructuring keeps every new owner visible.
+                let Self { original, source, destination, pending_transfer, retirement,
+                    stage: _, additional: _, selected_capacity: _, fault: _, cancelled: _,
+                    delivered: _, last_poll_visits: _, total_visits: _ } = self;
+                match index {
+                    0 => Some(retirement_node(original.take(), policy)),
+                    1 => Some(retirement_node(source.take(), policy)),
+                    2 => Some(retirement_node(destination.take(), policy)),
+                    3 => Some(retirement_node(pending_transfer.take(), policy)),
+                    4 => Some(retirement_node(std::mem::take(retirement), policy)),
+                    _ => None,
+                }
+            }
+        }
+    };
+    (@detach $job:ident, vec) => { $job.source = Some($job.original.take().unwrap().into_iter()); };
+    (@detach $job:ident, sorted) => { $job.source = Some($job.original.take().unwrap().into_vec().into_iter()); };
+    (@detach $job:ident, deque) => {};
+    (@empty $job:ident, vec) => { $job.source.as_ref().unwrap().as_slice().is_empty() };
+    (@empty $job:ident, sorted) => { $job.source.as_ref().unwrap().as_slice().is_empty() };
+    (@empty $job:ident, deque) => { $job.original.as_ref().unwrap().is_empty() };
+    (@preflight $job:ident, vec) => {};
+    (@preflight $job:ident, deque) => {};
+    (@preflight $job:ident, sorted) => {
+        if $job.destination.as_ref().unwrap().as_slice().last().is_some_and(|last|
+            last.living_key() >= $job.source.as_ref().unwrap().as_slice()[0].living_key()) {
+            return Err(LivingStorageJobErrorV2::KeyedOrder);
+        }
+    };
+    (@next $job:ident, vec) => { $job.source.as_mut().unwrap().next() };
+    (@next $job:ident, sorted) => { $job.source.as_mut().unwrap().next() };
+    (@next $job:ident, deque) => { $job.original.as_mut().unwrap().pop_front() };
+    (@handoff $job:ident, vec) => { $job.retirement.start($job.source.take().unwrap()); };
+    (@handoff $job:ident, sorted) => { $job.retirement.start($job.source.take().unwrap()); };
+    (@handoff $job:ident, deque) => { $job.retirement.start($job.original.take().unwrap()); };
+}
+
+storage_job!(
+    LivingVecStorageJobV2,
+    Vec<T>,
+    [],
+    vec,
+    |v: &Vec<T>| v.len(),
+    |v: &Vec<T>| v.capacity(),
+    Vec::with_capacity,
+    |v: &mut Vec<T>, pending: &mut Option<T>| {
+        assert!(v.len() < v.capacity(), "prepared Vec capacity");
+        v.push(pending.take().expect("retained Vec record"));
+        Ok(())
+    }
+);
+storage_job!(LivingSortedStorageJobV2, LivingSortedVecV2<T>, [+ LivingKeyedV2], sorted,
+|v: &LivingSortedVecV2<T>| v.as_slice().len(), |v: &LivingSortedVecV2<T>| v.capacity(),
+|capacity| LivingSortedVecV2::new(Vec::with_capacity(capacity)).expect("empty sorted storage"),
+|v: &mut LivingSortedVecV2<T>, pending: &mut Option<T>| {
+    // Only KeyedOrder is reachable from this method; retain no wire envelope.
+    v.push_sorted_retained(pending).map_err(|_| LivingStorageJobErrorV2::KeyedOrder)
+});
+storage_job!(
+    LivingDequeStorageJobV2,
+    std::collections::VecDeque<T>,
+    [],
+    deque,
+    |v: &std::collections::VecDeque<T>| v.len(),
+    |v: &std::collections::VecDeque<T>| v.capacity(),
+    std::collections::VecDeque::with_capacity,
+    |v: &mut std::collections::VecDeque<T>, pending: &mut Option<T>| {
+        assert!(v.len() < v.capacity(), "prepared deque capacity");
+        v.push_back(pending.take().expect("retained deque record"));
+        Ok(())
+    }
+);
+
+#[derive(Clone, Copy)]
+pub(crate) enum InsertionFault {
+    Duplicate,
+    KeyedOrder,
+    Capacity,
+    Preparation,
+}
+impl InsertionFault {
+    fn domain(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Duplicate => LivingDeterministicFaultV2::from(
+                super::model::LivingValidationErrorV2::DuplicateIdentity {
+                    context: "creator batch",
+                },
+            )
+            .into(),
+            Self::KeyedOrder => {
+                LivingDeterministicFaultV2::from(super::wire::LivingWireErrorV2::KeyedOrder).into()
+            }
+            Self::Capacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::Preparation => LivingDeterministicFaultV2::Invariant.into(),
+        }
+    }
+}
+
 // --------------------------------------------- sorted creator insertion
 
 /// A sorted insertion that visits each source and output record separately.
 /// It never reconstructs or validates a complete collection inside one visit.
 pub(crate) struct LivingSortedInsertionJobV2<T: LivingKeyedV2> {
     delivered: bool,
+    replace_equal: bool,
+    preparation: Option<LivingSortedStorageJobV2<'static, T>>,
     source: IntoIter<T>,
     output: LivingSortedVecV2<T>,
     inserted: Option<T>,
     held: Option<T>,
     source_finished: bool,
+    setup: bool,
+    source_retired: bool,
+    retirement: PhaseRetirementLane<'static>,
+    fault: Option<InsertionFault>,
 }
-impl<T: LivingKeyedV2> LivingSortedInsertionJobV2<T> {
+impl<T: LivingKeyedV2 + RetirementFields<'static>> LivingSortedInsertionJobV2<T> {
+    pub(crate) fn failure(&self) -> Option<InsertionFault> {
+        self.fault
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_creator_capacity_failure(&mut self) -> bool {
+        let Some(child) = &mut self.preparation else {
+            return false;
+        };
+        if child.stage != StorageStage::EmptySetup {
+            return false;
+        }
+        child.selected_capacity = usize::MAX;
+        true
+    }
+
     pub(crate) fn begin(source: LivingSortedVecV2<T>, inserted: T) -> Self {
         Self {
+            replace_equal: false,
+            preparation: None,
             delivered: false,
             source: source.into_vec().into_iter(),
             output: LivingSortedVecV2::default(),
             inserted: Some(inserted),
             held: None,
             source_finished: false,
+            setup: false,
+            source_retired: false,
+            retirement: PhaseRetirementLane::default(),
+            fault: None,
+        }
+    }
+    pub(crate) fn begin_replacement(source: LivingSortedVecV2<T>, inserted: T) -> Self {
+        let mut job = Self::begin(source, inserted);
+        job.replace_equal = true;
+        job
+    }
+    fn preparation_error(error: LivingStorageJobErrorV2) -> InsertionFault {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => InsertionFault::Capacity,
+            LivingStorageJobErrorV2::KeyedOrder => InsertionFault::KeyedOrder,
+            LivingStorageJobErrorV2::Budget
+            | LivingStorageJobErrorV2::Cancelled
+            | LivingStorageJobErrorV2::NotReady => InsertionFault::Preparation,
         }
     }
     /// One actual source or output record; false denotes an empty transition.
-    pub(crate) fn visit(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
-        if self.delivered {
+    pub(crate) fn visit(&mut self) -> Result<bool, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
+        if self.delivered || self.ready() {
             return Ok(false);
         }
+        if self.retirement.visit() {
+            return Ok(true);
+        }
+        if !self.setup {
+            let result = self.prepare();
+            return result.map_err(|fault| {
+                self.fault = Some(fault);
+                fault.domain()
+            });
+        }
+        self.visit_record().map_err(|fault| {
+            self.fault = Some(fault);
+            fault.domain()
+        })
+    }
+    fn prepare(&mut self) -> Result<bool, InsertionFault> {
+        let Some(child) = &mut self.preparation else {
+            let capacity = self
+                .source
+                .len()
+                .checked_add(1)
+                .ok_or(InsertionFault::Capacity)?;
+            self.preparation = Some(LivingSortedStorageJobV2::begin_empty(capacity));
+            return Ok(true);
+        };
+        if !child.ready() {
+            child.poll(1).map_err(Self::preparation_error)?;
+            return Ok(child.last_poll_visits() != 0);
+        }
+        self.output = child.take_ready_result().map_err(Self::preparation_error)?;
+        self.retirement.start(self.preparation.take());
+        self.setup = true;
+        Ok(true)
+    }
+    fn visit_record(&mut self) -> Result<bool, InsertionFault> {
         if let Some(held) = &self.held {
             if self
                 .inserted
                 .as_ref()
                 .is_some_and(|inserted| inserted.living_key() == held.living_key())
             {
-                return Err(super::model::LivingValidationErrorV2::DuplicateIdentity {
-                    context: "creator batch",
+                if !self.replace_equal {
+                    return Err(InsertionFault::Duplicate);
                 }
-                .into());
+                self.retirement.start(self.held.take());
+                return Ok(true);
             }
             if self
                 .inserted
                 .as_ref()
                 .is_some_and(|inserted| inserted.living_key() < held.living_key())
             {
-                ensure_retained_sorted(
-                    &self.output,
-                    self.inserted.as_ref().expect("pending insertion"),
-                )?;
-                self.output.push_sorted(
-                    self.inserted
-                        .take()
-                        .expect("comparison proved pending insertion"),
-                )?;
-            } else {
-                ensure_retained_sorted(&self.output, self.held.as_ref().expect("held record"))?;
                 self.output
-                    .push_sorted(self.held.take().expect("held record was inspected"))?;
+                    .push_sorted_retained(&mut self.inserted)
+                    .map_err(|_| InsertionFault::KeyedOrder)?;
+            } else {
+                self.output
+                    .push_sorted_retained(&mut self.held)
+                    .map_err(|_| InsertionFault::KeyedOrder)?;
             }
             return Ok(true);
         }
@@ -4598,21 +7216,36 @@ impl<T: LivingKeyedV2> LivingSortedInsertionJobV2<T> {
             self.source_finished = true;
             return Ok(false);
         }
-        if let Some(inserted) = self.inserted.as_ref() {
-            ensure_retained_sorted(&self.output, inserted)?;
+        if self.inserted.is_some() {
             self.output
-                .push_sorted(self.inserted.take().expect("retained insertion"))?;
+                .push_sorted_retained(&mut self.inserted)
+                .map_err(|_| InsertionFault::KeyedOrder)?;
+            return Ok(true);
+        }
+        if !self.source_retired {
+            self.retirement
+                .start(std::mem::replace(&mut self.source, Vec::new().into_iter()));
+            self.source_retired = true;
             return Ok(true);
         }
         Ok(false)
     }
     pub(crate) fn ready(&self) -> bool {
-        self.source_finished && self.held.is_none() && self.inserted.is_none()
+        self.setup
+            && self.source_finished
+            && self.held.is_none()
+            && self.inserted.is_none()
+            && self.source_retired
+            && self.retirement.is_empty()
+            && self.fault.is_none()
     }
     #[allow(dead_code)]
     pub(crate) fn take_ready_result(
         &mut self,
     ) -> Result<LivingSortedVecV2<T>, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
         if !self.ready() || self.delivered {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
@@ -4621,11 +7254,377 @@ impl<T: LivingKeyedV2> LivingSortedInsertionJobV2<T> {
     }
 }
 
+/// Retained single-key colony removal. Acquisition, kept output and displaced
+/// row retirement remain distinct visits, including the exhausted source shell.
+pub(crate) struct LivingColonyRemovalJobV2 {
+    source: IntoIter<super::model::LivingColonyV2>,
+    output: LivingSortedVecV2<super::model::LivingColonyV2>,
+    held: Option<super::model::LivingColonyV2>,
+    preparation: Option<LivingSortedStorageJobV2<'static, super::model::LivingColonyV2>>,
+    retirement: PhaseRetirementLane<'static>,
+    key: LivingEntityIdV2,
+    setup: bool,
+    source_finished: bool,
+    source_retired: bool,
+    delivered: bool,
+    fault: Option<InsertionFault>,
+}
+impl LivingColonyRemovalJobV2 {
+    #[cfg(test)]
+    pub(crate) fn inject_creator_capacity_failure(&mut self) -> bool {
+        let Some(child) = &mut self.preparation else {
+            return false;
+        };
+        if child.stage != StorageStage::EmptySetup {
+            return false;
+        }
+        child.selected_capacity = usize::MAX;
+        true
+    }
+
+    pub(crate) fn begin(
+        source: LivingSortedVecV2<super::model::LivingColonyV2>,
+        key: LivingEntityIdV2,
+    ) -> Self {
+        Self {
+            source: source.into_vec().into_iter(),
+            output: LivingSortedVecV2::default(),
+            held: None,
+            preparation: None,
+            retirement: PhaseRetirementLane::default(),
+            key,
+            setup: false,
+            source_finished: false,
+            source_retired: false,
+            delivered: false,
+            fault: None,
+        }
+    }
+    pub(crate) fn ready(&self) -> bool {
+        self.setup
+            && self.source_finished
+            && self.source_retired
+            && self.held.is_none()
+            && self.retirement.is_empty()
+            && self.fault.is_none()
+    }
+    pub(crate) fn visit(&mut self) -> Result<bool, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
+        if self.delivered || self.ready() {
+            return Ok(false);
+        }
+        if self.retirement.visit() {
+            return Ok(true);
+        }
+        self.visit_record().map_err(|fault| {
+            self.fault = Some(fault);
+            fault.domain()
+        })
+    }
+    fn visit_record(&mut self) -> Result<bool, InsertionFault> {
+        if !self.setup {
+            let Some(child) = &mut self.preparation else {
+                self.preparation = Some(LivingSortedStorageJobV2::begin_empty(self.source.len()));
+                return Ok(true);
+            };
+            if !child.ready() {
+                let result = child.poll(1);
+                let visits = child.last_poll_visits();
+                result.map_err(
+                    LivingSortedInsertionJobV2::<super::model::LivingColonyV2>::preparation_error,
+                )?;
+                return Ok(visits != 0);
+            }
+            self.output = child.take_ready_result().map_err(
+                LivingSortedInsertionJobV2::<super::model::LivingColonyV2>::preparation_error,
+            )?;
+            self.retirement.start(self.preparation.take());
+            self.setup = true;
+            return Ok(true);
+        }
+        if let Some(held) = &self.held {
+            if held.world == self.key {
+                self.retirement.start(self.held.take());
+            } else {
+                self.output
+                    .push_sorted_retained(&mut self.held)
+                    .map_err(|_| InsertionFault::KeyedOrder)?;
+            }
+            return Ok(true);
+        }
+        if !self.source_finished {
+            self.held = self.source.next();
+            if self.held.is_some() {
+                return Ok(true);
+            }
+            self.source_finished = true;
+            return Ok(false);
+        }
+        if !self.source_retired {
+            self.retirement
+                .start(std::mem::replace(&mut self.source, Vec::new().into_iter()));
+            self.source_retired = true;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Result<LivingSortedVecV2<super::model::LivingColonyV2>, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
+        if !self.ready() || self.delivered {
+            return Err(LivingLifecycleJobErrorV2::NotReady);
+        }
+        self.delivered = true;
+        Ok(std::mem::take(&mut self.output))
+    }
+}
+impl<'a> RetirementFields<'a> for LivingColonyRemovalJobV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.source.creator_allocations(out);
+        self.output.creator_allocations(out);
+        self.held.creator_allocations(out);
+        self.preparation.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            source,
+            output,
+            held,
+            preparation,
+            retirement,
+            key: _,
+            setup: _,
+            source_finished: _,
+            source_retired: _,
+            delivered: _,
+            fault: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(
+                std::mem::replace(source, Vec::new().into_iter()),
+                policy,
+            )),
+            1 => Some(retirement_node(std::mem::take(output), policy)),
+            2 => Some(retirement_node(held.take(), policy)),
+            3 => Some(retirement_node(preparation.take(), policy)),
+            4 => Some(retirement_node(std::mem::take(retirement), policy)),
+            _ => None,
+        }
+    }
+}
+
+/// Retained filter of planned original row positions. Planning completes before
+/// ownership moves here; source acquisition, output emission and removal are
+/// separate visits. The plan and every exhausted allocation remain owned.
+pub(crate) struct LivingPlannedFilterJobV2<T: LivingKeyedV2> {
+    source: IntoIter<T>,
+    output: LivingSortedVecV2<T>,
+    held: Option<T>,
+    preparation: Option<LivingSortedStorageJobV2<'static, T>>,
+    retirement: PhaseRetirementLane<'static>,
+    plan: std::collections::BTreeSet<usize>,
+    index: usize,
+    setup: bool,
+    source_finished: bool,
+    source_retired: bool,
+    delivered: bool,
+    fault: Option<InsertionFault>,
+}
+impl<T: LivingKeyedV2 + RetirementFields<'static>> LivingPlannedFilterJobV2<T> {
+    #[cfg(test)]
+    pub(crate) fn take_removal_test_preparation(&mut self) -> Box<dyn RetirementPoll> {
+        let child = self
+            .preparation
+            .as_mut()
+            .expect("original filter preparation");
+        let output = child
+            .take_ready_result()
+            .expect("ready original preparation");
+        assert!(child.take_ready_result().is_err());
+        retirement_node(output, LivingStateRetirementPolicyV2::ReleaseHandle)
+    }
+
+    pub(crate) fn failure(&self) -> Option<InsertionFault> {
+        self.fault
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_creator_capacity_failure(&mut self) -> bool {
+        let Some(child) = &mut self.preparation else {
+            return false;
+        };
+        if child.stage != StorageStage::EmptySetup {
+            return false;
+        }
+        child.selected_capacity = usize::MAX;
+        true
+    }
+
+    pub(crate) fn begin(
+        source: LivingSortedVecV2<T>,
+        plan: std::collections::BTreeSet<usize>,
+    ) -> Self {
+        Self {
+            source: source.into_vec().into_iter(),
+            output: LivingSortedVecV2::default(),
+            held: None,
+            preparation: None,
+            retirement: PhaseRetirementLane::default(),
+            plan,
+            index: 0,
+            setup: false,
+            source_finished: false,
+            source_retired: false,
+            delivered: false,
+            fault: None,
+        }
+    }
+    pub(crate) fn ready(&self) -> bool {
+        self.setup
+            && self.source_finished
+            && self.source_retired
+            && self.held.is_none()
+            && self.retirement.is_empty()
+            && self.fault.is_none()
+    }
+    pub(crate) fn visit(&mut self) -> Result<bool, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
+        if self.delivered || self.ready() {
+            return Ok(false);
+        }
+        if self.retirement.visit() {
+            return Ok(true);
+        }
+        self.visit_record().map_err(|fault| {
+            self.fault = Some(fault);
+            fault.domain()
+        })
+    }
+    fn visit_record(&mut self) -> Result<bool, InsertionFault> {
+        if !self.setup {
+            let Some(child) = &mut self.preparation else {
+                self.preparation = Some(LivingSortedStorageJobV2::begin_empty(self.source.len()));
+                return Ok(true);
+            };
+            if !child.ready() {
+                let result = child.poll(1);
+                let visits = child.last_poll_visits();
+                result.map_err(LivingSortedInsertionJobV2::<T>::preparation_error)?;
+                return Ok(visits != 0);
+            }
+            self.output = child
+                .take_ready_result()
+                .map_err(LivingSortedInsertionJobV2::<T>::preparation_error)?;
+            self.retirement.start(self.preparation.take());
+            self.setup = true;
+            return Ok(true);
+        }
+        if self.held.is_some() {
+            if self.plan.contains(&(self.index - 1)) {
+                self.retirement.start(self.held.take());
+            } else {
+                self.output
+                    .push_sorted_retained(&mut self.held)
+                    .map_err(|_| InsertionFault::KeyedOrder)?;
+            }
+            return Ok(true);
+        }
+        if !self.source_finished {
+            self.held = self.source.next();
+            if self.held.is_some() {
+                self.index += 1;
+                return Ok(true);
+            }
+            self.source_finished = true;
+            return Ok(false);
+        }
+        if !self.source_retired {
+            self.retirement
+                .start(std::mem::replace(&mut self.source, Vec::new().into_iter()));
+            self.source_retired = true;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Result<LivingSortedVecV2<T>, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.domain());
+        }
+        if !self.ready() || self.delivered {
+            return Err(LivingLifecycleJobErrorV2::NotReady);
+        }
+        self.delivered = true;
+        Ok(std::mem::take(&mut self.output))
+    }
+}
+impl<'a, T: LivingKeyedV2 + RetirementFields<'a>> RetirementFields<'a>
+    for LivingPlannedFilterJobV2<T>
+{
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.source.creator_allocations(out);
+        self.output.creator_allocations(out);
+        self.held.creator_allocations(out);
+        self.preparation.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+        self.plan.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            source,
+            output,
+            held,
+            preparation,
+            retirement,
+            plan,
+            index: _,
+            setup: _,
+            source_finished: _,
+            source_retired: _,
+            delivered: _,
+            fault: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(
+                std::mem::replace(source, Vec::new().into_iter()),
+                policy,
+            )),
+            1 => Some(retirement_node(std::mem::take(output), policy)),
+            2 => Some(retirement_node(held.take(), policy)),
+            3 => Some(retirement_node(preparation.take(), policy)),
+            4 => Some(retirement_node(std::mem::take(retirement), policy)),
+            5 => Some(retirement_node(std::mem::take(plan), policy)),
+            _ => None,
+        }
+    }
+}
+
 /// Resumable simultaneous combat round within phase 4. Retreat, occupation and
 /// settlement are separate phase-4 work and are not performed by this component.
 /// Inputs move into an unpublished candidate; each hull, target comparison,
 /// damage application, output record and retired index entry consumes a visit.
 pub struct LivingCombatJobV2<'a> {
+    retirement: PhaseRetirementLane<'a>,
+    repair_exclusions: BTreeSet<LivingEntityIdV2>,
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     state: LivingGalaxyStateV2,
@@ -4635,8 +7634,16 @@ pub struct LivingCombatJobV2<'a> {
     index: usize,
     hull_index: usize,
     target_index: usize,
+    piece_bound: usize,
     target: Option<CombatPiece>,
     pieces: Vec<CombatPiece>,
+    piece_storage: Option<LivingVecStorageJobV2<'a, CombatPiece>>,
+    harm_storage: Option<LivingVecStorageJobV2<'a, (LivingEntityIdV2, u32, bool)>>,
+    facility_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingFacilityV2>>,
+    fleet_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingFleetV2>>,
+    hull_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingHullV2>>,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    resume: CombatStage,
     wars: BTreeSet<Pair>,
     hull_fleets: BTreeMap<LivingEntityIdV2, LivingEntityIdV2>,
     harm_index: BTreeMap<LivingEntityIdV2, usize>,
@@ -4644,12 +7651,16 @@ pub struct LivingCombatJobV2<'a> {
     facilities: Option<IntoIter<super::model::LivingFacilityV2>>,
     fleets: Option<IntoIter<super::model::LivingFleetV2>>,
     dead_reasons: Option<IntoIter<super::model::LivingBlockedReasonV2>>,
+    pending_facility: Option<super::model::LivingFacilityV2>,
     fleet: Option<super::model::LivingFleetV2>,
+    pending_hull: Option<super::model::LivingHullV2>,
     hulls: Option<IntoIter<super::model::LivingHullV2>>,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<LifecycleFailure>,
     last_poll_visits: usize,
     total_visits: u64,
+    #[cfg(test)]
+    stage_visits: [u64; 18],
 }
 #[derive(Clone, Copy)]
 struct CombatPiece {
@@ -4662,13 +7673,23 @@ struct CombatPiece {
 }
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum CombatStage {
+    CountFleets,
+    CountFacilities,
+    PreparePieces,
     Wars,
     Fleets,
     Facilities,
+    PrepareHarm,
     Targets,
+    MarkWorld,
+    Append,
+    AppendExtract,
     ApplyDamage,
+    PrepareFacilityOutput,
     FacilityOutput,
+    PrepareFleetOutput,
     FleetOutput,
+    PrepareHullOutput,
     Retire,
     Ready,
 }
@@ -4689,21 +7710,31 @@ impl<'a> LivingCombatJobV2<'a> {
         tick: LivingTickV2,
     ) -> Self {
         Self {
+            retirement: PhaseRetirementLane::default(),
+            repair_exclusions: BTreeSet::new(),
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             state,
             events,
             tick,
             stage: if tick.0.is_multiple_of(10) {
-                CombatStage::Wars
+                CombatStage::CountFleets
             } else {
                 CombatStage::Ready
             },
             index: 0,
             hull_index: 0,
             target_index: 0,
+            piece_bound: 0,
             target: None,
             pieces: Vec::new(),
+            piece_storage: None,
+            harm_storage: None,
+            facility_storage: None,
+            fleet_storage: None,
+            hull_storage: None,
+            append: None,
+            resume: CombatStage::Ready,
             wars: BTreeSet::new(),
             hull_fleets: BTreeMap::new(),
             harm_index: BTreeMap::new(),
@@ -4711,12 +7742,16 @@ impl<'a> LivingCombatJobV2<'a> {
             facilities: None,
             fleets: None,
             dead_reasons: None,
+            pending_facility: None,
             fleet: None,
+            pending_hull: None,
             hulls: None,
             cancelled: false,
             fault: None,
             last_poll_visits: 0,
             total_visits: 0,
+            #[cfg(test)]
+            stage_visits: [0; 18],
         }
     }
     /// Cancel without publishing state or events.
@@ -4738,34 +7773,63 @@ impl<'a> LivingCombatJobV2<'a> {
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self.fault.map_or(
+                LivingLifecycleJobErrorV2::Cancelled,
+                LifecycleFailure::public,
+            ));
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        while self.last_poll_visits < budget && self.stage != CombatStage::Ready {
+        while self.last_poll_visits < budget
+            && (self.stage != CombatStage::Ready || !self.retirement.is_empty())
+        {
+            if self.retirement.visit() {
+                self.charge(1);
+                continue;
+            }
+            if let Err(fault) = self.advance_child(budget - self.last_poll_visits) {
+                self.fault = Some(fault);
+                return Err(fault.public());
+            }
+            if !self.retirement.is_empty() {
+                continue;
+            }
+            if matches!(
+                self.stage,
+                CombatStage::PreparePieces
+                    | CombatStage::PrepareHarm
+                    | CombatStage::PrepareFacilityOutput
+                    | CombatStage::PrepareFleetOutput
+                    | CombatStage::PrepareHullOutput
+                    | CombatStage::Append
+                    | CombatStage::AppendExtract
+            ) {
+                continue;
+            }
+            if self.last_poll_visits == budget {
+                break;
+            }
             match self.visit() {
-                Ok(true) => {
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                }
+                Ok(true) => self.charge(1),
                 Ok(false) => {}
                 Err(fault) => {
-                    self.last_poll_visits += 1;
-                    self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.charge(1);
+                    self.fault = Some(fault);
+                    return Err(fault.public());
                 }
             }
         }
-        Ok(if self.stage == CombatStage::Ready {
-            LivingLifecycleProgressV2::Ready
-        } else {
-            LivingLifecycleProgressV2::Pending
-        })
+        Ok(
+            if self.stage == CombatStage::Ready && self.retirement.is_empty() {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            },
+        )
     }
     /// Move the completed combat candidate to its phase-4 continuation.
     pub fn finish(
@@ -4778,12 +7842,15 @@ impl<'a> LivingCombatJobV2<'a> {
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
         if self.cancelled {
-            return Err(LivingLifecycleJobErrorV2::Cancelled);
+            return Err(self.fault.map_or(
+                LivingLifecycleJobErrorV2::Cancelled,
+                LifecycleFailure::public,
+            ));
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
         }
-        if self.stage != CombatStage::Ready {
+        if self.stage != CombatStage::Ready || !self.retirement.is_empty() {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
         if self.delivered {
@@ -4795,23 +7862,257 @@ impl<'a> LivingCombatJobV2<'a> {
             std::mem::take(&mut self.events),
         ))
     }
-    fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
-        self.events.record(
-            LivingEventProvenanceV2::Autonomous {
-                phase: LivingPhaseV2::ResolveConflict,
-            },
-            kind,
-        )?;
-        Ok(())
+    pub(crate) fn take_ready_with_exclusions(
+        &mut self,
+    ) -> Result<
+        (
+            LivingGalaxyStateV2,
+            LivingPendingEventsV2,
+            BTreeSet<LivingEntityIdV2>,
+        ),
+        LivingLifecycleJobErrorV2,
+    > {
+        let (state, events) = self.take_ready_result()?;
+        Ok((state, events, std::mem::take(&mut self.repair_exclusions)))
+    }
+    #[cfg(test)]
+    pub(crate) fn fault_snapshot_for_test(&self) -> (&LivingGalaxyStateV2, &LivingPendingEventsV2) {
+        (&self.state, &self.events)
+    }
+    fn charge(&mut self, visits: usize) {
+        #[cfg(test)]
+        {
+            self.stage_visits[self.stage as usize] += visits as u64;
+        }
+        self.last_poll_visits += visits;
+        self.total_visits += visits as u64;
+    }
+    fn emit(&mut self, kind: LivingEventKindV2, resume: CombatStage) {
+        self.append = Some(
+            super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                std::mem::take(&mut self.events),
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ResolveConflict,
+                },
+                kind,
+            ),
+        );
+        self.resume = resume;
+        self.stage = CombatStage::Append;
     }
     fn next_stage(&mut self, stage: CombatStage) {
         self.stage = stage;
         self.index = 0;
     }
-    fn visit(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn advance_child(&mut self, remaining: usize) -> Result<(), LifecycleFailure> {
+        match self.stage {
+            CombatStage::PreparePieces => {
+                let child = self
+                    .piece_storage
+                    .get_or_insert_with(|| LivingVecStorageJobV2::begin_empty(self.piece_bound));
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.pieces = self
+                        .piece_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.piece_storage.take().unwrap());
+                    self.next_stage(CombatStage::Wars);
+                }
+            }
+            CombatStage::PrepareHarm => {
+                let child = self
+                    .harm_storage
+                    .get_or_insert_with(|| LivingVecStorageJobV2::begin_empty(self.pieces.len()));
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.harm = self
+                        .harm_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.harm_storage.take().unwrap());
+                    self.next_stage(CombatStage::Targets);
+                }
+            }
+            CombatStage::PrepareFacilityOutput => {
+                let child = self.facility_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.state.facilities.as_slice().len())
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    let output = self
+                        .facility_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.facility_storage.take().unwrap());
+                    self.facilities = Some(
+                        std::mem::take(&mut self.state.facilities)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                    self.state.facilities = output;
+                    self.next_stage(CombatStage::FacilityOutput);
+                }
+            }
+            CombatStage::PrepareFleetOutput => {
+                let child = self.fleet_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(self.state.fleets.as_slice().len())
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    let output = self
+                        .fleet_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.fleet_storage.take().unwrap());
+                    self.fleets = Some(
+                        std::mem::take(&mut self.state.fleets)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                    self.state.fleets = output;
+                    self.next_stage(CombatStage::FleetOutput);
+                }
+            }
+            CombatStage::PrepareHullOutput => {
+                let child = self.hull_storage.get_or_insert_with(|| {
+                    LivingSortedStorageJobV2::begin_empty(
+                        self.fleet.as_ref().unwrap().hulls.as_slice().len(),
+                    )
+                });
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    let output = self
+                        .hull_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(LifecycleFailure::storage)?;
+                    self.retirement.start(self.hull_storage.take().unwrap());
+                    let fleet = self.fleet.as_mut().unwrap();
+                    self.hulls = Some(std::mem::take(&mut fleet.hulls).into_vec().into_iter());
+                    fleet.hulls = output;
+                    self.stage = CombatStage::FleetOutput;
+                }
+            }
+            CombatStage::Append => {
+                let child = self.append.as_mut().expect("combat append retained");
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(LifecycleFailure::append)? == LivingLifecycleProgressV2::Ready {
+                    self.stage = CombatStage::AppendExtract;
+                }
+            }
+            CombatStage::AppendExtract => {
+                self.charge(1);
+                let (events, _) = self
+                    .append
+                    .as_mut()
+                    .unwrap()
+                    .take_ready_result()
+                    .map_err(LifecycleFailure::append)?;
+                self.events = events;
+                self.retirement.start(self.append.take().unwrap());
+                self.stage = self.resume;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn visit(&mut self) -> Result<bool, LifecycleFailure> {
         use super::catalog::LivingIndustryEffectV2;
         use super::model::LivingFleetLocationV2;
         match self.stage {
+            CombatStage::CountFleets => {
+                let Some(fleet) = self.state.fleets.as_slice().get(self.index) else {
+                    self.next_stage(CombatStage::CountFacilities);
+                    self.hull_index = 0;
+                    return Ok(false);
+                };
+                if !matches!(fleet.location, LivingFleetLocationV2::Docked { .. }) {
+                    self.index += 1;
+                    return Ok(true);
+                }
+                if fleet.hulls.as_slice().get(self.hull_index).is_some() {
+                    self.piece_bound = self.piece_bound.checked_add(1).ok_or(
+                        LifecycleFailure::PreparationCapacity(
+                            LifecyclePreparationCause::OutputCapacity,
+                        ),
+                    )?;
+                    self.hull_index += 1;
+                    return Ok(true);
+                }
+                self.index += 1;
+                self.hull_index = 0;
+                return Ok(true);
+            }
+            CombatStage::CountFacilities => {
+                if let Some(row) = self.state.facilities.as_slice().get(self.index) {
+                    if let Some(definition) =
+                        repair_industry_definition(&self.catalog, row.definition.as_str())
+                        && matches!(definition.effect, LivingIndustryEffectV2::Defense { .. })
+                        && row.hit_points > 0
+                        && let Ok(position) = self
+                            .state
+                            .worlds
+                            .as_slice()
+                            .binary_search_by_key(&row.world, |world| world.id)
+                        && self.state.worlds.as_slice()[position].owner.is_some()
+                    {
+                        self.piece_bound = self.piece_bound.checked_add(1).ok_or(
+                            LifecycleFailure::PreparationCapacity(
+                                LifecyclePreparationCause::OutputCapacity,
+                            ),
+                        )?;
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.next_stage(CombatStage::PreparePieces);
+            }
+            CombatStage::PreparePieces
+            | CombatStage::PrepareHarm
+            | CombatStage::PrepareFacilityOutput
+            | CombatStage::PrepareFleetOutput
+            | CombatStage::PrepareHullOutput
+            | CombatStage::Append
+            | CombatStage::AppendExtract => {
+                unreachable!("child stages handled by poll")
+            }
             CombatStage::Wars => {
                 if let Some(war) = self.state.wars.as_slice().get(self.index) {
                     if war.start_tick.0 <= self.tick.0 && self.tick.0 < war.end_tick.0 {
@@ -4837,11 +8138,13 @@ impl<'a> LivingCombatJobV2<'a> {
                     return Ok(true);
                 }
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index - 1) {
-                    let damage = self
-                        .catalog
-                        .hull(hull.definition.as_str())
+                    let damage = repair_hull_definition(&self.catalog, hull.definition.as_str())
                         .map(|row| row.damage)
                         .unwrap_or(0);
+                    assert!(
+                        self.pieces.len() < self.pieces.capacity(),
+                        "prepared combat pieces"
+                    );
                     self.pieces.push(CombatPiece {
                         id: hull.id,
                         fleet: Some(fleet.id),
@@ -4865,7 +8168,8 @@ impl<'a> LivingCombatJobV2<'a> {
             }
             CombatStage::Facilities => {
                 if let Some(row) = self.state.facilities.as_slice().get(self.index) {
-                    if let Some(definition) = self.catalog.industry(row.definition.as_str())
+                    if let Some(definition) =
+                        repair_industry_definition(&self.catalog, row.definition.as_str())
                         && let LivingIndustryEffectV2::Defense {
                             damage_per_round, ..
                         } = definition.effect
@@ -4877,6 +8181,10 @@ impl<'a> LivingCombatJobV2<'a> {
                             .binary_search_by_key(&row.world, |world| world.id)
                         && let Some(owner) = self.state.worlds.as_slice()[position].owner
                     {
+                        assert!(
+                            self.pieces.len() < self.pieces.capacity(),
+                            "prepared combat pieces"
+                        );
                         self.pieces.push(CombatPiece {
                             id: row.id,
                             fleet: None,
@@ -4889,12 +8197,14 @@ impl<'a> LivingCombatJobV2<'a> {
                     self.index += 1;
                     return Ok(true);
                 }
-                self.next_stage(CombatStage::Targets);
+                self.next_stage(CombatStage::PrepareHarm);
             }
             CombatStage::Targets => {
                 let Some(attacker) = self.pieces.get(self.index).copied() else {
                     if !self.harm.is_empty() {
-                        self.emit(LivingEventKindV2::CombatRound)?;
+                        self.index = 0;
+                        self.emit(LivingEventKindV2::CombatRound, CombatStage::ApplyDamage);
+                        return Ok(false);
                     }
                     self.next_stage(CombatStage::ApplyDamage);
                     return Ok(false);
@@ -4904,14 +8214,7 @@ impl<'a> LivingCombatJobV2<'a> {
                     return Ok(true);
                 }
                 if let Some(target) = self.pieces.get(self.target_index).copied() {
-                    let pair = if attacker.owner < target.owner {
-                        (attacker.owner, target.owner)
-                    } else {
-                        (target.owner, attacker.owner)
-                    };
-                    if target.world == attacker.world
-                        && target.owner != attacker.owner
-                        && self.wars.contains(&pair)
+                    if hostile_piece(attacker, target, &self.wars)
                         && self.target.is_none_or(|previous| {
                             (target.class, target.id) < (previous.class, previous.id)
                         })
@@ -4927,12 +8230,25 @@ impl<'a> LivingCombatJobV2<'a> {
                             self.harm[position].1.saturating_add(attacker.damage);
                     } else {
                         self.harm_index.insert(target.id, self.harm.len());
+                        assert!(
+                            self.harm.len() < self.harm.capacity(),
+                            "prepared combat harm"
+                        );
                         self.harm
                             .push((target.id, attacker.damage, target.fleet.is_none()));
                     }
+                    self.stage = CombatStage::MarkWorld;
+                    return Ok(true);
                 }
                 self.index += 1;
                 self.target_index = 0;
+                return Ok(true);
+            }
+            CombatStage::MarkWorld => {
+                self.repair_exclusions.insert(self.pieces[self.index].world);
+                self.index += 1;
+                self.target_index = 0;
+                self.stage = CombatStage::Targets;
                 return Ok(true);
             }
             CombatStage::ApplyDamage => {
@@ -4942,7 +8258,7 @@ impl<'a> LivingCombatJobV2<'a> {
                             .0
                             .checked_add(10)
                             .map(LivingTickV2)
-                            .ok_or(LivingDeterministicFaultV2::Arithmetic)
+                            .ok_or(LifecycleFailure::Arithmetic)
                     };
                     if battery {
                         if let Some(row) = self.state.facilities.find_mut(&id) {
@@ -4963,105 +8279,91 @@ impl<'a> LivingCombatJobV2<'a> {
                     self.index += 1;
                     return Ok(true);
                 }
-                self.facilities = Some(
-                    std::mem::take(&mut self.state.facilities)
-                        .into_vec()
-                        .into_iter(),
-                );
-                self.next_stage(CombatStage::FacilityOutput);
+                self.next_stage(CombatStage::PrepareFacilityOutput);
             }
             CombatStage::FacilityOutput => {
-                if self
-                    .dead_reasons
-                    .as_mut()
-                    .and_then(Iterator::next)
-                    .is_some()
-                {
+                if let Some(row) = self.pending_facility.take() {
+                    self.retirement.start(row);
                     return Ok(true);
                 }
-                self.dead_reasons = None;
-                if let Some(row) = self
+                if self
                     .facilities
                     .as_ref()
-                    .and_then(|rows| rows.as_slice().first())
+                    .is_some_and(|rows| !rows.as_slice().is_empty())
                 {
-                    let dead_battery = row.hit_points == 0
-                        && self.catalog.industry(row.definition.as_str()).is_some_and(
-                            |definition| {
-                                matches!(
-                                    definition.effect,
-                                    super::catalog::LivingIndustryEffectV2::Defense { .. }
-                                )
-                            },
-                        );
-                    if !dead_battery {
-                        ensure_retained_sorted(&self.state.facilities, row)?;
-                    }
-                }
-                if let Some(mut row) = self
-                    .facilities
-                    .as_mut()
-                    .expect("facility output initialized")
-                    .next()
-                {
+                    self.pending_facility = self
+                        .facilities
+                        .as_mut()
+                        .expect("facility output initialized")
+                        .next();
+                    let row = self.pending_facility.as_ref().unwrap();
                     let battery =
-                        self.catalog
-                            .industry(row.definition.as_str())
+                        repair_industry_definition(&self.catalog, row.definition.as_str())
                             .is_some_and(|definition| {
                                 matches!(definition.effect, LivingIndustryEffectV2::Defense { .. })
                             });
                     if battery && row.hit_points == 0 {
-                        self.dead_reasons = Some(
-                            std::mem::take(&mut row.blocked_reasons)
-                                .into_vec()
-                                .into_iter(),
+                        self.emit(
+                            LivingEventKindV2::HullDestroyed,
+                            CombatStage::FacilityOutput,
                         );
-                        self.emit(LivingEventKindV2::HullDestroyed)?;
                     } else {
-                        self.state.facilities.push_sorted(row)?;
+                        self.state
+                            .facilities
+                            .push_sorted_retained(&mut self.pending_facility)
+                            .map_err(|_| LifecycleFailure::KeyedOrder)?;
                     }
                     return Ok(true);
                 }
-                self.facilities = None;
-                self.fleets = Some(
-                    std::mem::take(&mut self.state.fleets)
-                        .into_vec()
-                        .into_iter(),
-                );
-                self.next_stage(CombatStage::FleetOutput);
+                self.retirement.start(self.facilities.take());
+                self.next_stage(CombatStage::PrepareFleetOutput);
             }
             CombatStage::FleetOutput => {
-                if let Some(hull) = self.hulls.as_mut().and_then(Iterator::next) {
-                    if hull.hit_points == 0 {
-                        self.emit(LivingEventKindV2::HullDestroyed)?;
+                if let Some(hull) = self.pending_hull.take() {
+                    self.retirement.start(hull);
+                    return Ok(true);
+                }
+                if self
+                    .hulls
+                    .as_ref()
+                    .is_some_and(|rows| !rows.as_slice().is_empty())
+                {
+                    self.pending_hull = self.hulls.as_mut().unwrap().next();
+                    if self.pending_hull.as_ref().unwrap().hit_points == 0 {
+                        self.emit(LivingEventKindV2::HullDestroyed, CombatStage::FleetOutput);
                     } else {
                         self.fleet
                             .as_mut()
                             .expect("fleet output initialized")
                             .hulls
-                            .push_sorted(hull)?;
+                            .push_sorted_retained(&mut self.pending_hull)
+                            .map_err(|_| LifecycleFailure::KeyedOrder)?;
                     }
                     return Ok(true);
                 }
-                self.hulls = None;
+                if self.hulls.is_some() {
+                    self.retirement.start(self.hulls.take());
+                    return Ok(true);
+                }
                 if let Some(fleet) = self.fleet.as_ref() {
-                    ensure_retained_sorted(&self.state.fleets, fleet)?;
-                }
-                if let Some(fleet) = self.fleet.take() {
-                    self.state.fleets.push_sorted(fleet)?;
+                    ensure_retained_sorted(&self.state.fleets, fleet)
+                        .map_err(|_| LifecycleFailure::KeyedOrder)?;
+                    self.state
+                        .fleets
+                        .push_sorted_retained(&mut self.fleet)
+                        .map_err(|_| LifecycleFailure::KeyedOrder)?;
                     return Ok(true);
                 }
-                if let Some(mut fleet) = self
+                if self
                     .fleets
-                    .as_mut()
-                    .expect("fleet iterator initialized")
-                    .next()
+                    .as_ref()
+                    .is_some_and(|rows| !rows.as_slice().is_empty())
                 {
-                    self.hulls = Some(std::mem::take(&mut fleet.hulls).into_vec().into_iter());
-                    self.fleet = Some(fleet);
+                    self.fleet = self.fleets.as_mut().unwrap().next();
+                    self.stage = CombatStage::PrepareHullOutput;
                     return Ok(true);
                 }
-                self.fleets = None;
+                self.retirement.start(self.fleets.take());
                 self.next_stage(CombatStage::Retire);
             }
             CombatStage::Retire => {
@@ -5071,6 +8373,14 @@ impl<'a> LivingCombatJobV2<'a> {
                     || self.hull_fleets.pop_first().is_some()
                     || self.harm_index.pop_first().is_some()
                 {
+                    return Ok(true);
+                }
+                if self.pieces.capacity() != 0 {
+                    self.retirement.start(std::mem::take(&mut self.pieces));
+                    return Ok(true);
+                }
+                if self.harm.capacity() != 0 {
+                    self.retirement.start(std::mem::take(&mut self.harm));
                     return Ok(true);
                 }
                 self.next_stage(CombatStage::Ready);
@@ -5092,6 +8402,1315 @@ impl LivingCombatJobV2<'static> {
     }
 }
 
+#[cfg(test)]
+mod combat_bounded_tests {
+    use super::*;
+
+    #[derive(Clone, Copy, Debug)]
+    enum CombatFailureCase {
+        PieceStorage,
+        HarmStorage,
+        FacilityStorage,
+        FleetStorage,
+        HullStorage,
+        RoundAppend,
+        FacilityAppend,
+        HullAppend,
+        KeyedFacility,
+    }
+
+    fn drain_owner<'a, T: RetirementFields<'a>>(owner: T, budgets: &[usize]) -> u64 {
+        let mut retiring =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        for bad in [0, 1025] {
+            assert_eq!(retiring.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(retiring.last_poll_visits(), 0);
+            assert_eq!(retiring.total_visits(), 0);
+        }
+        for turn in 0..100_000 {
+            let budget = budgets[turn % budgets.len()];
+            let progress = retiring.poll(budget).unwrap();
+            assert!(retiring.last_poll_visits() <= budget);
+            if progress == LivingLifecycleProgressV2::Ready {
+                let total = retiring.total_visits();
+                assert_eq!(retiring.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+                assert_eq!(retiring.last_poll_visits(), 0);
+                assert_eq!(retiring.total_visits(), total);
+                return total;
+            }
+        }
+        panic!("retained owner did not retire");
+    }
+
+    fn combat_owner_terms(mut job: LivingCombatJobV2<'_>) -> [u64; 24] {
+        let mut terms = [0_u64; 24];
+        for (slot, term) in terms.iter_mut().enumerate() {
+            let mut node = job
+                .retirement_child(slot, LivingStateRetirementPolicyV2::ReleaseHandle)
+                .unwrap();
+            loop {
+                match node.retirement_step() {
+                    RetirementStep::Work => *term += 1,
+                    RetirementStep::Done => break,
+                    RetirementStep::Deferred(_) => panic!("deferred owner at slot {slot}"),
+                }
+            }
+        }
+        terms
+    }
+
+    fn literal_owner_terms(changes: &[(usize, u64)]) -> [u64; 24] {
+        let mut terms = [1; 24];
+        for &(slot, visits) in changes {
+            terms[slot] = visits;
+        }
+        terms
+    }
+
+    fn failed_child_identity(
+        job: &LivingCombatJobV2<'_>,
+        case: CombatFailureCase,
+    ) -> Option<*const ()> {
+        use CombatFailureCase as Case;
+        match case {
+            Case::PieceStorage => job
+                .piece_storage
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::HarmStorage => job
+                .harm_storage
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::FacilityStorage => job
+                .facility_storage
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::FleetStorage => job
+                .fleet_storage
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::HullStorage => job
+                .hull_storage
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::RoundAppend | Case::FacilityAppend | Case::HullAppend => job
+                .append
+                .as_ref()
+                .map(|child| child as *const _ as *const ()),
+            Case::KeyedFacility => None,
+        }
+    }
+
+    fn fixture() -> crate::living::simulation::LivingGalaxyAuthorityV2 {
+        crate::living::simulation::tests::combat_cursor_fixture()
+    }
+
+    fn destruction_fixture() -> (
+        std::sync::Arc<super::super::catalog::ValidatedLivingCatalogPackV2>,
+        LivingGalaxyStateV2,
+    ) {
+        let authority = fixture();
+        let mut state = authority.state().clone();
+        state.facilities.record_at_mut(0).unwrap().hit_points = 0;
+        state.facilities.record_at_mut(0).unwrap().blocked_reasons =
+            LivingSortedVecV2::new(vec![super::super::model::LivingBlockedReasonV2::Disabled])
+                .unwrap();
+        state
+            .fleets
+            .record_at_mut(0)
+            .unwrap()
+            .hulls
+            .record_at_mut(0)
+            .unwrap()
+            .hit_points = 0;
+        (authority.catalog_snapshot(), state)
+    }
+
+    #[test]
+    fn combat_counts_and_reaches_round_destruction_and_each_output() {
+        let authority = fixture();
+        for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 1024][..]] {
+            let mut job = LivingCombatJobV2::begin_owned(
+                authority.catalog_snapshot(),
+                authority.state().clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            for bad in [0, 1025] {
+                assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(job.total_visits(), 0);
+            }
+            let mut saw = [false; 9];
+            for iteration in 0..10_000 {
+                saw[0] |= job.stage == CombatStage::CountFleets;
+                saw[1] |= job.stage == CombatStage::PreparePieces;
+                saw[2] |= job.stage == CombatStage::PrepareHarm;
+                saw[3] |=
+                    job.stage == CombatStage::Append && job.resume == CombatStage::ApplyDamage;
+                saw[4] |= job.stage == CombatStage::ApplyDamage;
+                saw[5] |= job.stage == CombatStage::PrepareFacilityOutput;
+                saw[6] |= job.stage == CombatStage::FacilityOutput;
+                saw[7] |= job.stage == CombatStage::PrepareFleetOutput;
+                saw[8] |= job.stage == CombatStage::PrepareHullOutput;
+                let budget = schedule[iteration % schedule.len()];
+                let progress = job.poll(budget).unwrap();
+                assert!(job.last_poll_visits() <= budget);
+                if progress == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+                assert!(iteration < 9_999, "combat cursor did not terminate");
+            }
+            if schedule == [1] {
+                assert!(
+                    saw.into_iter().all(|seen| seen),
+                    "missed a combat branch: {saw:?}"
+                );
+                // Ordered stages: source counts; exact setup and shell retirement;
+                // war/fleet/facility rows; target comparisons and five marks;
+                // two append children; three damage rows; output and source cleanup.
+                const EXPECTED_STAGE_VISITS: [u64; 18] =
+                    [8, 1, 2, 24, 8, 1, 2, 59, 5, 20, 2, 55, 2, 24, 7, 173, 9, 27];
+                assert_eq!(job.stage_visits, EXPECTED_STAGE_VISITS);
+            }
+            assert_eq!(job.total_visits(), 429);
+            assert!(job.retirement.is_empty());
+            assert_eq!(job.pieces.len(), 0);
+            assert_eq!(job.harm.len(), 0);
+            assert_eq!(job.pieces.capacity(), 0);
+            assert_eq!(job.harm.capacity(), 0);
+            assert!(job.facilities.is_none());
+            assert!(job.fleets.is_none());
+            assert!(job.hulls.is_none());
+            assert!(job.append.is_none());
+            let (_, events) = job.take_ready_result().unwrap();
+            assert_eq!(
+                events.payloads().iter().map(|e| e.kind).collect::<Vec<_>>(),
+                [
+                    LivingEventKindV2::CombatRound,
+                    LivingEventKindV2::HullDestroyed
+                ]
+            );
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            );
+            assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+            assert_eq!(job.last_poll_visits(), 0);
+            for bad in [0, 1025] {
+                assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(job.total_visits(), 429);
+            }
+        }
+    }
+
+    #[test]
+    fn combat_and_conflict_keep_local_capacity_and_original_children() {
+        let authority = fixture();
+        let state = authority.state().clone();
+        let catalog = authority.catalog_snapshot();
+        for trigger in [1, 64, 7, 1024] {
+            let mut combat = LivingCombatJobV2::begin_owned(
+                catalog.clone(),
+                state.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            for _ in 0..100 {
+                if combat.stage == CombatStage::PreparePieces {
+                    break;
+                }
+                combat.poll(1).unwrap();
+            }
+            assert!(combat.stage == CombatStage::PreparePieces);
+            combat.piece_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+            let before = combat.total_visits();
+            assert_eq!(
+                combat.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(
+                combat.total_visits() - before,
+                combat.last_poll_visits() as u64
+            );
+            assert!((1..=trigger).contains(&combat.last_poll_visits()));
+            assert_eq!(
+                combat.fault,
+                Some(LifecycleFailure::PreparationCapacity(
+                    LifecyclePreparationCause::OutputCapacity
+                ))
+            );
+            assert_eq!(
+                combat.poll(1),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(combat.last_poll_visits(), 0);
+            assert_eq!(
+                combat.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            combat.cancel();
+            assert_eq!(
+                combat.poll(1),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(
+                combat.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+        }
+
+        let mut conflict = LivingConflictJobV2::begin_owned(
+            catalog,
+            state,
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+            [33; 32],
+            Vec::new(),
+        );
+        for _ in 0..10_000 {
+            if let Some(ConflictComponent::Combat(job)) = conflict.component.as_mut() {
+                job.piece_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+                break;
+            }
+            conflict.poll(64).unwrap();
+        }
+        let original = match conflict.component.as_ref().unwrap() {
+            ConflictComponent::Combat(job) => &**job as *const LivingCombatJobV2<'_>,
+            _ => panic!("failed to reach combat child"),
+        };
+        for _ in 0..100 {
+            if conflict.poll(1) == Err(LivingLifecycleJobErrorV2::PreparationCapacity) {
+                break;
+            }
+        }
+        assert_eq!(
+            conflict.fault.map(ConflictFailure::public),
+            Some(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        // Private borrowed-extraction control: the original boxed child stays
+        // resident when its sticky local error is observed at the handoff.
+        assert_eq!(
+            conflict.advance(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(
+            conflict.poll(64),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(conflict.last_poll_visits(), 0);
+        assert_eq!(
+            conflict.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(
+            match conflict.component.as_ref().unwrap() {
+                ConflictComponent::Combat(job) => &**job as *const LivingCombatJobV2<'_>,
+                _ => panic!("lost combat child"),
+            },
+            original
+        );
+    }
+
+    #[test]
+    fn conflict_actual_combat_failure_retires_original_box_under_all_partitions() {
+        let authority = fixture();
+        for trigger in [1, 64, 7, 1024] {
+            let mut cleanup_total = None;
+            for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 1024][..]] {
+                let mut conflict = LivingConflictJobV2::begin_owned(
+                    authority.catalog_snapshot(),
+                    authority.state().clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                    [33; 32],
+                    Vec::new(),
+                );
+                let mut injected = false;
+                for _ in 0..10_000 {
+                    if conflict.inject_combat_piece_capacity_failure() {
+                        injected = true;
+                        break;
+                    }
+                    assert_eq!(
+                        conflict.poll(1).unwrap(),
+                        LivingLifecycleProgressV2::Pending
+                    );
+                }
+                assert!(injected);
+                let original = match conflict.component.as_ref().unwrap() {
+                    ConflictComponent::Combat(job) => &**job as *const LivingCombatJobV2<'_>,
+                    _ => panic!("missing original Combat Box"),
+                };
+                let mut failed = false;
+                for _ in 0..10_000 {
+                    let before = conflict.total_visits();
+                    match conflict.poll(trigger) {
+                        Ok(LivingLifecycleProgressV2::Pending) => continue,
+                        Err(LivingLifecycleJobErrorV2::PreparationCapacity) => {
+                            assert_eq!(
+                                conflict.total_visits() - before,
+                                conflict.last_poll_visits() as u64
+                            );
+                            assert!((1..=trigger).contains(&conflict.last_poll_visits()));
+                            failed = true;
+                            break;
+                        }
+                        other => panic!("unexpected Conflict continuation: {other:?}"),
+                    }
+                }
+                assert!(failed);
+                assert_eq!(
+                    conflict.fault.map(ConflictFailure::public),
+                    Some(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert!(matches!(
+                    conflict.fault,
+                    Some(ConflictFailure::Combat(
+                        ConflictCombatFailure::PreparationCapacity(_)
+                    ))
+                ));
+                assert_eq!(
+                    conflict.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(
+                    conflict.poll(1),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(conflict.last_poll_visits(), 0);
+                assert_eq!(
+                    match conflict.component.as_ref().unwrap() {
+                        ConflictComponent::Combat(job) => &**job as *const LivingCombatJobV2<'_>,
+                        _ => panic!("lost original Combat Box"),
+                    },
+                    original
+                );
+                let retired = drain_owner(conflict, budgets);
+                assert_eq!(retired, 240, "literal failed Conflict owner total");
+                if let Some(expected) = cleanup_total {
+                    assert_eq!(retired, expected, "trigger {trigger}");
+                } else {
+                    cleanup_total = Some(retired);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn combat_event_storage_failure_keeps_append_and_ordered_candidate() {
+        let authority = fixture();
+        let original = authority.state().clone();
+        for trigger in [1, 64, 7, 1024] {
+            let mut job = LivingCombatJobV2::begin_owned(
+                authority.catalog_snapshot(),
+                original.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            let mut injected = false;
+            for _ in 0..10_000 {
+                if job.stage == CombatStage::Append
+                    && job.resume == CombatStage::ApplyDamage
+                    && job.append.as_mut().unwrap().inject_entry_capacity_failure()
+                {
+                    injected = true;
+                    break;
+                }
+                job.poll(1).unwrap();
+            }
+            assert!(injected);
+            assert!(job.stage == CombatStage::Append);
+            let before = job.total_visits();
+            assert_eq!(
+                job.poll(trigger),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.total_visits() - before, 1);
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(
+                job.fault,
+                Some(LifecycleFailure::PreparationCapacity(
+                    LifecyclePreparationCause::EventStorageCapacity
+                ))
+            );
+            assert!(job.append.is_some());
+            assert!(job.events.is_empty());
+            assert_eq!(job.state, original);
+            assert_eq!(
+                job.poll(1),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+    }
+
+    #[test]
+    fn combat_destruction_events_keep_original_facility_and_hull_on_failure() {
+        let (catalog, state) = destruction_fixture();
+        for target in [CombatStage::FacilityOutput, CombatStage::FleetOutput] {
+            for trigger in [1, 64, 7, 1024] {
+                let mut job = LivingCombatJobV2::begin_owned(
+                    catalog.clone(),
+                    state.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                );
+                let mut injected = false;
+                for _ in 0..10_000 {
+                    if job.stage == CombatStage::Append
+                        && job.resume == target
+                        && job.append.as_mut().unwrap().inject_entry_capacity_failure()
+                    {
+                        injected = true;
+                        break;
+                    }
+                    job.poll(1).unwrap();
+                }
+                assert!(injected, "failed to reach destruction event");
+                let facility = job.pending_facility.as_ref().map(|row| row.id);
+                let hull = job.pending_hull.as_ref().map(|row| row.id);
+                let before = job.total_visits();
+                assert_eq!(
+                    job.poll(trigger),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(job.total_visits() - before, 1);
+                assert_eq!(job.last_poll_visits(), 1);
+                assert_eq!(
+                    job.fault,
+                    Some(LifecycleFailure::PreparationCapacity(
+                        LifecyclePreparationCause::EventStorageCapacity
+                    ))
+                );
+                assert!(job.append.is_some());
+                if target == CombatStage::FacilityOutput {
+                    assert_eq!(job.pending_facility.as_ref().map(|row| row.id), facility);
+                    assert!(job.facilities.is_some());
+                } else {
+                    assert_eq!(job.pending_hull.as_ref().map(|row| row.id), hull);
+                    assert!(job.hulls.is_some());
+                    assert!(job.fleet.is_some());
+                }
+                assert_eq!(
+                    job.poll(1),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(job.last_poll_visits(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn combat_each_output_preparation_capacity_preserves_source() {
+        let authority = fixture();
+        let source = authority.state().clone();
+        for target in [
+            CombatStage::PrepareHarm,
+            CombatStage::PrepareFacilityOutput,
+            CombatStage::PrepareFleetOutput,
+            CombatStage::PrepareHullOutput,
+        ] {
+            let mut job = LivingCombatJobV2::begin_owned(
+                authority.catalog_snapshot(),
+                source.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            for _ in 0..10_000 {
+                if job.stage == target {
+                    break;
+                }
+                job.poll(1).unwrap();
+            }
+            assert!(job.stage == target, "output branch unreachable");
+            let facility_ptr = job.state.facilities.as_slice().as_ptr();
+            let fleet_ptr = job.state.fleets.as_slice().as_ptr();
+            let hull_ptr = job
+                .fleet
+                .as_ref()
+                .map(|fleet| fleet.hulls.as_slice().as_ptr());
+            match target {
+                CombatStage::PrepareHarm => {
+                    job.harm_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+                }
+                CombatStage::PrepareFacilityOutput => {
+                    job.facility_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX))
+                }
+                CombatStage::PrepareFleetOutput => {
+                    job.fleet_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX))
+                }
+                CombatStage::PrepareHullOutput => {
+                    job.hull_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX))
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                job.poll(1024),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert!((1..=1024).contains(&job.last_poll_visits()));
+            assert_eq!(job.state.facilities.as_slice().as_ptr(), facility_ptr);
+            assert_eq!(job.state.fleets.as_slice().as_ptr(), fleet_ptr);
+            assert_eq!(
+                job.fleet
+                    .as_ref()
+                    .map(|fleet| fleet.hulls.as_slice().as_ptr()),
+                hull_ptr
+            );
+            assert_eq!(
+                job.poll(1),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+    }
+
+    #[test]
+    fn combat_keyed_output_failure_retains_pending_facility() {
+        let authority = fixture();
+        let mut state = authority.state().clone();
+        let mut first = state.facilities.as_slice()[0].clone();
+        first.hit_points = 500;
+        let mut second = first.clone();
+        second.id = LivingEntityIdV2([251; 16]);
+        state.facilities = LivingSortedVecV2::new(vec![first, second]).unwrap();
+        // Private malformed source: output must report the keyed failure while
+        // retaining the row and the original source owner for retirement.
+        state.facilities.record_at_mut(0).unwrap().id = LivingEntityIdV2([252; 16]);
+        let mut job = LivingCombatJobV2::begin_owned(
+            authority.catalog_snapshot(),
+            state,
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        );
+        for _ in 0..10_000 {
+            if job.poll(1)
+                == Err(LivingLifecycleJobErrorV2::Fault(
+                    super::super::simulation::LivingDeterministicFaultV2::Wire(
+                        super::super::wire::LivingWireErrorV2::KeyedOrder,
+                    ),
+                ))
+            {
+                break;
+            }
+        }
+        assert_eq!(job.fault, Some(LifecycleFailure::KeyedOrder));
+        assert_eq!(
+            job.pending_facility.as_ref().unwrap().id,
+            LivingEntityIdV2([251; 16])
+        );
+        assert!(job.facilities.is_some());
+        assert_eq!(
+            job.state.facilities.as_slice()[0].id,
+            LivingEntityIdV2([252; 16])
+        );
+        assert_eq!(
+            job.poll(1),
+            Err(LivingLifecycleJobErrorV2::Fault(
+                super::super::simulation::LivingDeterministicFaultV2::Wire(
+                    super::super::wire::LivingWireErrorV2::KeyedOrder,
+                ),
+            ))
+        );
+        assert_eq!(job.last_poll_visits(), 0);
+    }
+
+    #[test]
+    fn combat_every_forward_cut_retires_original_owners_under_partitioned_budgets() {
+        let authority = fixture();
+        let catalog = authority.catalog_snapshot();
+        let source = authority.state().clone();
+        for cut in 0..=429 {
+            let mut expected_cleanup = None;
+            for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 1024][..]] {
+                let candidate = source.clone();
+                let facility_source = candidate.facilities.as_slice().as_ptr();
+                let facility_count = candidate.facilities.as_slice().len();
+                let fleet_source = candidate.fleets.as_slice().as_ptr();
+                let fleet_count = candidate.fleets.as_slice().len();
+                let hull_sources: BTreeMap<_, _> = candidate
+                    .fleets
+                    .as_slice()
+                    .iter()
+                    .map(|fleet| {
+                        (
+                            fleet.id,
+                            (
+                                fleet.hulls.as_slice().as_ptr(),
+                                fleet.hulls.as_slice().len(),
+                            ),
+                        )
+                    })
+                    .collect();
+                let mut job = LivingCombatJobV2::begin_owned(
+                    catalog.clone(),
+                    candidate,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                );
+                while job.total_visits() < cut {
+                    let progress = job.poll(1).unwrap();
+                    if cut < 429 {
+                        assert_eq!(progress, LivingLifecycleProgressV2::Pending);
+                    }
+                }
+                assert_eq!(job.total_visits(), cut);
+                if let Some(rows) = &job.facilities {
+                    assert_eq!(
+                        rows.as_slice().as_ptr() as usize,
+                        facility_source as usize
+                            + (facility_count - rows.len())
+                                * std::mem::size_of::<super::super::model::LivingFacilityV2>()
+                    );
+                }
+                if let Some(rows) = &job.fleets {
+                    assert_eq!(
+                        rows.as_slice().as_ptr() as usize,
+                        fleet_source as usize
+                            + (fleet_count - rows.len())
+                                * std::mem::size_of::<super::super::model::LivingFleetV2>()
+                    );
+                }
+                if let (Some(fleet), Some(rows)) = (&job.fleet, &job.hulls) {
+                    let (base, count) = hull_sources[&fleet.id];
+                    assert_eq!(
+                        rows.as_slice().as_ptr() as usize,
+                        base as usize
+                            + (count - rows.len())
+                                * std::mem::size_of::<super::super::model::LivingHullV2>()
+                    );
+                }
+                job.cancel();
+                assert_eq!(job.poll(1), Err(LivingLifecycleJobErrorV2::Cancelled));
+                let mut retiring =
+                    job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+                let mut turn = 0;
+                loop {
+                    let budget = schedule[turn % schedule.len()];
+                    turn += 1;
+                    let progress = retiring.poll(budget).unwrap();
+                    assert!(retiring.last_poll_visits() <= budget);
+                    if progress == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(turn < 100_000, "retirement did not terminate at cut {cut}");
+                }
+                if let Some(expected) = expected_cleanup {
+                    assert_eq!(retiring.total_visits(), expected, "cut {cut}");
+                } else {
+                    expected_cleanup = Some(retiring.total_visits());
+                    // Empty Combat root: 26 edges/root, shared catalog5,
+                    // fixture state88 (41 empty-state work +47 rows), empty
+                    // collector16, empty lane8 and 20 empty owners at 2 each.
+                    const BASE: u64 = 26 + 5 + 88 + 16 + 8 + 20 * 2;
+                    let expected = match cut {
+                        0 | 8 => Some(BASE),
+                        35 => Some(BASE + 3), // one retained war pair
+                        105 => Some(BASE + 3 + 6 * 3 + 5 * 3 + 2 * 3 + 2 * 3 + 3),
+                        132 => Some(BASE + 51 + 3 + 39), // event + append retirement residual
+                        213 => Some(BASE + 51 + 3 - 17 + 17 + 3 + 19),
+                        428 => Some(BASE - 1 + 2 * 3 + 3 - 1),
+                        429 => Some(BASE - 1 + 2 * 3 + 3),
+                        _ => None,
+                    };
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            retiring.total_visits(),
+                            expected,
+                            "literal owner ledger cut {cut}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn combat_dead_facility_every_cut_retires_reasons_pending_row_and_source_shell() {
+        let (catalog, state) = destruction_fixture();
+        assert_eq!(
+            state.facilities.as_slice()[0].blocked_reasons.as_slice(),
+            &[super::super::model::LivingBlockedReasonV2::Disabled]
+        );
+        const FORWARD_STAGE_VISITS: [u64; 18] =
+            [8, 1, 2, 24, 8, 1, 2, 48, 4, 32, 3, 55, 2, 82, 7, 173, 9, 26];
+        const COMPLETE: u64 = 487;
+        assert_eq!(FORWARD_STAGE_VISITS.iter().sum::<u64>(), COMPLETE);
+        for cut in 0..=COMPLETE {
+            let mut cleanup_total = None;
+            for budgets in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 1024][..]] {
+                let candidate = state.clone();
+                let facility_base = candidate.facilities.as_slice().as_ptr() as usize;
+                let facility_count = candidate.facilities.as_slice().len();
+                let mut job = LivingCombatJobV2::begin_owned(
+                    catalog.clone(),
+                    candidate,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                );
+                while job.total_visits() < cut {
+                    let progress = job.poll(1).unwrap();
+                    if cut < COMPLETE {
+                        assert_eq!(progress, LivingLifecycleProgressV2::Pending);
+                    }
+                }
+                assert_eq!(job.total_visits(), cut);
+                if let Some(rows) = &job.facilities {
+                    assert_eq!(
+                        rows.as_slice().as_ptr() as usize,
+                        facility_base
+                            + (facility_count - rows.len())
+                                * std::mem::size_of::<super::super::model::LivingFacilityV2>()
+                    );
+                }
+                if matches!(cut, 189 | 200) {
+                    assert_eq!(
+                        job.pending_facility
+                            .as_ref()
+                            .unwrap()
+                            .blocked_reasons
+                            .as_slice(),
+                        &[super::super::model::LivingBlockedReasonV2::Disabled]
+                    );
+                    assert!(job.facilities.is_some());
+                }
+                if cut == 189 {
+                    assert!(job.stage == CombatStage::Append);
+                    assert!(job.resume == CombatStage::FacilityOutput);
+                    assert!(job.append.is_some());
+                }
+                if cut == 200 {
+                    assert!(job.stage == CombatStage::FacilityOutput);
+                    assert!(job.facilities.as_ref().unwrap().as_slice().is_empty());
+                }
+                if cut == 260 {
+                    assert!(job.stage == CombatStage::PrepareFleetOutput);
+                    assert!(job.facilities.is_none());
+                }
+                if cut == COMPLETE {
+                    assert_eq!(job.stage_visits, FORWARD_STAGE_VISITS);
+                    assert!(job.retirement.is_empty());
+                    assert!(job.state.facilities.as_slice().is_empty());
+                    assert_eq!(
+                        job.events
+                            .payloads()
+                            .iter()
+                            .map(|row| row.kind)
+                            .collect::<Vec<_>>(),
+                        [
+                            LivingEventKindV2::CombatRound,
+                            LivingEventKindV2::HullDestroyed,
+                            LivingEventKindV2::HullDestroyed
+                        ]
+                    );
+                }
+                job.cancel();
+                assert_eq!(job.poll(1), Err(LivingLifecycleJobErrorV2::Cancelled));
+                assert_eq!(job.last_poll_visits(), 0);
+                let retired = drain_owner(job, budgets);
+                let selected_expected = match cut {
+                    0 => Some(184),
+                    189 => Some(287),
+                    200 => Some(293),
+                    201 => Some(292),
+                    259 => Some(236),
+                    260 => Some(235),
+                    487 => Some(190),
+                    _ => None,
+                };
+                if let Some(expected) = selected_expected {
+                    assert_eq!(retired, expected, "literal dead-owner total at cut {cut}");
+                }
+                if let Some(expected) = cleanup_total {
+                    assert_eq!(retired, expected, "cut {cut}");
+                } else {
+                    cleanup_total = Some(retired);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn combat_selected_owner_terms_are_literal_by_field() {
+        type OwnerExpectation<'a> = (u64, u64, &'a [(usize, u64)]);
+        let (catalog, state) = destruction_fixture();
+        let dead: &[OwnerExpectation<'_>] = &[
+            (0, 184, &[(0, 4), (1, 88), (2, 16), (15, 7)]),
+            (
+                189,
+                287,
+                &[
+                    (0, 4),
+                    (1, 83),
+                    (2, 16),
+                    (4, 16),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (9, 4),
+                    (14, 4),
+                    (15, 7),
+                    (21, 52),
+                    (22, 7),
+                ],
+            ),
+            (
+                200,
+                293,
+                &[
+                    (0, 4),
+                    (1, 83),
+                    (2, 22),
+                    (4, 16),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (9, 4),
+                    (14, 4),
+                    (15, 58),
+                    (22, 7),
+                ],
+            ),
+            (
+                201,
+                292,
+                &[
+                    (0, 4),
+                    (1, 83),
+                    (2, 22),
+                    (4, 16),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (9, 4),
+                    (14, 4),
+                    (15, 57),
+                    (22, 7),
+                ],
+            ),
+            (
+                259,
+                236,
+                &[
+                    (0, 4),
+                    (1, 83),
+                    (2, 22),
+                    (4, 16),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (9, 4),
+                    (14, 4),
+                    (15, 7),
+                ],
+            ),
+            (
+                260,
+                235,
+                &[
+                    (0, 4),
+                    (1, 83),
+                    (2, 22),
+                    (4, 16),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (14, 4),
+                    (15, 9),
+                ],
+            ),
+            (487, 190, &[(0, 4), (1, 82), (2, 25), (14, 4), (15, 7)]),
+        ];
+        for &(cut, total, changes) in dead {
+            let mut job = LivingCombatJobV2::begin_owned(
+                catalog.clone(),
+                state.clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            while job.total_visits() < cut {
+                job.poll(1).unwrap();
+            }
+            let terms = combat_owner_terms(job);
+            assert_eq!(terms, literal_owner_terms(changes), "dead cut {cut}");
+            assert_eq!(49 + terms.iter().sum::<u64>(), total, "dead cut {cut}");
+        }
+        let authority = fixture();
+        let surviving: &[OwnerExpectation<'_>] = &[
+            (0, 183, &[(0, 4), (1, 87), (2, 16), (15, 7)]),
+            (35, 186, &[(0, 4), (1, 87), (2, 16), (5, 4), (15, 7)]),
+            (
+                105,
+                234,
+                &[
+                    (0, 4),
+                    (1, 87),
+                    (2, 16),
+                    (4, 19),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (14, 4),
+                    (15, 7),
+                ],
+            ),
+            (
+                132,
+                276,
+                &[
+                    (0, 4),
+                    (1, 87),
+                    (2, 19),
+                    (4, 19),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (14, 4),
+                    (15, 46),
+                ],
+            ),
+            (
+                213,
+                259,
+                &[
+                    (0, 4),
+                    (1, 70),
+                    (2, 19),
+                    (4, 19),
+                    (5, 4),
+                    (6, 16),
+                    (7, 7),
+                    (8, 7),
+                    (10, 24),
+                    (14, 4),
+                    (15, 23),
+                ],
+            ),
+            (428, 190, &[(0, 4), (1, 86), (2, 22), (14, 4), (15, 6)]),
+            (429, 191, &[(0, 4), (1, 86), (2, 22), (14, 4), (15, 7)]),
+        ];
+        for &(cut, total, changes) in surviving {
+            let mut job = LivingCombatJobV2::begin_owned(
+                authority.catalog_snapshot(),
+                authority.state().clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(10),
+            );
+            while job.total_visits() < cut {
+                job.poll(1).unwrap();
+            }
+            let terms = combat_owner_terms(job);
+            assert_eq!(terms, literal_owner_terms(changes), "surviving cut {cut}");
+            assert_eq!(49 + terms.iter().sum::<u64>(), total, "surviving cut {cut}");
+        }
+    }
+
+    #[test]
+    fn combat_actual_failed_children_retire_under_distinct_triggers_and_cleanup_partitions() {
+        use CombatFailureCase as Case;
+        for case in [
+            Case::PieceStorage,
+            Case::HarmStorage,
+            Case::FacilityStorage,
+            Case::FleetStorage,
+            Case::HullStorage,
+            Case::RoundAppend,
+            Case::FacilityAppend,
+            Case::HullAppend,
+            Case::KeyedFacility,
+        ] {
+            for trigger in [1, 64, 7, 1024] {
+                let mut cleanup_total = None;
+                for (partition_index, budgets) in [
+                    &[1][..],
+                    &[1][..],
+                    &[64][..],
+                    &[1024][..],
+                    &[1, 7, 64, 1024][..],
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let (catalog, mut state) =
+                        if matches!(case, Case::FacilityAppend | Case::HullAppend) {
+                            destruction_fixture()
+                        } else {
+                            let authority = fixture();
+                            (authority.catalog_snapshot(), authority.state().clone())
+                        };
+                    if matches!(case, Case::KeyedFacility) {
+                        let mut first = state.facilities.as_slice()[0].clone();
+                        first.hit_points = 500;
+                        let mut second = first.clone();
+                        second.id = LivingEntityIdV2([251; 16]);
+                        state.facilities = LivingSortedVecV2::new(vec![first, second]).unwrap();
+                        state.facilities.record_at_mut(0).unwrap().id = LivingEntityIdV2([252; 16]);
+                    }
+                    let facility_base = state.facilities.as_slice().as_ptr() as usize;
+                    let facility_count = state.facilities.as_slice().len();
+                    let hull_base = state.fleets.as_slice()[0].hulls.as_slice().as_ptr() as usize;
+                    let hull_count = state.fleets.as_slice()[0].hulls.as_slice().len();
+                    let mut job = LivingCombatJobV2::begin_owned(
+                        catalog,
+                        state,
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(10),
+                    );
+                    if !matches!(case, Case::KeyedFacility) {
+                        let mut injected = false;
+                        for _ in 0..10_000 {
+                            injected = match case {
+                                Case::PieceStorage if job.stage == CombatStage::PreparePieces => {
+                                    let child = job.piece_storage.get_or_insert_with(|| {
+                                        LivingVecStorageJobV2::begin_empty(usize::MAX)
+                                    });
+                                    child.stage = StorageStage::EmptySetup;
+                                    child.selected_capacity = usize::MAX;
+                                    true
+                                }
+                                Case::HarmStorage if job.stage == CombatStage::PrepareHarm => {
+                                    let child = job.harm_storage.get_or_insert_with(|| {
+                                        LivingVecStorageJobV2::begin_empty(usize::MAX)
+                                    });
+                                    child.stage = StorageStage::EmptySetup;
+                                    child.selected_capacity = usize::MAX;
+                                    true
+                                }
+                                Case::FacilityStorage
+                                    if job.stage == CombatStage::PrepareFacilityOutput =>
+                                {
+                                    let child = job.facility_storage.get_or_insert_with(|| {
+                                        LivingSortedStorageJobV2::begin_empty(usize::MAX)
+                                    });
+                                    child.stage = StorageStage::EmptySetup;
+                                    child.selected_capacity = usize::MAX;
+                                    true
+                                }
+                                Case::FleetStorage
+                                    if job.stage == CombatStage::PrepareFleetOutput =>
+                                {
+                                    let child = job.fleet_storage.get_or_insert_with(|| {
+                                        LivingSortedStorageJobV2::begin_empty(usize::MAX)
+                                    });
+                                    child.stage = StorageStage::EmptySetup;
+                                    child.selected_capacity = usize::MAX;
+                                    true
+                                }
+                                Case::HullStorage
+                                    if job.stage == CombatStage::PrepareHullOutput =>
+                                {
+                                    let child = job.hull_storage.get_or_insert_with(|| {
+                                        LivingSortedStorageJobV2::begin_empty(usize::MAX)
+                                    });
+                                    child.stage = StorageStage::EmptySetup;
+                                    child.selected_capacity = usize::MAX;
+                                    true
+                                }
+                                Case::RoundAppend
+                                    if job.stage == CombatStage::Append
+                                        && job.resume == CombatStage::ApplyDamage =>
+                                {
+                                    job.append.as_mut().unwrap().inject_entry_capacity_failure()
+                                }
+                                Case::FacilityAppend
+                                    if job.stage == CombatStage::Append
+                                        && job.resume == CombatStage::FacilityOutput =>
+                                {
+                                    job.append.as_mut().unwrap().inject_entry_capacity_failure()
+                                }
+                                Case::HullAppend
+                                    if job.stage == CombatStage::Append
+                                        && job.resume == CombatStage::FleetOutput =>
+                                {
+                                    job.append.as_mut().unwrap().inject_entry_capacity_failure()
+                                }
+                                _ => false,
+                            };
+                            if injected {
+                                break;
+                            }
+                            assert_eq!(job.poll(1).unwrap(), LivingLifecycleProgressV2::Pending);
+                        }
+                        assert!(injected, "unreached failure branch {case:?}");
+                    }
+                    let original_child = failed_child_identity(&job, case);
+                    if !matches!(case, Case::KeyedFacility) {
+                        assert!(original_child.is_some());
+                    }
+                    let mut failed = false;
+                    for _ in 0..10_000 {
+                        let before = job.total_visits();
+                        match job.poll(trigger) {
+                            Ok(LivingLifecycleProgressV2::Pending) => continue,
+                            Err(error) => {
+                                let expected = if matches!(case, Case::KeyedFacility) {
+                                    LivingLifecycleJobErrorV2::Fault(
+                                        LivingDeterministicFaultV2::Wire(
+                                            super::super::wire::LivingWireErrorV2::KeyedOrder,
+                                        ),
+                                    )
+                                } else {
+                                    LivingLifecycleJobErrorV2::PreparationCapacity
+                                };
+                                assert_eq!(error, expected, "{case:?}");
+                                assert_eq!(
+                                    job.total_visits() - before,
+                                    job.last_poll_visits() as u64
+                                );
+                                assert!((1..=trigger).contains(&job.last_poll_visits()));
+                                assert_eq!(job.take_ready_result(), Err(expected.clone()));
+                                assert_eq!(job.poll(1), Err(expected));
+                                assert_eq!(job.last_poll_visits(), 0);
+                                failed = true;
+                                break;
+                            }
+                            other => panic!("unexpected failure setup {case:?}: {other:?}"),
+                        }
+                    }
+                    assert!(failed, "failure did not trigger for {case:?}");
+                    assert_eq!(
+                        failed_child_identity(&job, case),
+                        original_child,
+                        "original failed child changed for {case:?}"
+                    );
+                    if matches!(
+                        case,
+                        Case::PieceStorage | Case::HarmStorage | Case::FacilityStorage
+                    ) {
+                        assert_eq!(
+                            job.state.facilities.as_slice().as_ptr() as usize,
+                            facility_base
+                        );
+                    }
+                    if matches!(case, Case::HullStorage) {
+                        assert_eq!(
+                            job.fleet.as_ref().unwrap().hulls.as_slice().as_ptr() as usize,
+                            hull_base
+                        );
+                    }
+                    match case {
+                        Case::PieceStorage => assert!(job.piece_storage.is_some()),
+                        Case::HarmStorage => assert!(job.harm_storage.is_some()),
+                        Case::FacilityStorage => assert!(job.facility_storage.is_some()),
+                        Case::FleetStorage => assert!(job.fleet_storage.is_some()),
+                        Case::HullStorage => assert!(job.hull_storage.is_some()),
+                        Case::RoundAppend | Case::FacilityAppend | Case::HullAppend => {
+                            assert!(job.append.is_some());
+                            if matches!(case, Case::FacilityAppend) {
+                                assert_eq!(
+                                    job.pending_facility
+                                        .as_ref()
+                                        .unwrap()
+                                        .blocked_reasons
+                                        .as_slice(),
+                                    &[super::super::model::LivingBlockedReasonV2::Disabled]
+                                );
+                            }
+                            if matches!(case, Case::HullAppend) {
+                                assert!(job.pending_hull.is_some());
+                            }
+                        }
+                        Case::KeyedFacility => assert_eq!(
+                            job.pending_facility.as_ref().unwrap().id,
+                            LivingEntityIdV2([251; 16])
+                        ),
+                    }
+                    if let Some(rows) = &job.facilities {
+                        assert_eq!(
+                            rows.as_slice().as_ptr() as usize,
+                            facility_base
+                                + (facility_count - rows.len())
+                                    * std::mem::size_of::<super::super::model::LivingFacilityV2>()
+                        );
+                    }
+                    if let Some(rows) = &job.hulls {
+                        assert_eq!(
+                            rows.as_slice().as_ptr() as usize,
+                            hull_base
+                                + (hull_count - rows.len())
+                                    * std::mem::size_of::<super::super::model::LivingHullV2>()
+                        );
+                    }
+                    let retired = if trigger == 1 && partition_index == 0 {
+                        let terms = combat_owner_terms(job);
+                        let selected = match case {
+                            Case::PieceStorage => Some(literal_owner_terms(&[
+                                (0, 89),
+                                (1, 87),
+                                (2, 16),
+                                (15, 7),
+                                (16, 28),
+                            ])),
+                            Case::FacilityAppend => Some(literal_owner_terms(&[
+                                (0, 89),
+                                (1, 83),
+                                (2, 16),
+                                (4, 16),
+                                (5, 4),
+                                (6, 16),
+                                (7, 7),
+                                (8, 7),
+                                (9, 4),
+                                (14, 4),
+                                (15, 7),
+                                (21, 82),
+                                (22, 7),
+                            ])),
+                            Case::KeyedFacility => Some(literal_owner_terms(&[
+                                (0, 89),
+                                (1, 87),
+                                (2, 19),
+                                (4, 22),
+                                (5, 4),
+                                (6, 16),
+                                (7, 7),
+                                (8, 7),
+                                (9, 4),
+                                (14, 4),
+                                (15, 7),
+                                (22, 6),
+                            ])),
+                            _ => None,
+                        };
+                        if let Some(expected) = selected {
+                            assert_eq!(terms, expected, "{case:?}");
+                        }
+                        49 + terms.iter().sum::<u64>()
+                    } else {
+                        drain_owner(job, budgets)
+                    };
+                    let literal_total = match case {
+                        Case::PieceStorage => 295,
+                        Case::HarmStorage => 331,
+                        Case::FacilityStorage => 352,
+                        Case::FleetStorage => 346,
+                        Case::HullStorage => 352,
+                        Case::RoundAppend => 397,
+                        Case::FacilityAppend => 402,
+                        Case::HullAppend => 411,
+                        Case::KeyedFacility => 333,
+                    };
+                    assert_eq!(retired, literal_total, "{case:?} trigger {trigger}");
+                    if let Some(expected) = cleanup_total {
+                        assert_eq!(retired, expected, "{case:?} trigger {trigger}");
+                    } else {
+                        cleanup_total = Some(retired);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RetreatGraph {
     // Callers append records through counted work in canonical sorted order.
@@ -5103,8 +9722,10 @@ struct RetreatDistance {
     path: Vec<LivingEntityIdV2>,
     used: bool,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RetreatPathStage {
+    PrepareBest,
+    PrepareCopy,
     Initialize,
     Choose,
     ChooseCompare,
@@ -5118,7 +9739,41 @@ enum RetreatPathStage {
 }
 /// Faithful resumable version of the reference's array Dijkstra search. Path
 /// comparison, copying and retirement are each individual lane-ID visits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RetreatPathFailure {
+    PreparationCapacity,
+    Protocol,
+}
+impl RetreatPathFailure {
+    pub(crate) fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::PreparationCapacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::Protocol => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+            }
+        }
+    }
+    pub(crate) fn from_public(error: LivingLifecycleJobErrorV2) -> Self {
+        match error {
+            LivingLifecycleJobErrorV2::PreparationCapacity => Self::PreparationCapacity,
+            _ => Self::Protocol,
+        }
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => Self::PreparationCapacity,
+            _ => Self::Protocol,
+        }
+    }
+}
 pub(crate) struct RetreatPathJob {
+    retirement: PhaseRetirementLane<'static>,
+    best_storage: Option<LivingVecStorageJobV2<'static, RetreatDistance>>,
+    copy_storage: Option<LivingVecStorageJobV2<'static, LivingEntityIdV2>>,
+    fault: Option<RetreatPathFailure>,
+    cancelled: bool,
+    last_poll_visits: usize,
+    total_visits: u64,
     graph: PhaseArc<RetreatGraph>,
     origin: LivingEntityIdV2,
     destination: LivingEntityIdV2,
@@ -5144,10 +9799,17 @@ impl RetreatPathJob {
         destination: LivingEntityIdV2,
     ) -> Self {
         Self {
+            retirement: PhaseRetirementLane::default(),
+            best_storage: Some(LivingVecStorageJobV2::begin_empty(graph.systems.len())),
+            copy_storage: None,
+            fault: None,
+            cancelled: false,
+            last_poll_visits: 0,
+            total_visits: 0,
             graph: graph.into(),
             origin,
             destination,
-            stage: RetreatPathStage::Initialize,
+            stage: RetreatPathStage::PrepareBest,
             best: Vec::new(),
             index: 0,
             choice: None,
@@ -5164,12 +9826,21 @@ impl RetreatPathJob {
     }
     pub(crate) fn ready(&self) -> bool {
         matches!(self.stage, RetreatPathStage::Ready)
+            && self.retirement.is_empty()
+            && self.fault.is_none()
+            && !self.cancelled
     }
     /// Borrow the job so rejected extraction retains all partial owners. Only
     /// the ready path moves; the graph handle remains owned by this job.
     pub(crate) fn take_ready_result(
         &mut self,
     ) -> Result<Option<(u64, Vec<LivingEntityIdV2>)>, LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
+        if self.cancelled {
+            return Err(LivingLifecycleJobErrorV2::Cancelled);
+        }
         if !self.ready() || self.delivered {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
@@ -5197,12 +9868,132 @@ impl RetreatPathJob {
     }
     fn begin_replacement(&mut self) {
         self.compare = 0;
-        self.stage = RetreatPathStage::Copy;
+        self.copy_storage = Some(LivingVecStorageJobV2::begin_empty(
+            self.best[self.selected].path.len().saturating_add(1),
+        ));
+        self.stage = RetreatPathStage::PrepareCopy;
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_capacity_failure(&mut self) {
+        self.best_storage
+            .as_mut()
+            .expect("unstarted storage")
+            .selected_capacity = usize::MAX;
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_extraction_failure(&mut self) {
+        assert!(self.ready());
+        self.delivered = true;
+    }
+    pub(crate) fn last_poll_visits(&self) -> usize {
+        self.last_poll_visits
+    }
+    #[cfg(test)]
+    pub(crate) fn total_visits(&self) -> u64 {
+        self.total_visits
+    }
+    #[cfg(test)]
+    pub(crate) fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+    fn charge(&mut self, visits: usize) {
+        self.last_poll_visits += visits;
+        self.total_visits += visits as u64;
+    }
+    pub(crate) fn poll(
+        &mut self,
+        budget: usize,
+    ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+        self.last_poll_visits = 0;
+        if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
+            return Err(LivingLifecycleJobErrorV2::Budget);
+        }
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
+        if self.cancelled {
+            return Err(LivingLifecycleJobErrorV2::Cancelled);
+        }
+        while self.last_poll_visits < budget && !self.ready() {
+            if self.retirement.visit() {
+                self.charge(1);
+                continue;
+            }
+            let result = self.advance_storage(budget - self.last_poll_visits);
+            if let Err(fault) = result {
+                self.fault = Some(fault);
+                return Err(fault.public());
+            }
+            if !self.retirement.is_empty()
+                || matches!(
+                    self.stage,
+                    RetreatPathStage::PrepareBest | RetreatPathStage::PrepareCopy
+                )
+            {
+                continue;
+            }
+            if self.last_poll_visits == budget {
+                break;
+            }
+            if self.visit() {
+                self.charge(1);
+            }
+        }
+        Ok(if self.ready() {
+            LivingLifecycleProgressV2::Ready
+        } else {
+            LivingLifecycleProgressV2::Pending
+        })
+    }
+    fn advance_storage(&mut self, remaining: usize) -> Result<(), RetreatPathFailure> {
+        match self.stage {
+            RetreatPathStage::PrepareBest => {
+                let child = self.best_storage.as_mut().unwrap();
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(RetreatPathFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.best = self
+                        .best_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(RetreatPathFailure::storage)?;
+                    self.retirement.start(self.best_storage.take().unwrap());
+                    self.stage = RetreatPathStage::Initialize;
+                }
+            }
+            RetreatPathStage::PrepareCopy => {
+                let child = self.copy_storage.as_mut().unwrap();
+                let result = child.poll(remaining);
+                let visits = child.last_poll_visits();
+                self.charge(visits);
+                if result.map_err(RetreatPathFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && visits < remaining
+                {
+                    self.charge(1);
+                    self.copied = self
+                        .copy_storage
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(RetreatPathFailure::storage)?;
+                    self.retirement.start(self.copy_storage.take().unwrap());
+                    self.stage = RetreatPathStage::Copy;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
     /// At most one actual record; false denotes an empty stage transition.
-    pub(crate) fn visit(&mut self) -> bool {
+    fn visit(&mut self) -> bool {
         use RetreatPathStage::*;
         match self.stage {
+            PrepareBest | PrepareCopy => unreachable!("storage handled by poll"),
             Initialize => {
                 if let Some(id) = self.graph.systems.get(self.index) {
                     self.best.push(RetreatDistance {
@@ -5275,6 +10066,7 @@ impl RetreatPathJob {
                         std::mem::take(&mut self.best[choice].path),
                     ));
                     self.stage = Retire;
+                    return true;
                 } else {
                     self.lane = 0;
                     self.stage = Lane;
@@ -5300,7 +10092,7 @@ impl RetreatPathJob {
                     self.next = index;
                     self.next_cost = self.best[self.selected]
                         .cost
-                        .saturating_add(distance.div_ceil(10).max(10));
+                        .saturating_add(retreat_leg_ticks(distance));
                     match self.next_cost.cmp(&self.best[index].cost) {
                         std::cmp::Ordering::Less => self.begin_replacement(),
                         std::cmp::Ordering::Equal => {
@@ -5338,27 +10130,21 @@ impl RetreatPathJob {
                     self.compare += 1;
                     return true;
                 }
-                self.retired = std::mem::take(&mut self.best[self.next].path);
+                self.retirement
+                    .start(std::mem::take(&mut self.best[self.next].path));
                 self.stage = Replace;
             }
             Replace => {
-                if self.retired.pop().is_some() {
-                    return true;
-                }
                 self.best[self.next].cost = self.next_cost;
                 self.best[self.next].path = std::mem::take(&mut self.copied);
                 self.lane += 1;
                 self.stage = Lane;
+                return true;
             }
             Retire => {
-                if self.retired.pop().is_some() {
-                    return true;
-                }
-                if let Some(row) = self.best.pop() {
-                    self.retired = row.path;
-                    return true;
-                }
+                self.retirement.start(std::mem::take(&mut self.best));
                 self.stage = Ready;
+                return true;
             }
             Ready => {}
         }
@@ -5366,12 +10152,570 @@ impl RetreatPathJob {
     }
 }
 
+// Catalog rows are canonical-key sorted; borrowed indexed lookup avoids a
+// hidden linear catalog traversal in each counted asset visit.
+pub(crate) fn repair_hull_definition<'a>(
+    catalog: &'a super::catalog::ValidatedLivingCatalogPackV2,
+    id: &str,
+) -> Option<&'a super::catalog::LivingHullDefinitionV2> {
+    let rows = catalog.hulls();
+    rows.binary_search_by(|r| r.id.as_str().cmp(id))
+        .ok()
+        .map(|i| &rows[i])
+}
+pub(crate) fn repair_industry_definition<'a>(
+    catalog: &'a super::catalog::ValidatedLivingCatalogPackV2,
+    id: &str,
+) -> Option<&'a super::catalog::LivingIndustryDefinitionV2> {
+    let rows = catalog.industries();
+    rows.binary_search_by(|r| r.id.as_str().cmp(id))
+        .ok()
+        .map(|i| &rows[i])
+}
+/// Shared admission predicates; callers count each fleet, hull, and target pair.
+fn retreat_origin(
+    fleet: &super::model::LivingFleetV2,
+    worlds: &BTreeMap<LivingEntityIdV2, (LivingEntityIdV2, Option<LivingEntityIdV2>)>,
+    wars: &BTreeSet<Pair>,
+) -> Option<LivingEntityIdV2> {
+    let super::model::LivingFleetLocationV2::Docked { world } = fleet.location else {
+        return None;
+    };
+    let (_, Some(owner)) = worlds.get(&world)? else {
+        return None;
+    };
+    (*owner != fleet.owner
+        && wars.contains(&(fleet.owner.min(*owner), fleet.owner.max(*owner)))
+        && !fleet.hulls.as_slice().is_empty())
+    .then_some(world)
+}
+fn retreat_hull_eligible(
+    hull: &super::model::LivingHullV2,
+    catalog: &super::catalog::ValidatedLivingCatalogPackV2,
+) -> bool {
+    hull.return_credit
+        && repair_hull_definition(catalog, hull.definition.as_str())
+            .is_none_or(|row| row.damage == 0)
+}
+fn hostile_piece(attacker: CombatPiece, target: CombatPiece, wars: &BTreeSet<Pair>) -> bool {
+    target.world == attacker.world
+        && target.owner != attacker.owner
+        && wars.contains(&(
+            attacker.owner.min(target.owner),
+            attacker.owner.max(target.owner),
+        ))
+}
+fn retreat_leg_ticks(distance: u64) -> u64 {
+    distance.div_ceil(10).max(10)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RepairProjectionStage {
+    Worlds,
+    Wars,
+    Fleet,
+    Hulls,
+    Systems,
+    Choose,
+    Select,
+    Lanes,
+    Destinations,
+    Depart,
+    MarkRetreat,
+    RetireDistances,
+    CombatFleets,
+    CombatHulls,
+    Facilities,
+    Attacker,
+    Targets,
+    MarkCombat,
+    Ready,
+}
+/// Read-only admission projection. The parent owns the immutable snapshot;
+/// no self-reference, state copy, damage, credits, order or occupation mutation.
+/// Distances suffice: lexicographic lane-path ties have identical duration and
+/// cannot change the chosen (duration, destination ID) or repair exclusion.
+pub(crate) struct RepairEligibilityProjection {
+    retirement: PhaseRetirementLane<'static>,
+    worlds: BTreeMap<LivingEntityIdV2, (LivingEntityIdV2, Option<LivingEntityIdV2>)>,
+    wars: BTreeSet<Pair>,
+    distances: BTreeMap<LivingEntityIdV2, (u64, bool)>,
+    departed: BTreeSet<LivingEntityIdV2>,
+    exclusions: BTreeSet<LivingEntityIdV2>,
+    pieces: BTreeMap<LivingEntityIdV2, CombatPiece>,
+    stage: RepairProjectionStage,
+    index: usize,
+    fleet: usize,
+    hull: usize,
+    origin: LivingEntityIdV2,
+    last: Option<LivingEntityIdV2>,
+    choice: Option<(u64, LivingEntityIdV2)>,
+    selected: Option<(u64, LivingEntityIdV2)>,
+    destination: Option<(u64, LivingEntityIdV2)>,
+    attacker: Option<CombatPiece>,
+    target: Option<CombatPiece>,
+    tick: LivingTickV2,
+    cancelled: bool,
+    delivered: bool,
+    fault: Option<RepairFailure>,
+    last_poll_visits: usize,
+    total_visits: u64,
+}
+impl RepairEligibilityProjection {
+    pub(crate) fn begin(tick: LivingTickV2) -> Self {
+        Self {
+            retirement: Default::default(),
+            worlds: BTreeMap::new(),
+            wars: BTreeSet::new(),
+            distances: BTreeMap::new(),
+            departed: BTreeSet::new(),
+            exclusions: BTreeSet::new(),
+            pieces: BTreeMap::new(),
+            stage: RepairProjectionStage::Worlds,
+            index: 0,
+            fleet: 0,
+            hull: 0,
+            origin: LivingEntityIdV2([0; 16]),
+            last: None,
+            choice: None,
+            selected: None,
+            destination: None,
+            attacker: None,
+            target: None,
+            tick,
+            cancelled: false,
+            delivered: false,
+            fault: None,
+            last_poll_visits: 0,
+            total_visits: 0,
+        }
+    }
+    pub(crate) fn last_poll_visits(&self) -> usize {
+        self.last_poll_visits
+    }
+    #[cfg(test)]
+    fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+    pub(crate) fn poll(
+        &mut self,
+        state: &LivingGalaxyStateV2,
+        catalog: &super::catalog::ValidatedLivingCatalogPackV2,
+        budget: usize,
+    ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+        use LivingLifecycleJobErrorV2 as Error;
+        self.last_poll_visits = 0;
+        if self.cancelled {
+            return Err(self
+                .fault
+                .map_or(Error::Cancelled, |f| Error::Fault(f.public())));
+        }
+        if budget == 0 || budget > 1024 {
+            return Err(Error::Budget);
+        }
+        if let Some(f) = self.fault {
+            return Err(Error::Fault(f.public()));
+        }
+        while self.stage != RepairProjectionStage::Ready && self.last_poll_visits < budget {
+            let result = if self.retirement.visit() {
+                Ok(true)
+            } else {
+                self.visit(state, catalog)
+            };
+            match result {
+                Ok(false) => {}
+                Ok(true) => {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                }
+                Err(f) => {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    self.fault = Some(f);
+                    return Err(Error::Fault(f.public()));
+                }
+            }
+        }
+        Ok(if self.stage == RepairProjectionStage::Ready {
+            LivingLifecycleProgressV2::Ready
+        } else {
+            LivingLifecycleProgressV2::Pending
+        })
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Result<BTreeSet<LivingEntityIdV2>, LivingLifecycleJobErrorV2> {
+        use LivingLifecycleJobErrorV2 as Error;
+        if self.cancelled {
+            return Err(Error::Cancelled);
+        }
+        if let Some(f) = self.fault {
+            return Err(Error::Fault(f.public()));
+        }
+        if self.stage != RepairProjectionStage::Ready || self.delivered {
+            return Err(Error::NotReady);
+        }
+        self.delivered = true;
+        Ok(std::mem::take(&mut self.exclusions))
+    }
+    fn visit(
+        &mut self,
+        state: &LivingGalaxyStateV2,
+        catalog: &super::catalog::ValidatedLivingCatalogPackV2,
+    ) -> Result<bool, RepairFailure> {
+        use RepairProjectionStage::*;
+        use std::ops::Bound::{Excluded, Unbounded};
+        match self.stage {
+            Worlds => {
+                if let Some(w) = state.worlds.as_slice().get(self.index) {
+                    self.worlds.insert(w.id, (w.system, w.owner));
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.index = 0;
+                self.stage = Wars;
+            }
+            Wars => {
+                if let Some(w) = state.wars.as_slice().get(self.index) {
+                    if w.start_tick <= self.tick && self.tick < w.end_tick {
+                        self.wars.insert((w.participant_a, w.participant_b));
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.stage = Fleet;
+            }
+            Fleet => {
+                if let Some(f) = state.fleets.as_slice().get(self.fleet) {
+                    if let Some(world) = retreat_origin(f, &self.worlds, &self.wars) {
+                        self.origin = world;
+                        self.hull = 0;
+                        self.stage = Hulls;
+                    } else {
+                        self.fleet += 1;
+                    }
+                    return Ok(true);
+                }
+                self.fleet = 0;
+                self.hull = 0;
+                self.stage = if self.tick.0.is_multiple_of(10) {
+                    CombatFleets
+                } else {
+                    Ready
+                };
+            }
+            Hulls => {
+                if let Some(h) = state.fleets.as_slice()[self.fleet]
+                    .hulls
+                    .as_slice()
+                    .get(self.hull)
+                {
+                    if retreat_hull_eligible(h, catalog) {
+                        self.hull += 1;
+                    } else {
+                        self.fleet += 1;
+                        self.stage = Fleet;
+                    }
+                    return Ok(true);
+                }
+                self.index = 0;
+                self.stage = Systems;
+            }
+            Systems => {
+                if let Some(system) = state.systems.as_slice().get(self.index) {
+                    let from = self
+                        .worlds
+                        .get(&self.origin)
+                        .ok_or(RepairFailure::Invariant)?
+                        .0;
+                    self.distances.insert(
+                        system.id,
+                        (if system.id == from { 0 } else { u64::MAX }, false),
+                    );
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.last = None;
+                self.choice = None;
+                self.stage = Choose;
+            }
+            Choose => {
+                if let Some((&id, &(cost, used))) = self
+                    .distances
+                    .range((self.last.map_or(Unbounded, Excluded), Unbounded))
+                    .next()
+                {
+                    if !used && cost != u64::MAX && self.choice.is_none_or(|old| (cost, id) < old) {
+                        self.choice = Some((cost, id));
+                    }
+                    self.last = Some(id);
+                    return Ok(true);
+                }
+                self.stage = Select;
+            }
+            Select => {
+                if let Some((cost, id)) = self.choice.take() {
+                    self.distances
+                        .get_mut(&id)
+                        .ok_or(RepairFailure::Invariant)?
+                        .1 = true;
+                    self.selected = Some((cost, id));
+                    self.index = 0;
+                    self.stage = Lanes;
+                    return Ok(true);
+                }
+                self.index = 0;
+                self.destination = None;
+                self.stage = Destinations;
+            }
+            Lanes => {
+                if let Some(l) = state.lanes.as_slice().get(self.index) {
+                    let (cost, id) = self.selected.ok_or(RepairFailure::Invariant)?;
+                    let next = if l.system_a == id {
+                        Some(l.system_b)
+                    } else if l.system_b == id {
+                        Some(l.system_a)
+                    } else {
+                        None
+                    };
+                    if let Some(next) = next
+                        && let Some(row) = self.distances.get_mut(&next)
+                    {
+                        row.0 = row
+                            .0
+                            .min(cost.saturating_add(retreat_leg_ticks(l.distance_units)));
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.last = None;
+                self.choice = None;
+                self.stage = Choose;
+            }
+            Destinations => {
+                if let Some(c) = state.colonies.as_slice().get(self.index) {
+                    if c.owner == state.fleets.as_slice()[self.fleet].owner
+                        && c.world != self.origin
+                        && let Some((system, _)) = self.worlds.get(&c.world)
+                        && let Some(&(cost, _)) = self.distances.get(system)
+                        && cost != u64::MAX
+                    {
+                        let candidate = (cost.max(10), c.world);
+                        if self.destination.is_none_or(|old| candidate < old) {
+                            self.destination = Some(candidate);
+                        }
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.stage = if self.destination.is_some() {
+                    Depart
+                } else {
+                    RetireDistances
+                };
+            }
+            Depart => {
+                let duration = self.destination.ok_or(RepairFailure::Invariant)?.0;
+                self.tick
+                    .0
+                    .checked_add(duration)
+                    .ok_or(RepairFailure::Arithmetic)?;
+                self.departed.insert(state.fleets.as_slice()[self.fleet].id);
+                self.stage = MarkRetreat;
+                return Ok(true);
+            }
+            MarkRetreat => {
+                self.exclusions.insert(self.origin);
+                self.stage = RetireDistances;
+                return Ok(true);
+            }
+            RetireDistances => {
+                self.retirement.start(std::mem::take(&mut self.distances));
+                self.fleet += 1;
+                self.stage = Fleet;
+                return Ok(true);
+            }
+            CombatFleets => {
+                if let Some(f) = state.fleets.as_slice().get(self.fleet) {
+                    if !self.departed.contains(&f.id)
+                        && matches!(
+                            f.location,
+                            super::model::LivingFleetLocationV2::Docked { .. }
+                        )
+                    {
+                        self.hull = 0;
+                        self.stage = CombatHulls;
+                    } else {
+                        self.fleet += 1;
+                    }
+                    return Ok(true);
+                }
+                self.index = 0;
+                self.stage = Facilities;
+            }
+            CombatHulls => {
+                let f = &state.fleets.as_slice()[self.fleet];
+                if let Some(h) = f.hulls.as_slice().get(self.hull) {
+                    let super::model::LivingFleetLocationV2::Docked { world } = f.location else {
+                        return Err(RepairFailure::Invariant);
+                    };
+                    let damage = repair_hull_definition(catalog, h.definition.as_str())
+                        .map_or(0, |d| d.damage);
+                    self.pieces.insert(
+                        h.id,
+                        CombatPiece {
+                            id: h.id,
+                            fleet: Some(f.id),
+                            owner: f.owner,
+                            world,
+                            damage,
+                            class: if h.definition.as_str() == "escort" {
+                                0
+                            } else if damage > 0 {
+                                1
+                            } else {
+                                2
+                            },
+                        },
+                    );
+                    self.hull += 1;
+                    return Ok(true);
+                }
+                self.fleet += 1;
+                self.stage = CombatFleets;
+            }
+            Facilities => {
+                if let Some(f) = state.facilities.as_slice().get(self.index) {
+                    if f.hit_points > 0
+                        && let Some(d) = repair_industry_definition(catalog, f.definition.as_str())
+                        && let super::catalog::LivingIndustryEffectV2::Defense {
+                            damage_per_round,
+                            ..
+                        } = d.effect
+                        && let Some((_, Some(owner))) = self.worlds.get(&f.world)
+                    {
+                        self.pieces.insert(
+                            f.id,
+                            CombatPiece {
+                                id: f.id,
+                                fleet: None,
+                                owner: *owner,
+                                world: f.world,
+                                damage: if f.disabled { 0 } else { damage_per_round },
+                                class: 1,
+                            },
+                        );
+                    }
+                    self.index += 1;
+                    return Ok(true);
+                }
+                self.last = None;
+                self.stage = Attacker;
+            }
+            Attacker => {
+                let after = self.attacker.map(|a| a.id);
+                if let Some((_, &a)) = self
+                    .pieces
+                    .range((after.map_or(Unbounded, Excluded), Unbounded))
+                    .next()
+                {
+                    self.attacker = Some(a);
+                    self.last = None;
+                    self.target = None;
+                    if a.damage > 0 {
+                        self.stage = Targets;
+                    }
+                    return Ok(true);
+                }
+                self.stage = Ready;
+            }
+            Targets => {
+                let a = self.attacker.ok_or(RepairFailure::Invariant)?;
+                if let Some((&id, &t)) = self
+                    .pieces
+                    .range((self.last.map_or(Unbounded, Excluded), Unbounded))
+                    .next()
+                {
+                    if hostile_piece(a, t, &self.wars)
+                        && self
+                            .target
+                            .is_none_or(|old| (t.class, t.id) < (old.class, old.id))
+                    {
+                        self.target = Some(t);
+                    }
+                    self.last = Some(id);
+                    return Ok(true);
+                }
+                self.stage = if self.target.is_some() {
+                    MarkCombat
+                } else {
+                    Attacker
+                };
+            }
+            MarkCombat => {
+                self.exclusions
+                    .insert(self.attacker.ok_or(RepairFailure::Invariant)?.world);
+                self.stage = Attacker;
+                return Ok(true);
+            }
+            Ready => {}
+        }
+        Ok(false)
+    }
+}
+impl<'a> RetirementFields<'a> for RepairEligibilityProjection {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement,
+            worlds,
+            wars,
+            distances,
+            departed,
+            exclusions,
+            pieces,
+            stage: _,
+            index: _,
+            fleet: _,
+            hull: _,
+            origin: _,
+            last: _,
+            choice: _,
+            selected: _,
+            destination: _,
+            attacker: _,
+            target: _,
+            tick: _,
+            cancelled: _,
+            delivered: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(std::mem::take(retirement), policy)),
+            1 => Some(retirement_node(std::mem::take(worlds), policy)),
+            2 => Some(retirement_node(std::mem::take(wars), policy)),
+            3 => Some(retirement_node(std::mem::take(distances), policy)),
+            4 => Some(retirement_node(std::mem::take(departed), policy)),
+            5 => Some(retirement_node(std::mem::take(exclusions), policy)),
+            6 => Some(retirement_node(std::mem::take(pieces), policy)),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum RetreatStage {
     Worlds,
     Wars,
+    PrepareColonies,
     Colonies,
+    PrepareSystems,
     Systems,
+    PrepareLanes,
     Lanes,
     Fleet,
     Hulls,
@@ -5380,15 +10724,75 @@ enum RetreatStage {
     RetirePath,
     Credits,
     RetireOrder,
+    InstallOrder,
     Depart,
+    MarkWorld,
+    DepartureEvent,
+    Append,
     Retire,
     Ready,
 }
+// Only failures reachable from this producer; the public recursive envelope
+// is reconstructed at the boundary and never retained or cloned here.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RetreatFailure {
+    Arithmetic,
+    TooManyEvents,
+    PreparationCapacity,
+    ProtocolInvariant,
+}
+impl RetreatFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Arithmetic => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+            }
+            Self::TooManyEvents => LivingLifecycleJobErrorV2::Fault(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents {
+                    limit: super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2,
+                }
+                .into(),
+            ),
+            Self::PreparationCapacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::ProtocolInvariant => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+            }
+        }
+    }
+    fn from_public(error: LivingLifecycleJobErrorV2) -> Self {
+        match error {
+            LivingLifecycleJobErrorV2::PreparationCapacity => Self::PreparationCapacity,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic) => {
+                Self::Arithmetic
+            }
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Receipt(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents { .. },
+            )) => Self::TooManyEvents,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => Self::PreparationCapacity,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn append(error: super::receipt::LivingPendingEventAppendErrorV2) -> Self {
+        use super::receipt::LivingPendingEventAppendErrorV2 as E;
+        match error {
+            E::TooManyEvents => Self::TooManyEvents,
+            E::Storage(error) => Self::storage(error),
+            _ => Self::ProtocolInvariant,
+        }
+    }
+}
+type RetreatLane = (LivingEntityIdV2, LivingEntityIdV2, LivingEntityIdV2, u64);
 /// Bounded pre-combat retreat component on an unpublished candidate. Every
 /// nested hull/path/index record is charged, including discarded itineraries.
 /// Occupation, combat and settlement remain separate phase-four components.
 pub struct LivingRetreatJobV2<'a> {
     retirement: PhaseRetirementLane<'a>,
+    repair_exclusions: BTreeSet<LivingEntityIdV2>,
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     state: LivingGalaxyStateV2,
@@ -5409,7 +10813,16 @@ pub struct LivingRetreatJobV2<'a> {
     winner: Option<(u64, LivingEntityIdV2, Vec<LivingEntityIdV2>)>,
     retired_path: Vec<LivingEntityIdV2>,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    colony_storage: Option<LivingVecStorageJobV2<'a, Pair>>,
+    system_storage: Option<LivingVecStorageJobV2<'a, LivingEntityIdV2>>,
+    lane_storage: Option<LivingVecStorageJobV2<'a, RetreatLane>>,
+    pending_colony: Option<Pair>,
+    pending_system: Option<LivingEntityIdV2>,
+    pending_lane: Option<RetreatLane>,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    retired_order: Option<super::model::LivingFleetOrderV2>,
+    departure_duration: u64,
+    fault: Option<RetreatFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
@@ -5431,6 +10844,7 @@ impl<'a> LivingRetreatJobV2<'a> {
     ) -> Self {
         Self {
             retirement: PhaseRetirementLane::default(),
+            repair_exclusions: BTreeSet::new(),
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             state,
@@ -5451,6 +10865,15 @@ impl<'a> LivingRetreatJobV2<'a> {
             winner: None,
             retired_path: Vec::new(),
             cancelled: false,
+            colony_storage: None,
+            system_storage: None,
+            lane_storage: None,
+            pending_colony: None,
+            pending_system: None,
+            pending_lane: None,
+            append: None,
+            retired_order: None,
+            departure_duration: 0,
             fault: None,
             last_poll_visits: 0,
             total_visits: 0,
@@ -5474,19 +10897,100 @@ impl<'a> LivingRetreatJobV2<'a> {
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
+        if let Some(error) = self.fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
-        }
         while self.last_poll_visits < budget && self.stage != RetreatStage::Ready {
             if self.retirement.visit() {
                 self.last_poll_visits += 1;
                 self.total_visits += 1;
+                continue;
+            }
+
+            if matches!(
+                self.stage,
+                RetreatStage::PrepareColonies
+                    | RetreatStage::PrepareSystems
+                    | RetreatStage::PrepareLanes
+            ) {
+                if let Err(fault) = self.prepare_storage(budget) {
+                    self.fault = Some(fault);
+                    return Err(fault.public());
+                }
+                continue;
+            }
+            if self.stage == RetreatStage::Append {
+                let child = self.append.as_mut().expect("retained ordinary append");
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                let result = result.map_err(RetreatFailure::append);
+                let result = match result {
+                    Ok(LivingLifecycleProgressV2::Ready) if self.last_poll_visits < budget => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        self.append
+                            .as_mut()
+                            .unwrap()
+                            .take_ready_result()
+                            .map_err(RetreatFailure::append)
+                            .map(|(events, _)| {
+                                self.events = events;
+                                self.retirement.start(self.append.take().unwrap());
+                                self.fleet_index += 1;
+                                self.stage = RetreatStage::Fleet;
+                            })
+                    }
+                    Ok(_) => Ok(()),
+                    Err(fault) => Err(fault),
+                };
+                if let Err(fault) = result {
+                    self.fault = Some(fault);
+                    return Err(fault.public());
+                }
+                continue;
+            }
+
+            if self.stage == RetreatStage::Search {
+                let child = self.search.as_mut().expect("retained path child");
+                let progress = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                match progress {
+                    Err(error) => {
+                        let failure = RetreatFailure::from_public(error);
+                        self.fault = Some(failure);
+                        return Err(failure.public());
+                    }
+                    Ok(LivingLifecycleProgressV2::Pending) => {}
+                    Ok(LivingLifecycleProgressV2::Ready) if self.last_poll_visits < budget => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        let result = match self.search.as_mut().unwrap().take_ready_result() {
+                            Ok(result) => result,
+                            Err(error) => {
+                                let failure = RetreatFailure::from_public(error);
+                                self.fault = Some(failure);
+                                return Err(failure.public());
+                            }
+                        };
+                        if let Some((duration, path)) = result {
+                            self.accept_path(duration, path);
+                        } else {
+                            self.stage = RetreatStage::Destinations;
+                        }
+                        self.retirement.start(self.search.take().unwrap());
+                    }
+                    Ok(LivingLifecycleProgressV2::Ready) => {}
+                }
                 continue;
             }
 
@@ -5499,8 +11003,8 @@ impl<'a> LivingRetreatJobV2<'a> {
                 Err(fault) => {
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(fault);
+                    return Err(fault.public());
                 }
             }
         }
@@ -5510,21 +11014,29 @@ impl<'a> LivingRetreatJobV2<'a> {
             LivingLifecycleProgressV2::Pending
         })
     }
-    /// Move a completed candidate to the combat component; no publication occurs.
+    /// Noninteractive consuming convenience; drains all retained owners before returning.
     pub fn finish(
         mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
-        self.take_ready_result()
+        // Noninteractive compatibility adapter. Resident callers retain this
+        // producer and use borrowed extraction plus their own retirement lane.
+        let result = self.take_ready_result();
+        let mut retirement =
+            self.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(LIVING_MAX_PHASE_POLL_VISITS_V2)? != LivingLifecycleProgressV2::Ready
+        {
+        }
+        result
     }
     /// Borrowed one-time extraction; rejected calls preserve every owner.
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        if let Some(error) = self.fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
-        }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
         }
         if self.stage != RetreatStage::Ready {
             return Err(LivingLifecycleJobErrorV2::NotReady);
@@ -5538,11 +11050,76 @@ impl<'a> LivingRetreatJobV2<'a> {
             std::mem::take(&mut self.events),
         ))
     }
+    pub(crate) fn take_ready_with_exclusions(
+        &mut self,
+    ) -> Result<
+        (
+            LivingGalaxyStateV2,
+            LivingPendingEventsV2,
+            BTreeSet<LivingEntityIdV2>,
+        ),
+        LivingLifecycleJobErrorV2,
+    > {
+        let (state, events) = self.take_ready_result()?;
+        Ok((state, events, std::mem::take(&mut self.repair_exclusions)))
+    }
+    fn prepare_storage(&mut self, budget: usize) -> Result<(), RetreatFailure> {
+        // The three concrete children retain their original allocations and
+        // error state. Extraction consumes a separate remaining parent visit.
+        macro_rules! prepare {
+            ($field:ident, $count:expr, $destination:expr, $next:ident) => {{
+                let child = self
+                    .$field
+                    .get_or_insert_with(|| LivingVecStorageJobV2::begin_empty($count));
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                if result.map_err(RetreatFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && self.last_poll_visits < budget
+                {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    let output = self
+                        .$field
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(RetreatFailure::storage)?;
+                    $destination = output;
+                    self.retirement.start(self.$field.take().unwrap());
+                    self.advance(RetreatStage::$next);
+                }
+            }};
+        }
+        match self.stage {
+            RetreatStage::PrepareColonies => prepare!(
+                colony_storage,
+                self.state.colonies.as_slice().len(),
+                self.colonies,
+                Colonies
+            ),
+            RetreatStage::PrepareSystems => prepare!(
+                system_storage,
+                self.state.systems.as_slice().len(),
+                std::sync::Arc::get_mut(&mut self.graph).unwrap().systems,
+                Systems
+            ),
+            RetreatStage::PrepareLanes => prepare!(
+                lane_storage,
+                self.state.lanes.as_slice().len(),
+                std::sync::Arc::get_mut(&mut self.graph).unwrap().lanes,
+                Lanes
+            ),
+            _ => unreachable!("storage stage"),
+        }
+        Ok(())
+    }
     fn advance(&mut self, stage: RetreatStage) {
         self.stage = stage;
         self.index = 0;
     }
-    fn visit(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn visit(&mut self) -> Result<bool, RetreatFailure> {
         use super::model::{LivingFleetLocationV2, LivingFleetOrderKindV2, LivingFleetOrderV2};
         use RetreatStage::*;
         match self.stage {
@@ -5562,33 +11139,40 @@ impl<'a> LivingRetreatJobV2<'a> {
                     self.index += 1;
                     return Ok(true);
                 }
-                self.advance(Colonies);
+                self.advance(PrepareColonies);
             }
             Colonies => {
                 if let Some(row) = self.state.colonies.as_slice().get(self.index) {
-                    self.colonies.push((row.world, row.owner));
+                    self.pending_colony = Some((row.world, row.owner));
+                    LivingVecStorageJobV2::commit_one(&mut self.colonies, &mut self.pending_colony)
+                        .map_err(RetreatFailure::storage)?;
                     self.index += 1;
                     return Ok(true);
                 }
-                self.advance(Systems);
+                self.advance(PrepareSystems);
             }
             Systems => {
                 if let Some(row) = self.state.systems.as_slice().get(self.index) {
-                    std::sync::Arc::get_mut(&mut self.graph)
-                        .expect("unshared graph construction")
-                        .systems
-                        .push(row.id);
+                    self.pending_system = Some(row.id);
+                    LivingVecStorageJobV2::commit_one(
+                        &mut std::sync::Arc::get_mut(&mut self.graph).unwrap().systems,
+                        &mut self.pending_system,
+                    )
+                    .map_err(RetreatFailure::storage)?;
                     self.index += 1;
                     return Ok(true);
                 }
-                self.advance(Lanes);
+                self.advance(PrepareLanes);
             }
             Lanes => {
                 if let Some(row) = self.state.lanes.as_slice().get(self.index) {
-                    std::sync::Arc::get_mut(&mut self.graph)
-                        .expect("unshared graph construction")
-                        .lanes
-                        .push((row.id, row.system_a, row.system_b, row.distance_units));
+                    self.pending_lane =
+                        Some((row.id, row.system_a, row.system_b, row.distance_units));
+                    LivingVecStorageJobV2::commit_one(
+                        &mut std::sync::Arc::get_mut(&mut self.graph).unwrap().lanes,
+                        &mut self.pending_lane,
+                    )
+                    .map_err(RetreatFailure::storage)?;
                     self.index += 1;
                     return Ok(true);
                 }
@@ -5599,14 +11183,7 @@ impl<'a> LivingRetreatJobV2<'a> {
                     self.advance(Retire);
                     return Ok(false);
                 };
-                if let LivingFleetLocationV2::Docked { world } = fleet.location
-                    && let Some((_, Some(owner))) = self.metadata.get(&world)
-                    && *owner != fleet.owner
-                    && self
-                        .wars
-                        .contains(&(fleet.owner.min(*owner), fleet.owner.max(*owner)))
-                    && !fleet.hulls.as_slice().is_empty()
-                {
+                if let Some(world) = retreat_origin(fleet, &self.metadata, &self.wars) {
                     self.origin_world = world;
                     self.hull_index = 0;
                     self.stage = Hulls;
@@ -5618,12 +11195,7 @@ impl<'a> LivingRetreatJobV2<'a> {
             Hulls => {
                 let fleet = &self.state.fleets.as_slice()[self.fleet_index];
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
-                    let damage = self
-                        .catalog
-                        .hull(hull.definition.as_str())
-                        .map(|row| row.damage)
-                        .unwrap_or(0);
-                    if damage > 0 || !hull.return_credit {
+                    if !retreat_hull_eligible(hull, &self.catalog) {
                         self.fleet_index += 1;
                         self.stage = Fleet;
                     } else {
@@ -5665,28 +11237,14 @@ impl<'a> LivingRetreatJobV2<'a> {
                 }
                 return Ok(true);
             }
-            Search => {
-                let search = self.search.as_mut().expect("search initialized");
-                if search.ready() {
-                    if let Some((duration, path)) = search
-                        .take_ready_result()
-                        .expect("undelivered ready search")
-                    {
-                        self.accept_path(duration, path);
-                    } else {
-                        self.stage = Destinations;
-                    }
-                    self.retirement
-                        .start(self.search.take().expect("retained ready search"));
-                    return Ok(true);
-                }
-                return Ok(search.visit());
+            Search | Append | PrepareColonies | PrepareSystems | PrepareLanes => {
+                unreachable!("child handled by poll")
             }
             RetirePath => {
-                if self.retired_path.pop().is_some() {
-                    return Ok(true);
-                }
+                self.retirement
+                    .start(std::mem::take(&mut self.retired_path));
                 self.stage = Destinations;
+                return Ok(true);
             }
             Credits => {
                 let fleet = self
@@ -5699,26 +11257,16 @@ impl<'a> LivingRetreatJobV2<'a> {
                     self.hull_index += 1;
                     return Ok(true);
                 }
-                if let Some(order) = fleet.order.take() {
-                    self.retired_path = order.lane_path;
-                }
+                self.retired_order = fleet.order.take();
                 self.stage = RetireOrder;
             }
             RetireOrder => {
-                if self.retired_path.pop().is_some() {
-                    return Ok(true);
-                }
-                self.stage = Depart;
+                self.retirement.start(self.retired_order.take());
+                self.stage = InstallOrder;
+                return Ok(true);
             }
-            Depart => {
-                let duration = self.winner.as_ref().expect("retreat destination exists").0;
-                let arrival_tick = self
-                    .tick
-                    .0
-                    .checked_add(duration)
-                    .map(LivingTickV2)
-                    .ok_or(LivingDeterministicFaultV2::Arithmetic)?;
-                let (_, destination, path) =
+            InstallOrder => {
+                let (duration, destination, path) =
                     self.winner.take().expect("retreat destination exists");
                 let fleet = self
                     .state
@@ -5731,34 +11279,64 @@ impl<'a> LivingRetreatJobV2<'a> {
                     not_before_tick: self.tick,
                     lane_path: path,
                 });
+                self.departure_duration = duration;
+                self.destination_world = destination;
+                self.stage = Depart;
+                return Ok(true);
+            }
+            Depart => {
+                // Rules installs the Return order before checking arrival. Keep
+                // that exact private candidate prefix on arithmetic failure.
+                let arrival_tick = self
+                    .tick
+                    .0
+                    .checked_add(self.departure_duration)
+                    .map(LivingTickV2)
+                    .ok_or(RetreatFailure::Arithmetic)?;
+                let fleet = self.state.fleets.record_at_mut(self.fleet_index).unwrap();
                 fleet.location = LivingFleetLocationV2::Travelling {
                     origin_world: self.origin_world,
-                    destination_world: destination,
+                    destination_world: self.destination_world,
                     departure_tick: self.tick,
                     arrival_tick,
                 };
-                self.events.record(
-                    LivingEventProvenanceV2::Autonomous {
-                        phase: LivingPhaseV2::ResolveConflict,
-                    },
-                    LivingEventKindV2::FleetDeparted,
-                )?;
-                self.fleet_index += 1;
-                self.stage = Fleet;
+                self.stage = MarkWorld;
+                return Ok(true);
+            }
+            MarkWorld => {
+                self.repair_exclusions.insert(self.origin_world);
+                self.stage = DepartureEvent;
+                return Ok(true);
+            }
+            DepartureEvent => {
+                self.append = Some(
+                    super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                        std::mem::take(&mut self.events),
+                        LivingEventProvenanceV2::Autonomous {
+                            phase: LivingPhaseV2::ResolveConflict,
+                        },
+                        LivingEventKindV2::FleetDeparted,
+                    ),
+                );
+                self.stage = Append;
                 return Ok(true);
             }
             Retire => {
-                let graph = std::sync::Arc::get_mut(&mut self.graph)
-                    .expect("completed searches released graph");
-                if graph.systems.pop().is_some()
-                    || graph.lanes.pop().is_some()
-                    || self.metadata.pop_first().is_some()
-                    || self.wars.pop_first().is_some()
-                    || self.colonies.pop().is_some()
-                {
-                    return Ok(true);
+                match self.index {
+                    0 => self.retirement.start(std::mem::take(&mut self.metadata)),
+                    1 => self.retirement.start(std::mem::take(&mut self.wars)),
+                    2 => self.retirement.start(std::mem::take(&mut self.colonies)),
+                    3 => self
+                        .retirement
+                        .start(self.graph.0.take().expect("original graph")),
+                    4 => self.retirement.start(self.catalog.0.take()),
+                    _ => {
+                        self.advance(Ready);
+                        return Ok(false);
+                    }
                 }
-                self.advance(Ready);
+                self.index += 1;
+                return Ok(true);
             }
             Ready => {}
         }
@@ -5798,7 +11376,7 @@ mod retreat_tests {
     use crate::living::model::*;
     use crate::living::simulation::LivingStepContextV2;
     use crate::living::{LivingSlugV2, builtin_living_sandbox_v2};
-    fn fixture() -> (
+    pub(super) fn fixture() -> (
         super::super::simulation::LivingGalaxyAuthorityV2,
         LivingGalaxyStateV2,
     ) {
@@ -5882,6 +11460,7 @@ mod retreat_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         })?;
         Ok((state, events))
     }
@@ -6087,7 +11666,7 @@ mod retreat_tests {
                 assert!(job.last_poll_visits() <= 1);
             }
             if let Some(count) = count {
-                assert_eq!(job.total_visits(), count + 512);
+                assert_eq!(job.total_visits(), count + 3 * 512);
             } else {
                 count = Some(job.total_visits());
             }
@@ -6139,8 +11718,8 @@ mod retreat_tests {
             }
         }
         assert!(
-            job.winner.is_some(),
-            "fault retains the completed itinerary for outside-poll reclamation"
+            job.state.fleets.as_slice()[0].order.is_some(),
+            "fault retains the installed Return order exactly as Rules"
         );
         assert_eq!(
             job.poll(64),
@@ -6160,6 +11739,16 @@ mod retreat_tests {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum OccupationStage {
+    PrepareSnapshot,
+    PrepareConstruction,
+    TransferOwnership,
+    PrepareHull,
+    PrepareOccupations,
+    PrepareRelations,
+    Append,
+    AfterConstructionCancelled,
+    ActivateClaimant,
+    RemoveOccupation,
     Wars,
     Fleet,
     Hull,
@@ -6181,9 +11770,78 @@ enum OccupationStage {
     Retire,
     Ready,
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OccupationFailure {
+    TooManyEvents,
+    KeyedOrder,
+    PreparationCapacity,
+    ProtocolInvariant,
+}
+impl OccupationFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::TooManyEvents => LivingLifecycleJobErrorV2::Fault(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents {
+                    limit: super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2,
+                }
+                .into(),
+            ),
+            Self::KeyedOrder => {
+                LivingLifecycleJobErrorV2::Fault(super::wire::LivingWireErrorV2::KeyedOrder.into())
+            }
+            Self::PreparationCapacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::ProtocolInvariant => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+            }
+        }
+    }
+    fn from_public(error: LivingLifecycleJobErrorV2) -> Self {
+        match error {
+            LivingLifecycleJobErrorV2::PreparationCapacity => Self::PreparationCapacity,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Wire(
+                super::wire::LivingWireErrorV2::KeyedOrder,
+            )) => Self::KeyedOrder,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Receipt(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents { .. },
+            )) => Self::TooManyEvents,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => Self::PreparationCapacity,
+            LivingStorageJobErrorV2::KeyedOrder => Self::KeyedOrder,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn append(error: super::receipt::LivingPendingEventAppendErrorV2) -> Self {
+        use super::receipt::LivingPendingEventAppendErrorV2 as E;
+        match error {
+            E::TooManyEvents => Self::TooManyEvents,
+            E::Storage(error) => Self::storage(error),
+            _ => Self::ProtocolInvariant,
+        }
+    }
+}
 /// Bounded occupation/capture component. Refunds retain reference job order,
 /// all-or-nothing storage credit and exact cancellation/dormancy event order.
 pub struct LivingOccupationJobV2<'a> {
+    retirement: PhaseRetirementLane<'a>,
+    snapshot_storage: Option<LivingVecStorageJobV2<'a, (LivingEntityIdV2, LivingEntityIdV2)>>,
+    construction_storage:
+        Option<LivingSortedStorageJobV2<'a, super::model::LivingConstructionJobV2>>,
+    hull_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingHullJobV2>>,
+    occupation_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingOccupationV2>>,
+    relation_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingRelationV2>>,
+    pending_snapshot: Option<(LivingEntityIdV2, LivingEntityIdV2)>,
+    pending_construction: Option<super::model::LivingConstructionJobV2>,
+    pending_hull: Option<super::model::LivingHullJobV2>,
+    pending_occupation: Option<super::model::LivingOccupationV2>,
+    pending_relation: Option<super::model::LivingRelationV2>,
+    pending_removed: bool,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    after_append: OccupationStage,
+
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     state: LivingGalaxyStateV2,
@@ -6213,7 +11871,7 @@ pub struct LivingOccupationJobV2<'a> {
     contested: bool,
     remaining: bool,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<OccupationFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
@@ -6238,12 +11896,26 @@ impl<'a> LivingOccupationJobV2<'a> {
             .into_iter();
         let relation_source = std::mem::take(&mut state.relations).into_vec().into_iter();
         Self {
+            retirement: PhaseRetirementLane::default(),
+            snapshot_storage: None,
+            construction_storage: None,
+            hull_storage: None,
+            occupation_storage: None,
+            relation_storage: None,
+            pending_snapshot: None,
+            pending_construction: None,
+            pending_hull: None,
+            pending_occupation: None,
+            pending_relation: None,
+            pending_removed: false,
+            append: None,
+            after_append: OccupationStage::Ready,
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             state,
             events,
             tick,
-            stage: OccupationStage::Wars,
+            stage: OccupationStage::PrepareSnapshot,
             index: 0,
             fleet_index: 0,
             hull_index: 0,
@@ -6290,16 +11962,36 @@ impl<'a> LivingOccupationJobV2<'a> {
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
-        }
         while self.last_poll_visits < budget && self.stage != OccupationStage::Ready {
+            if self.retirement.visit() {
+                self.last_poll_visits += 1;
+                self.total_visits += 1;
+                continue;
+            }
+            if matches!(
+                self.stage,
+                OccupationStage::PrepareSnapshot
+                    | OccupationStage::PrepareConstruction
+                    | OccupationStage::PrepareHull
+                    | OccupationStage::PrepareOccupations
+                    | OccupationStage::PrepareRelations
+                    | OccupationStage::Append
+            ) {
+                if let Err(fault) = self.poll_child(budget) {
+                    self.fault = Some(fault);
+                    return Err(fault.public());
+                }
+                continue;
+            }
             match self.visit() {
                 Ok(true) => {
                     self.last_poll_visits += 1;
@@ -6309,8 +12001,8 @@ impl<'a> LivingOccupationJobV2<'a> {
                 Err(fault) => {
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(fault);
+                    return Err(fault.public());
                 }
             }
         }
@@ -6324,17 +12016,23 @@ impl<'a> LivingOccupationJobV2<'a> {
     pub fn finish(
         mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
-        self.take_ready_result()
+        let result = self.take_ready_result();
+        let mut retirement =
+            self.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(LIVING_MAX_PHASE_POLL_VISITS_V2)? != LivingLifecycleProgressV2::Ready
+        {
+        }
+        result
     }
     /// Borrowed one-time extraction; rejected calls preserve every owner.
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
-        }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
         }
         if self.stage != OccupationStage::Ready {
             return Err(LivingLifecycleJobErrorV2::NotReady);
@@ -6348,13 +12046,118 @@ impl<'a> LivingOccupationJobV2<'a> {
             std::mem::take(&mut self.events),
         ))
     }
-    fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
-        self.events.record(
-            LivingEventProvenanceV2::Autonomous {
-                phase: LivingPhaseV2::ResolveConflict,
-            },
-            kind,
-        )?;
+    fn emit(&mut self, kind: LivingEventKindV2, next: OccupationStage) {
+        self.append = Some(
+            super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                std::mem::take(&mut self.events),
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ResolveConflict,
+                },
+                kind,
+            ),
+        );
+        self.after_append = next;
+        self.stage = OccupationStage::Append;
+    }
+    fn poll_child(&mut self, budget: usize) -> Result<(), OccupationFailure> {
+        macro_rules! prepare {
+            ($field:ident, $ctor:ident, $count:expr, $install:expr, $next:ident) => {{
+                let child = self
+                    .$field
+                    .get_or_insert_with(|| $ctor::begin_empty($count));
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                if result.map_err(OccupationFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && self.last_poll_visits < budget
+                {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    let output = self
+                        .$field
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(OccupationFailure::storage)?;
+                    ($install)(self, output);
+                    self.retirement.start(self.$field.take().unwrap());
+                    self.advance(OccupationStage::$next);
+                }
+            }};
+        }
+        match self.stage {
+            OccupationStage::PrepareSnapshot => prepare!(
+                snapshot_storage,
+                LivingVecStorageJobV2,
+                self.state.colonies.as_slice().len(),
+                |this: &mut Self, output| this.snapshot = output,
+                Wars
+            ),
+            OccupationStage::PrepareConstruction => prepare!(
+                construction_storage,
+                LivingSortedStorageJobV2,
+                self.state.construction_jobs.as_slice().len(),
+                |this: &mut Self, output| {
+                    this.construction = Some(
+                        std::mem::replace(&mut this.state.construction_jobs, output)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                },
+                TransferOwnership
+            ),
+            OccupationStage::PrepareHull => prepare!(
+                hull_storage,
+                LivingSortedStorageJobV2,
+                self.state.hull_jobs.as_slice().len(),
+                |this: &mut Self, output| {
+                    this.hull_jobs = Some(
+                        std::mem::replace(&mut this.state.hull_jobs, output)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                },
+                HullRefunds
+            ),
+            OccupationStage::PrepareOccupations => prepare!(
+                occupation_storage,
+                LivingSortedStorageJobV2,
+                self.occupations.len(),
+                |this: &mut Self, output| this.state.occupations = output,
+                OccupationOutput
+            ),
+            OccupationStage::PrepareRelations => prepare!(
+                relation_storage,
+                LivingSortedStorageJobV2,
+                self.relations.len(),
+                |this: &mut Self, output| this.state.relations = output,
+                RelationOutput
+            ),
+            OccupationStage::Append => {
+                let child = self.append.as_mut().expect("retained ordinary append");
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                if result.map_err(OccupationFailure::append)? == LivingLifecycleProgressV2::Ready
+                    && self.last_poll_visits < budget
+                {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    let (events, _) = self
+                        .append
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(OccupationFailure::append)?;
+                    self.events = events;
+                    self.retirement.start(self.append.take().unwrap());
+                    self.stage = self.after_append;
+                }
+            }
+            _ => unreachable!("Occupation child stage"),
+        }
         Ok(())
     }
     fn advance(&mut self, stage: OccupationStage) {
@@ -6383,7 +12186,7 @@ impl<'a> LivingOccupationJobV2<'a> {
             world.inventory.alloy = next;
         }
     }
-    fn visit(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn visit(&mut self) -> Result<bool, OccupationFailure> {
         use super::model::{
             LIVING_OCCUPATION_TRANSFER_TICKS_V2, LivingCivilizationStatusV2, LivingFleetLocationV2,
             LivingOccupationV2, LivingRelationV2,
@@ -6415,7 +12218,7 @@ impl<'a> LivingOccupationJobV2<'a> {
             Hull => {
                 let fleet = &self.state.fleets.as_slice()[self.fleet_index];
                 let LivingFleetLocationV2::Docked { world } = fleet.location else {
-                    return Err(LivingDeterministicFaultV2::Invariant);
+                    return Err(OccupationFailure::ProtocolInvariant);
                 };
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
                     if hull.definition.as_str() == "escort" {
@@ -6451,9 +12254,17 @@ impl<'a> LivingOccupationJobV2<'a> {
                 self.advance(Colonies);
             }
             Colonies => {
-                if let Some(row) = self.state.colonies.as_slice().get(self.index) {
-                    self.snapshot.push((row.world, row.owner));
+                if self.pending_snapshot.is_some() {
+                    LivingVecStorageJobV2::commit_one(
+                        &mut self.snapshot,
+                        &mut self.pending_snapshot,
+                    )
+                    .map_err(OccupationFailure::storage)?;
                     self.index += 1;
+                    return Ok(true);
+                }
+                if let Some(row) = self.state.colonies.as_slice().get(self.index) {
+                    self.pending_snapshot = Some((row.world, row.owner));
                     return Ok(true);
                 }
                 self.advance(Occupations);
@@ -6463,14 +12274,20 @@ impl<'a> LivingOccupationJobV2<'a> {
                     self.occupations.insert(row.world, row);
                     return Ok(true);
                 }
+                self.retirement
+                    .start(std::mem::take(&mut self.occupation_source));
                 self.advance(Relations);
+                return Ok(true);
             }
             Relations => {
                 if let Some(row) = self.relation_source.next() {
                     self.relations.insert((row.from, row.to), row);
                     return Ok(true);
                 }
+                self.retirement
+                    .start(std::mem::take(&mut self.relation_source));
                 self.advance(Colony);
+                return Ok(true);
             }
             Colony => {
                 if let Some((world, owner)) = self.snapshot.get(self.colony_index).copied() {
@@ -6484,7 +12301,7 @@ impl<'a> LivingOccupationJobV2<'a> {
                     self.stage = Claimants;
                     return Ok(true);
                 }
-                self.advance(OccupationOutput);
+                self.advance(PrepareOccupations);
             }
             Claimants => {
                 if let Some(actor) = self.next_escort() {
@@ -6541,60 +12358,82 @@ impl<'a> LivingOccupationJobV2<'a> {
                     self.colony_index += 1;
                     self.stage = Colony;
                 } else {
-                    if let Some(world) = self.state.worlds.find_mut(&self.world) {
-                        world.owner = Some(claimant)
-                    }
-                    if let Some(colony) = self.state.colonies.find_mut(&self.world) {
-                        colony.owner = claimant
-                    }
-                    self.construction = Some(
-                        std::mem::take(&mut self.state.construction_jobs)
-                            .into_vec()
-                            .into_iter(),
-                    );
-                    self.stage = ConstructionRefunds;
+                    self.stage = PrepareConstruction;
                 }
                 return Ok(true);
             }
+            TransferOwnership => {
+                let claimant = self.claimant.expect("claimant exists");
+                if let Some(world) = self.state.worlds.find_mut(&self.world) {
+                    world.owner = Some(claimant);
+                }
+                if let Some(colony) = self.state.colonies.find_mut(&self.world) {
+                    colony.owner = claimant;
+                }
+                self.stage = ConstructionRefunds;
+                return Ok(true);
+            }
             ConstructionRefunds => {
+                if let Some(row) = &self.pending_construction {
+                    if row.world == self.world && row.owner == self.owner {
+                        let paid = row.paid_alloy;
+                        self.credit_refund(paid);
+                        self.pending_removed = true;
+                        self.emit(
+                            LivingEventKindV2::ConstructionCancelled,
+                            AfterConstructionCancelled,
+                        );
+                    } else {
+                        LivingSortedStorageJobV2::commit_one(
+                            &mut self.state.construction_jobs,
+                            &mut self.pending_construction,
+                        )
+                        .map_err(OccupationFailure::storage)?;
+                    }
+                    return Ok(true);
+                }
                 if let Some(row) = self
                     .construction
                     .as_mut()
-                    .expect("construction refunds initialized")
+                    .expect("construction source")
                     .next()
                 {
-                    if row.world == self.world && row.owner == self.owner {
-                        self.credit_refund(row.paid_alloy);
-                        self.emit(LivingEventKindV2::ConstructionCancelled)?;
-                    } else {
-                        self.state.construction_jobs.push_sorted(row)?;
-                    }
+                    self.pending_construction = Some(row);
                     return Ok(true);
                 }
-                self.construction = None;
-                self.hull_jobs = Some(
-                    std::mem::take(&mut self.state.hull_jobs)
-                        .into_vec()
-                        .into_iter(),
-                );
-                self.stage = HullRefunds;
+                self.retirement.start(self.construction.take().unwrap());
+                self.stage = PrepareHull;
+                return Ok(true);
+            }
+            AfterConstructionCancelled => {
+                self.retirement
+                    .start(self.pending_construction.take().unwrap());
+                self.pending_removed = false;
+                self.stage = ConstructionRefunds;
+                return Ok(true);
             }
             HullRefunds => {
-                if let Some(row) = self
-                    .hull_jobs
-                    .as_mut()
-                    .expect("hull refunds initialized")
-                    .next()
-                {
+                if let Some(row) = &self.pending_hull {
                     if row.world == self.world && row.owner == self.owner {
-                        self.credit_refund(row.paid_alloy);
+                        let paid = row.paid_alloy;
+                        self.credit_refund(paid);
+                        self.retirement.start(self.pending_hull.take().unwrap());
                     } else {
-                        self.state.hull_jobs.push_sorted(row)?;
+                        LivingSortedStorageJobV2::commit_one(
+                            &mut self.state.hull_jobs,
+                            &mut self.pending_hull,
+                        )
+                        .map_err(OccupationFailure::storage)?;
                     }
                     return Ok(true);
                 }
-                self.hull_jobs = None;
+                if let Some(row) = self.hull_jobs.as_mut().expect("hull source").next() {
+                    self.pending_hull = Some(row);
+                    return Ok(true);
+                }
+                self.retirement.start(self.hull_jobs.take().unwrap());
                 self.stage = Relation;
+                return Ok(true);
             }
             Relation => {
                 let claimant = self.claimant.expect("claimant exists");
@@ -6629,8 +12468,13 @@ impl<'a> LivingOccupationJobV2<'a> {
                     if let Some(civ) = self.state.civilizations.find_mut(&self.owner) {
                         civ.status = LivingCivilizationStatusV2::Dormant;
                     }
-                    self.emit(LivingEventKindV2::CivilizationDormant)?;
+                    self.emit(LivingEventKindV2::CivilizationDormant, ActivateClaimant);
+                } else {
+                    self.stage = ActivateClaimant;
                 }
+                return Ok(true);
+            }
+            ActivateClaimant => {
                 if let Some(civ) = self
                     .state
                     .civilizations
@@ -6638,37 +12482,67 @@ impl<'a> LivingOccupationJobV2<'a> {
                 {
                     civ.status = LivingCivilizationStatusV2::Active;
                 }
-                self.emit(LivingEventKindV2::ColonyCaptured)?;
+                self.emit(LivingEventKindV2::ColonyCaptured, RemoveOccupation);
+                return Ok(true);
+            }
+            RemoveOccupation => {
                 self.occupations.remove(&self.world);
                 self.colony_index += 1;
                 self.stage = Colony;
                 return Ok(true);
             }
             OccupationOutput => {
-                if let Some((_, row)) = self.occupations.pop_first() {
-                    self.state.occupations.push_sorted(row)?;
+                if self.pending_occupation.is_some() {
+                    LivingSortedStorageJobV2::commit_one(
+                        &mut self.state.occupations,
+                        &mut self.pending_occupation,
+                    )
+                    .map_err(OccupationFailure::storage)?;
                     return Ok(true);
                 }
-                self.advance(RelationOutput);
+                if let Some((_, row)) = self.occupations.pop_first() {
+                    self.pending_occupation = Some(row);
+                    return Ok(true);
+                }
+                self.advance(PrepareRelations);
             }
             RelationOutput => {
+                if self.pending_relation.is_some() {
+                    LivingSortedStorageJobV2::commit_one(
+                        &mut self.state.relations,
+                        &mut self.pending_relation,
+                    )
+                    .map_err(OccupationFailure::storage)?;
+                    return Ok(true);
+                }
                 if let Some((_, row)) = self.relations.pop_first() {
-                    self.state.relations.push_sorted(row)?;
+                    self.pending_relation = Some(row);
                     return Ok(true);
                 }
                 self.advance(Retire);
             }
             Retire => {
-                if self.snapshot.pop().is_some()
-                    || self.wars.pop_first().is_some()
-                    || self.escorts.pop_first().is_some()
-                    || self.living_escorts.pop_first().is_some()
-                    || self.batteries.pop_first().is_some()
-                {
-                    return Ok(true);
+                match self.index {
+                    0 => self.retirement.start(std::mem::take(&mut self.snapshot)),
+                    1 => self.retirement.start(std::mem::take(&mut self.wars)),
+                    2 => self.retirement.start(std::mem::take(&mut self.escorts)),
+                    3 => self
+                        .retirement
+                        .start(std::mem::take(&mut self.living_escorts)),
+                    4 => self.retirement.start(std::mem::take(&mut self.batteries)),
+                    5 => self.retirement.start(std::mem::take(&mut self.occupations)),
+                    6 => self.retirement.start(std::mem::take(&mut self.relations)),
+                    7 => self.retirement.start(self.catalog.0.take()),
+                    _ => {
+                        self.stage = Ready;
+                        return Ok(false);
+                    }
                 }
-                self.advance(Ready);
+                self.index += 1;
+                return Ok(true);
             }
+            PrepareSnapshot | PrepareConstruction | PrepareHull | PrepareOccupations
+            | PrepareRelations | Append => unreachable!("child stage dispatched by poll"),
             Ready => {}
         }
         Ok(false)
@@ -6688,6 +12562,13 @@ impl LivingOccupationJobV2<'static> {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum SettlementStage {
+    PrepareFleets,
+    PrepareHulls,
+    PrepareClaims,
+    PrepareColonies,
+    Append,
+    AfterReactivated,
+    CommitFleet,
     Fleet,
     Hull,
     Facilities,
@@ -6710,9 +12591,81 @@ enum SettlementStage {
     Retire,
     Ready,
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SettlementFailure {
+    Arithmetic,
+    TooManyEvents,
+    KeyedOrder,
+    PreparationCapacity,
+    ProtocolInvariant,
+}
+impl SettlementFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Arithmetic => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+            }
+            Self::TooManyEvents => LivingLifecycleJobErrorV2::Fault(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents {
+                    limit: super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2,
+                }
+                .into(),
+            ),
+            Self::KeyedOrder => {
+                LivingLifecycleJobErrorV2::Fault(super::wire::LivingWireErrorV2::KeyedOrder.into())
+            }
+            Self::PreparationCapacity => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::ProtocolInvariant => {
+                LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+            }
+        }
+    }
+    fn from_public(error: LivingLifecycleJobErrorV2) -> Self {
+        match error {
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic) => {
+                Self::Arithmetic
+            }
+            LivingLifecycleJobErrorV2::PreparationCapacity => Self::PreparationCapacity,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Wire(
+                super::wire::LivingWireErrorV2::KeyedOrder,
+            )) => Self::KeyedOrder,
+            LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Receipt(
+                super::receipt::LivingReceiptErrorV2::TooManyEvents { .. },
+            )) => Self::TooManyEvents,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn storage(error: LivingStorageJobErrorV2) -> Self {
+        match error {
+            LivingStorageJobErrorV2::CapacityOverflow => Self::PreparationCapacity,
+            LivingStorageJobErrorV2::KeyedOrder => Self::KeyedOrder,
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn append(error: super::receipt::LivingPendingEventAppendErrorV2) -> Self {
+        use super::receipt::LivingPendingEventAppendErrorV2 as E;
+        match error {
+            E::TooManyEvents => Self::TooManyEvents,
+            E::Storage(error) => Self::storage(error),
+            _ => Self::ProtocolInvariant,
+        }
+    }
+}
 /// Bounded settlement arbitration and arrival-claim component. It preserves
 /// stable fleet/hull ark consumption and each world's reference window snapshot.
 pub struct LivingSettlementJobV2<'a> {
+    retirement: PhaseRetirementLane<'a>,
+    fleet_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingFleetV2>>,
+    hull_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingHullV2>>,
+    claim_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingSettlementClaimV2>>,
+    colony_storage: Option<LivingSortedStorageJobV2<'a, super::model::LivingColonyV2>>,
+    pending_fleet: Option<super::model::LivingFleetV2>,
+    pending_hull: Option<super::model::LivingHullV2>,
+    pending_claim: Option<super::model::LivingSettlementClaimV2>,
+    pending_colony: Option<super::model::LivingColonyV2>,
+    append: Option<super::receipt::LivingPendingEventAppendJobV2>,
+    after_append: SettlementStage,
+
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     state: LivingGalaxyStateV2,
@@ -6747,7 +12700,7 @@ pub struct LivingSettlementJobV2<'a> {
     retired_reasons: Option<IntoIter<super::model::LivingBlockedReasonV2>>,
     clear_then: SettlementStage,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<SettlementFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
@@ -6783,6 +12736,17 @@ impl<'a> LivingSettlementJobV2<'a> {
             .into_iter();
         let colony_source = std::mem::take(&mut state.colonies).into_vec().into_iter();
         Self {
+            retirement: PhaseRetirementLane::default(),
+            fleet_storage: None,
+            hull_storage: None,
+            claim_storage: None,
+            colony_storage: None,
+            pending_fleet: None,
+            pending_hull: None,
+            pending_claim: None,
+            pending_colony: None,
+            append: None,
+            after_append: SettlementStage::Ready,
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             state,
@@ -6840,16 +12804,35 @@ impl<'a> LivingSettlementJobV2<'a> {
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
         }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
-        }
         while self.last_poll_visits < budget && self.stage != SettlementStage::Ready {
+            if self.retirement.visit() {
+                self.last_poll_visits += 1;
+                self.total_visits += 1;
+                continue;
+            }
+            if matches!(
+                self.stage,
+                SettlementStage::PrepareFleets
+                    | SettlementStage::PrepareHulls
+                    | SettlementStage::PrepareClaims
+                    | SettlementStage::PrepareColonies
+                    | SettlementStage::Append
+            ) {
+                if let Err(fault) = self.poll_child(budget) {
+                    self.fault = Some(fault);
+                    return Err(fault.public());
+                }
+                continue;
+            }
             match self.visit() {
                 Ok(true) => {
                     self.last_poll_visits += 1;
@@ -6859,8 +12842,8 @@ impl<'a> LivingSettlementJobV2<'a> {
                 Err(fault) => {
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    self.fault = Some(fault);
+                    return Err(fault.public());
                 }
             }
         }
@@ -6870,21 +12853,28 @@ impl<'a> LivingSettlementJobV2<'a> {
             LivingLifecycleProgressV2::Pending
         })
     }
-    /// Move the completed candidate onward, without publication.
+    /// Noninteractive compatibility drain. Capture the borrowed result, retire
+    /// all original owners, then return without publishing the candidate.
     pub fn finish(
         mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
-        self.take_ready_result()
+        let result = self.take_ready_result();
+        let mut retirement =
+            self.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(LIVING_MAX_PHASE_POLL_VISITS_V2)? != LivingLifecycleProgressV2::Ready
+        {
+        }
+        result
     }
     /// Borrowed one-time extraction; rejected calls preserve every owner.
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
-        }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
         }
         if self.stage != SettlementStage::Ready {
             return Err(LivingLifecycleJobErrorV2::NotReady);
@@ -6898,14 +12888,124 @@ impl<'a> LivingSettlementJobV2<'a> {
             std::mem::take(&mut self.events),
         ))
     }
-    fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
-        self.events.record(
-            LivingEventProvenanceV2::Autonomous {
-                phase: LivingPhaseV2::ResolveConflict,
-            },
-            kind,
-        )?;
+    fn emit(&mut self, kind: LivingEventKindV2, next: SettlementStage) {
+        self.append = Some(
+            super::receipt::LivingPendingEventAppendJobV2::begin_ordinary(
+                std::mem::take(&mut self.events),
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ResolveConflict,
+                },
+                kind,
+            ),
+        );
+        self.after_append = next;
+        self.stage = SettlementStage::Append;
+    }
+    fn poll_child(&mut self, budget: usize) -> Result<(), SettlementFailure> {
+        macro_rules! prepare {
+            ($field:ident, $ctor:ident, $count:expr, $install:expr, $next:ident) => {{
+                let child = self
+                    .$field
+                    .get_or_insert_with(|| $ctor::begin_empty($count));
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                if result.map_err(SettlementFailure::storage)? == LivingLifecycleProgressV2::Ready
+                    && self.last_poll_visits < budget
+                {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    let output = self
+                        .$field
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(SettlementFailure::storage)?;
+                    ($install)(self, output);
+                    self.retirement.start(self.$field.take().unwrap());
+                    self.stage = SettlementStage::$next;
+                }
+            }};
+        }
+        match self.stage {
+            SettlementStage::PrepareFleets => prepare!(
+                fleet_storage,
+                LivingSortedStorageJobV2,
+                self.state.fleets.as_slice().len(),
+                |this: &mut Self, output| {
+                    this.fleet_source = Some(
+                        std::mem::replace(&mut this.state.fleets, output)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                },
+                ConsumeFleet
+            ),
+            SettlementStage::PrepareHulls => prepare!(
+                hull_storage,
+                LivingSortedStorageJobV2,
+                self.fleet.as_ref().unwrap().hulls.as_slice().len(),
+                |this: &mut Self, output| {
+                    this.hulls = Some(
+                        std::mem::replace(&mut this.fleet.as_mut().unwrap().hulls, output)
+                            .into_vec()
+                            .into_iter(),
+                    );
+                },
+                ConsumeHull
+            ),
+            SettlementStage::PrepareClaims => prepare!(
+                claim_storage,
+                LivingSortedStorageJobV2,
+                self.claims.len(),
+                |this: &mut Self, output| this.state.settlement_claims = output,
+                ClaimOutput
+            ),
+            SettlementStage::PrepareColonies => prepare!(
+                colony_storage,
+                LivingSortedStorageJobV2,
+                self.colonies.len(),
+                |this: &mut Self, output| this.state.colonies = output,
+                ColonyOutput
+            ),
+            SettlementStage::Append => {
+                let child = self.append.as_mut().expect("retained ordinary append");
+                let result = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                if result.map_err(SettlementFailure::append)? == LivingLifecycleProgressV2::Ready
+                    && self.last_poll_visits < budget
+                {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    let (events, _) = self
+                        .append
+                        .as_mut()
+                        .unwrap()
+                        .take_ready_result()
+                        .map_err(SettlementFailure::append)?;
+                    self.events = events;
+                    self.retirement.start(self.append.take().unwrap());
+                    self.stage = self.after_append;
+                }
+            }
+            _ => unreachable!("Settlement child stage"),
+        }
         Ok(())
+    }
+    #[cfg(test)]
+    fn claim_preparation_pending(&self) -> bool {
+        self.retirement.is_empty()
+            && self.claim_storage.is_none()
+            && self.world_index == self.state.worlds.as_slice().len()
+            && (self.stage == SettlementStage::World
+                || (self.stage == SettlementStage::ClearClaims
+                    && self.clear_then == SettlementStage::World
+                    && self.first_claim().is_none())
+                || (self.stage == SettlementStage::Arrival
+                    && self.arrival_index == self.arrivals.len()))
     }
     fn first_claim(&self) -> Option<&super::model::LivingSettlementClaimV2> {
         self.claims
@@ -6930,14 +13030,14 @@ impl<'a> LivingSettlementJobV2<'a> {
         self.clear_then = then;
         self.stage = SettlementStage::ClearClaims;
     }
-    fn due(&self, period: u64) -> Result<LivingTickV2, LivingDeterministicFaultV2> {
+    fn due(&self, period: u64) -> Result<LivingTickV2, SettlementFailure> {
         self.tick
             .0
             .checked_add(period)
             .map(LivingTickV2)
-            .ok_or(LivingDeterministicFaultV2::Arithmetic)
+            .ok_or(SettlementFailure::Arithmetic)
     }
-    fn visit(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+    fn visit(&mut self) -> Result<bool, SettlementFailure> {
         use super::model::{
             LivingCivilizationStatusV2, LivingColonyV2, LivingFleetLocationV2,
             LivingFleetOrderKindV2, LivingHubV2, LivingInventoryV2, LivingSettlementClaimV2,
@@ -6970,7 +13070,7 @@ impl<'a> LivingSettlementJobV2<'a> {
             Hull => {
                 let fleet = &self.state.fleets.as_slice()[self.fleet_index];
                 let LivingFleetLocationV2::Docked { world } = fleet.location else {
-                    return Err(LivingDeterministicFaultV2::Invariant);
+                    return Err(SettlementFailure::ProtocolInvariant);
                 };
                 if let Some(hull) = fleet.hulls.as_slice().get(self.hull_index) {
                     if hull.hit_points > 0
@@ -7019,14 +13119,20 @@ impl<'a> LivingSettlementJobV2<'a> {
                     self.claims.insert((row.world, row.civilization), row);
                     return Ok(true);
                 }
+                self.retirement
+                    .start(std::mem::take(&mut self.claim_source));
                 self.stage = Colonies;
+                return Ok(true);
             }
             Colonies => {
                 if let Some(row) = self.colony_source.next() {
                     self.colonies.insert(row.world, row);
                     return Ok(true);
                 }
+                self.retirement
+                    .start(std::mem::take(&mut self.colony_source));
                 self.stage = World;
+                return Ok(true);
             }
             World => {
                 if let Some(row) = self.state.worlds.as_slice().get(self.world_index) {
@@ -7044,7 +13150,7 @@ impl<'a> LivingSettlementJobV2<'a> {
                     }
                     return Ok(true);
                 }
-                self.stage = ClaimOutput;
+                self.stage = PrepareClaims;
             }
             Arbitrate => {
                 if let Some(claim) = self.next_claim() {
@@ -7084,93 +13190,85 @@ impl<'a> LivingSettlementJobV2<'a> {
                     if *count == 0 {
                         self.fleet_arks.remove(&fleet);
                     }
-                    self.fleet_source = Some(
-                        std::mem::take(&mut self.state.fleets)
-                            .into_vec()
-                            .into_iter(),
-                    );
-                    self.stage = ConsumeFleet;
+                    self.stage = PrepareFleets;
                 } else {
                     self.clear(ArrivalsStart);
                 }
                 return Ok(true);
             }
             ConsumeFleet => {
-                if let Some(fleet) = self
-                    .fleet_source
-                    .as_ref()
-                    .and_then(|rows| rows.as_slice().first())
-                    && fleet.id != self.consume_fleet
-                {
-                    ensure_retained_sorted(&self.state.fleets, fleet)?;
+                if self.pending_fleet.is_some() {
+                    LivingSortedStorageJobV2::commit_one(
+                        &mut self.state.fleets,
+                        &mut self.pending_fleet,
+                    )
+                    .map_err(SettlementFailure::storage)?;
+                    return Ok(true);
                 }
-                if let Some(mut fleet) = self
+                if let Some(fleet) = self
                     .fleet_source
                     .as_mut()
                     .expect("fleet consumption initialized")
                     .next()
                 {
                     if fleet.id == self.consume_fleet {
-                        self.hulls = Some(std::mem::take(&mut fleet.hulls).into_vec().into_iter());
                         self.fleet = Some(fleet);
-                        self.stage = ConsumeHull;
+                        self.stage = PrepareHulls;
                     } else {
-                        self.state.fleets.push_sorted(fleet)?;
+                        self.pending_fleet = Some(fleet);
                     }
                     return Ok(true);
                 }
-                self.fleet_source = None;
+                self.retirement.start(self.fleet_source.take().unwrap());
                 self.stage = Establish;
+                return Ok(true);
             }
             ConsumeHull => {
+                if let Some(hull) = &self.pending_hull {
+                    if hull.id == self.consume_hull {
+                        self.retirement.start(self.pending_hull.take().unwrap());
+                    } else {
+                        LivingSortedStorageJobV2::commit_one(
+                            &mut self.fleet.as_mut().unwrap().hulls,
+                            &mut self.pending_hull,
+                        )
+                        .map_err(SettlementFailure::storage)?;
+                    }
+                    return Ok(true);
+                }
                 if let Some(hull) = self
                     .hulls
                     .as_mut()
                     .expect("hull consumption initialized")
                     .next()
                 {
-                    if hull.id != self.consume_hull {
-                        self.fleet
-                            .as_mut()
-                            .expect("held fleet exists")
-                            .hulls
-                            .push_sorted(hull)?;
-                    }
+                    self.pending_hull = Some(hull);
                     return Ok(true);
                 }
-                self.hulls = None;
-                if self
-                    .fleet
-                    .as_ref()
-                    .expect("held fleet exists")
-                    .hulls
-                    .as_slice()
-                    .is_empty()
-                {
-                    let fleet = self.fleet.as_mut().expect("held fleet exists");
+                self.retirement.start(self.hulls.take().unwrap());
+                self.stage = CommitFleet;
+                return Ok(true);
+            }
+            CommitFleet => {
+                if self.fleet.as_ref().unwrap().hulls.as_slice().is_empty() {
+                    let fleet = self.fleet.as_mut().unwrap();
                     if let Some(order) = fleet.order.take() {
                         self.retired_path = order.lane_path;
                     }
                     self.docked.remove(&fleet.id);
                     self.stage = RetireFleetOrder;
                 } else {
-                    ensure_retained_sorted(
-                        &self.state.fleets,
-                        self.fleet.as_ref().expect("held fleet exists"),
-                    )?;
-                    self.state
-                        .fleets
-                        .push_sorted(self.fleet.take().expect("held fleet exists"))?;
+                    LivingSortedStorageJobV2::commit_one(&mut self.state.fleets, &mut self.fleet)
+                        .map_err(SettlementFailure::storage)?;
                     self.stage = ConsumeFleet;
-                    return Ok(true);
                 }
+                return Ok(true);
             }
             RetireFleetOrder => {
-                if self.retired_path.pop().is_some() {
-                    return Ok(true);
-                }
-                self.fleet = None;
+                self.retirement
+                    .start((std::mem::take(&mut self.retired_path), self.fleet.take()));
                 self.stage = ConsumeFleet;
+                return Ok(true);
             }
             Establish => {
                 let actor = self.winner.expect("winner exists").1;
@@ -7201,16 +13299,9 @@ impl<'a> LivingSettlementJobV2<'a> {
                 return Ok(true);
             }
             RetireColonyReasons => {
-                if self
-                    .retired_reasons
-                    .as_mut()
-                    .and_then(Iterator::next)
-                    .is_some()
-                {
-                    return Ok(true);
-                }
-                self.retired_reasons = None;
+                self.retirement.start(self.retired_reasons.take());
                 self.stage = Reactivate;
+                return Ok(true);
             }
             Reactivate => {
                 let actor = self.winner.expect("winner exists").1;
@@ -7218,8 +13309,13 @@ impl<'a> LivingSettlementJobV2<'a> {
                     && civ.status == LivingCivilizationStatusV2::Dormant
                 {
                     civ.status = LivingCivilizationStatusV2::Active;
-                    self.emit(LivingEventKindV2::CivilizationReactivated)?;
+                    self.emit(LivingEventKindV2::CivilizationReactivated, AfterReactivated);
+                } else {
+                    self.clear(Resolved);
                 }
+                return Ok(true);
+            }
+            AfterReactivated => {
                 self.clear(Resolved);
                 return Ok(true);
             }
@@ -7234,8 +13330,7 @@ impl<'a> LivingSettlementJobV2<'a> {
                 self.stage = self.clear_then;
             }
             Resolved => {
-                self.emit(LivingEventKindV2::SettlementClaimResolved)?;
-                self.stage = World;
+                self.emit(LivingEventKindV2::SettlementClaimResolved, World);
                 return Ok(true);
             }
             ArrivalsStart => {
@@ -7272,7 +13367,7 @@ impl<'a> LivingSettlementJobV2<'a> {
                                         close_tick,
                                     },
                                 );
-                                self.emit(LivingEventKindV2::SettlementClaimOpened)?;
+                                self.emit(LivingEventKindV2::SettlementClaimOpened, Arrival);
                             }
                             _ => {}
                         }
@@ -7282,38 +13377,56 @@ impl<'a> LivingSettlementJobV2<'a> {
                 self.stage = World;
             }
             ClaimOutput => {
-                if let Some((_, row)) = self.claims.pop_first() {
-                    self.state.settlement_claims.push_sorted(row)?;
+                if self.pending_claim.is_some() {
+                    LivingSortedStorageJobV2::commit_one(
+                        &mut self.state.settlement_claims,
+                        &mut self.pending_claim,
+                    )
+                    .map_err(SettlementFailure::storage)?;
                     return Ok(true);
                 }
-                self.stage = ColonyOutput;
+                if let Some((_, row)) = self.claims.pop_first() {
+                    self.pending_claim = Some(row);
+                    return Ok(true);
+                }
+                self.stage = PrepareColonies;
             }
             ColonyOutput => {
-                if let Some((_, row)) = self.colonies.first_key_value() {
-                    ensure_retained_sorted(&self.state.colonies, row)?;
-                }
-                if let Some((_, row)) = self.colonies.pop_first() {
-                    self.state.colonies.push_sorted(row)?;
+                if self.pending_colony.is_some() {
+                    LivingSortedStorageJobV2::commit_one(
+                        &mut self.state.colonies,
+                        &mut self.pending_colony,
+                    )
+                    .map_err(SettlementFailure::storage)?;
                     return Ok(true);
                 }
+                if let Some((_, row)) = self.colonies.pop_first() {
+                    self.pending_colony = Some(row);
+                    return Ok(true);
+                }
+                self.index = 0;
                 self.stage = Retire;
             }
             Retire => {
-                if let Some(mut entry) = self.arks.first_entry() {
-                    if entry.get_mut().pop_first().is_some() {
-                        return Ok(true);
+                match self.index {
+                    0 => self.retirement.start(std::mem::take(&mut self.arks)),
+                    1 => self.retirement.start(std::mem::take(&mut self.armed)),
+                    2 => self.retirement.start(std::mem::take(&mut self.docked)),
+                    3 => self.retirement.start(std::mem::take(&mut self.fleet_arks)),
+                    4 => self.retirement.start(std::mem::take(&mut self.arrivals)),
+                    5 => self.retirement.start(std::mem::take(&mut self.claims)),
+                    6 => self.retirement.start(std::mem::take(&mut self.colonies)),
+                    7 => self.retirement.start(self.catalog.0.take()),
+                    _ => {
+                        self.stage = Ready;
+                        return Ok(false);
                     }
-                    entry.remove();
-                    return Ok(true);
                 }
-                if self.armed.pop_first().is_some()
-                    || self.docked.pop_first().is_some()
-                    || self.fleet_arks.pop_first().is_some()
-                    || self.arrivals.pop().is_some()
-                {
-                    return Ok(true);
-                }
-                self.stage = Ready;
+                self.index += 1;
+                return Ok(true);
+            }
+            PrepareFleets | PrepareHulls | PrepareClaims | PrepareColonies | Append => {
+                unreachable!("child stage dispatched by poll")
             }
             Ready => {}
         }
@@ -7438,6 +13551,7 @@ mod occupation_settlement_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         })
         .unwrap();
         (state, events)
@@ -7662,6 +13776,2193 @@ mod occupation_settlement_tests {
             ))
         ));
     }
+    fn literal_occupation_fixture() -> (LivingGalaxyAuthorityV2, LivingGalaxyStateV2) {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let source = authority.state();
+        let mut colony = source.colonies.as_slice()[0].clone();
+        let world = colony.world;
+        let owner = colony.owner;
+        let claimant = source
+            .civilizations
+            .as_slice()
+            .iter()
+            .find(|c| c.id != owner)
+            .unwrap()
+            .id;
+        colony.hub.blocked_reasons = LivingSortedVecV2::new(Vec::with_capacity(7)).unwrap();
+        let mut planet = source
+            .worlds
+            .as_slice()
+            .iter()
+            .find(|p| p.id == world)
+            .unwrap()
+            .clone();
+        planet.inventory.alloy = 9995;
+        let mut civilizations: Vec<_> = source
+            .civilizations
+            .as_slice()
+            .iter()
+            .filter(|c| c.id == owner || c.id == claimant)
+            .cloned()
+            .collect();
+        for c in &mut civilizations {
+            c.status = if c.id == owner {
+                LivingCivilizationStatusV2::Active
+            } else {
+                LivingCivilizationStatusV2::Dormant
+            };
+        }
+        let mut fleet = source.fleets.as_slice()[0].clone();
+        fleet.owner = claimant;
+        fleet.location = LivingFleetLocationV2::Docked { world };
+        fleet.order = None;
+        fleet.hulls = LivingSortedVecV2::new(vec![LivingHullV2 {
+            id: LivingEntityIdV2([90; 16]),
+            definition: LivingSlugV2::new("escort").unwrap(),
+            hit_points: 10,
+            return_credit: false,
+            next_repair: None,
+        }])
+        .unwrap();
+        let construction_jobs = LivingSortedVecV2::new(
+            [(100, owner, 9), (101, owner, 5), (102, claimant, 7)]
+                .into_iter()
+                .map(|(n, owner, paid_alloy)| LivingConstructionJobV2 {
+                    id: LivingEntityIdV2([n; 16]),
+                    world,
+                    owner,
+                    definition: LivingSlugV2::new("solar_array").unwrap(),
+                    accepted_tick: LivingTickV2(0),
+                    completion_tick: LivingTickV2(1000),
+                    paid_alloy,
+                })
+                .collect(),
+        )
+        .unwrap();
+        let hull_jobs = LivingSortedVecV2::new(
+            [(110, owner, 3), (111, claimant, 9)]
+                .into_iter()
+                .map(|(n, owner, paid_alloy)| LivingHullJobV2 {
+                    id: LivingEntityIdV2([n; 16]),
+                    world,
+                    owner,
+                    definition: LivingSlugV2::new("scout").unwrap(),
+                    accepted_tick: LivingTickV2(0),
+                    completion_tick: LivingTickV2(1000),
+                    paid_alloy,
+                    target_fleet: None,
+                })
+                .collect(),
+        )
+        .unwrap();
+        let state = LivingGalaxyStateV2 {
+            worlds: LivingSortedVecV2::new(vec![planet]).unwrap(),
+            colonies: LivingSortedVecV2::new(vec![colony]).unwrap(),
+            civilizations: LivingSortedVecV2::new(civilizations).unwrap(),
+            fleets: LivingSortedVecV2::new(vec![fleet]).unwrap(),
+            wars: LivingSortedVecV2::new(vec![LivingWarV2 {
+                participant_a: owner.min(claimant),
+                participant_b: owner.max(claimant),
+                declarer: owner,
+                start_tick: LivingTickV2(0),
+                end_tick: LivingTickV2(1000),
+            }])
+            .unwrap(),
+            occupations: LivingSortedVecV2::new(vec![LivingOccupationV2 {
+                world,
+                claimant,
+                progress_ticks: 99,
+            }])
+            .unwrap(),
+            relations: LivingSortedVecV2::new(vec![LivingRelationV2 {
+                from: owner,
+                to: claimant,
+                base_disposition: 7,
+                reasons: LivingRelationReasonsV2 {
+                    colony_captured_from_it: -45,
+                    ..Default::default()
+                },
+            }])
+            .unwrap(),
+            construction_jobs,
+            hull_jobs,
+            ..Default::default()
+        };
+        (authority, state)
+    }
+    #[test]
+    fn occupation_bounded_populated_literal_counts_and_every_cut_original_owners() {
+        // Literal analytical cut ledger, frozen before the first measurement.
+        // Each value is root53 + the26 typed owner contributions independently
+        // enumerated in task-2d7-premeasurement-populated-cuts.csv.
+        const STOPPED: &[u64] = &[
+            167, 194, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174,
+            173, 172, 171, 170, 169, 168, 167, 166, 167, 170, 170, 176, 179, 179, 179, 179, 178,
+            179, 179, 179, 178, 179, 179, 179, 179, 179, 209, 209, 208, 207, 206, 205, 204, 203,
+            202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 188,
+            188, 188, 236, 236, 239, 266, 269, 266, 265, 263, 263, 263, 242, 241, 240, 239, 238,
+            237, 236, 235, 234, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221,
+            220, 219, 218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204,
+            203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 191, 188, 187,
+            188, 188, 236, 236, 239, 266, 269, 269, 266, 265, 263, 263, 263, 242, 241, 240, 239,
+            238, 237, 236, 235, 234, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222,
+            221, 220, 219, 218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205,
+            204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 191, 188,
+            187, 188, 188, 186, 183, 182, 183, 213, 211, 210, 209, 208, 207, 206, 205, 204, 203,
+            202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 190, 190, 187,
+            186, 187, 187, 185, 182, 181, 182, 182, 182, 230, 230, 233, 260, 263, 263, 263, 260,
+            259, 257, 257, 257, 236, 235, 234, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224,
+            223, 222, 221, 220, 219, 218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207,
+            206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190,
+            189, 188, 187, 186, 185, 184, 185, 233, 233, 236, 260, 260, 260, 239, 238, 237, 236,
+            235, 234, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219,
+            218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202,
+            201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 188, 185,
+            215, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191,
+            190, 189, 188, 187, 186, 185, 184, 185, 215, 206, 205, 204, 203, 202, 201, 200, 199,
+            198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 185, 185,
+            183, 183, 182, 181, 180, 179, 180, 180, 179, 178, 177, 176, 177, 177, 176, 175, 174,
+            173, 174, 174, 173, 172, 171, 170, 171, 171, 170, 171, 171, 170, 171, 171, 170, 171,
+            171, 170, 169, 168, 167, 168,
+        ];
+        assert_eq!(STOPPED.len(), 465);
+        let (authority, state) = literal_occupation_fixture();
+        let (expected, events) = reference_occupation(&authority, &state);
+        let owner = state.colonies.as_slice()[0].owner;
+        let claimant = state.fleets.as_slice()[0].owner;
+        assert_eq!(expected.worlds.as_slice()[0].inventory.alloy, 10000);
+        assert_eq!(
+            expected
+                .construction_jobs
+                .as_slice()
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![LivingEntityIdV2([102; 16])]
+        );
+        assert_eq!(
+            expected
+                .hull_jobs
+                .as_slice()
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![LivingEntityIdV2([111; 16])]
+        );
+        assert_eq!(expected.relations.as_slice()[0].base_disposition, 7);
+        assert_eq!(
+            expected.relations.as_slice()[0]
+                .reasons
+                .colony_captured_from_it,
+            -60
+        );
+        assert_eq!(
+            expected
+                .civilizations
+                .as_slice()
+                .iter()
+                .find(|c| c.id == owner)
+                .unwrap()
+                .status,
+            LivingCivilizationStatusV2::Dormant
+        );
+        assert_eq!(
+            expected
+                .civilizations
+                .as_slice()
+                .iter()
+                .find(|c| c.id == claimant)
+                .unwrap()
+                .status,
+            LivingCivilizationStatusV2::Active
+        );
+        assert_eq!(
+            events.payloads().iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![
+                LivingEventKindV2::ConstructionCancelled,
+                LivingEventKindV2::ConstructionCancelled,
+                LivingEventKindV2::CivilizationDormant,
+                LivingEventKindV2::ColonyCaptured
+            ]
+        );
+        for schedule in OCCUPATION_SCHEDULES {
+            let (_, state) = literal_occupation_fixture();
+            let mut job = LivingOccupationJobV2::begin(
+                authority.catalog(),
+                state,
+                Default::default(),
+                LivingTickV2(11),
+            );
+            run_occupation(&mut job, schedule).unwrap();
+            assert_eq!(job.total_visits(), 464);
+            assert_eq!(
+                job.take_ready_result().unwrap(),
+                (expected.clone(), events.clone())
+            );
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            );
+            assert_eq!(retire_occupation(job, schedule), 140);
+        }
+        for (cut, expected_cost) in STOPPED.iter().copied().enumerate() {
+            for cleanup in OCCUPATION_SCHEDULES {
+                let (_, state) = literal_occupation_fixture();
+                let world_ptr = state.worlds.as_slice().as_ptr();
+                let hull_ptr = state.fleets.as_slice()[0].hulls.as_slice().as_ptr();
+                let reasons = state.colonies.as_slice()[0]
+                    .hub
+                    .blocked_reasons
+                    .as_slice()
+                    .as_ptr();
+                let construction = state.construction_jobs.as_slice().as_ptr();
+                let hull_jobs = state.hull_jobs.as_slice().as_ptr();
+                let mut job = Box::new(LivingOccupationJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    Default::default(),
+                    LivingTickV2(11),
+                ));
+                let original_box = std::ptr::from_ref(&*job);
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                }
+                assert_eq!(job.total_visits(), cut as u64);
+                assert_eq!(job.state.worlds.as_slice().as_ptr(), world_ptr);
+                assert_eq!(
+                    job.state.fleets.as_slice()[0].hulls.as_slice().as_ptr(),
+                    hull_ptr
+                );
+                assert_eq!(
+                    job.state.colonies.as_slice()[0]
+                        .hub
+                        .blocked_reasons
+                        .as_slice()
+                        .as_ptr(),
+                    reasons
+                );
+                if let Some(source) = &job.construction {
+                    assert_eq!(
+                        source.as_slice().as_ptr(),
+                        construction.wrapping_add(3 - source.len())
+                    );
+                }
+                if let Some(source) = &job.hull_jobs {
+                    assert_eq!(
+                        source.as_slice().as_ptr(),
+                        hull_jobs.wrapping_add(2 - source.len())
+                    );
+                }
+                job.cancel();
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                );
+                assert_eq!(job.poll(64), Err(LivingLifecycleJobErrorV2::Cancelled));
+                assert_eq!(job.last_poll_visits(), 0);
+                let drain = LivingPhaseRetirementJobV2::begin(
+                    job,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                assert_eq!(
+                    std::ptr::from_ref(&**drain.root.owner.as_ref().unwrap()),
+                    original_box
+                );
+                // Use the same original Box, not a replacement same-slot pointer.
+                let mut drain = drain;
+                let mut i = 0;
+                loop {
+                    let b = cleanup[i % cleanup.len()];
+                    i += 1;
+                    if drain.poll(b).unwrap() == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(drain.last_poll_visits() <= b);
+                    if let Some(original) = &drain.root.owner {
+                        assert_eq!(std::ptr::from_ref(&**original), original_box);
+                    }
+                }
+                assert_eq!(drain.total_visits(), expected_cost, "analytical cut {cut}");
+            }
+        }
+    }
+    const OCCUPATION_SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 7, 1024]];
+    fn run_occupation(
+        job: &mut LivingOccupationJobV2<'_>,
+        schedule: &[usize],
+    ) -> Result<(), LivingLifecycleJobErrorV2> {
+        for i in 0..100_000 {
+            let budget = schedule[i % schedule.len()];
+            let before = job.total_visits();
+            let progress = job.poll(budget);
+            assert!(job.last_poll_visits() <= budget);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            if progress? == LivingLifecycleProgressV2::Ready {
+                return Ok(());
+            }
+        }
+        panic!("Occupation did not finish");
+    }
+    fn retire_occupation<'a, T: RetirementFields<'a>>(owner: T, schedule: &[usize]) -> u64 {
+        let mut drain =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        for i in 0..1_000_000 {
+            let b = schedule[i % schedule.len()];
+            let progress = drain.poll(b).unwrap();
+            assert!(drain.last_poll_visits() <= b);
+            if progress == LivingLifecycleProgressV2::Ready {
+                let total = drain.total_visits();
+                assert_eq!(drain.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+                assert_eq!(drain.last_poll_visits(), 0);
+                return total;
+            }
+        }
+        panic!("Occupation owners did not drain");
+    }
+    // Synchronous test-only representation copy. Counts each top-level row and
+    // every nested copied record separately; this observer is not a production poll.
+    fn observe_occupation(
+        job: &LivingOccupationJobV2<'_>,
+    ) -> (LivingGalaxyStateV2, LivingPendingEventsV2, usize) {
+        let source = &job.state;
+        let mut work = 1;
+        let mut state = LivingGalaxyStateV2 {
+            tick: source.tick,
+            accepted_sequence: source.accepted_sequence,
+            branch_sequence: source.branch_sequence,
+            counters: source.counters,
+            ..Default::default()
+        };
+        macro_rules! rows {
+            ($($field:ident),* $(,)?) => {$(
+                let rows: Vec<_> = source.$field.as_slice().iter().map(|row| { work += 1; row.clone() }).collect();
+                work += 1 + rows.len().saturating_sub(1); // collection setup and keyed-order comparisons
+                state.$field = LivingSortedVecV2::new(rows).unwrap();
+            )*};
+        }
+        rows!(
+            systems,
+            stars,
+            worlds,
+            lanes,
+            civilizations,
+            deposits,
+            colonies,
+            facilities,
+            fleets,
+            routes,
+            shipments,
+            agreements,
+            wars,
+            observations,
+            hazards,
+            settlement_claims
+        );
+        // These nested copies were performed by the row Clone above. Account for
+        // the actual nested records, not one constant visit for a deep state clone.
+        for row in source.colonies.as_slice() {
+            work += 1 + row.hub.blocked_reasons.as_slice().len();
+        }
+        for row in source.facilities.as_slice() {
+            work += 1 + row.blocked_reasons.as_slice().len();
+        }
+        for row in source.fleets.as_slice() {
+            work += 1
+                + row.hulls.as_slice().len()
+                + row.order.as_ref().map_or(0, |o| 1 + o.lane_path.len());
+        }
+        for row in source.observations.as_slice() {
+            work += 1 + row.facilities.as_slice().len() + row.stationed_hulls.as_slice().len();
+        }
+        fn partition<T: Clone + LivingKeyedV2>(
+            parts: impl Iterator<Item = T>,
+            work: &mut usize,
+        ) -> LivingSortedVecV2<T> {
+            let mut rows: Vec<_> = parts.inspect(|_| *work += 1).collect();
+            rows.sort_by(|a, b| {
+                *work += 1;
+                a.living_key().cmp(&b.living_key())
+            });
+            *work += 1 + rows.len().saturating_sub(1); // output setup and constructor comparisons
+            // Sorting only assembles physical partitions; duplicates are rejected,
+            // never merged. No expected-state data or Rules decisions enter here.
+            LivingSortedVecV2::new(rows).unwrap()
+        }
+        state.occupations = partition(
+            source
+                .occupations
+                .as_slice()
+                .iter()
+                .cloned()
+                .chain(job.pending_occupation.iter().cloned())
+                .chain(job.occupations.values().cloned())
+                .chain(job.occupation_source.as_slice().iter().cloned()),
+            &mut work,
+        );
+        state.relations = partition(
+            source
+                .relations
+                .as_slice()
+                .iter()
+                .cloned()
+                .chain(job.pending_relation.iter().cloned())
+                .chain(job.relations.values().cloned())
+                .chain(job.relation_source.as_slice().iter().cloned()),
+            &mut work,
+        );
+        state.construction_jobs = partition(
+            source
+                .construction_jobs
+                .as_slice()
+                .iter()
+                .cloned()
+                .chain(
+                    job.pending_construction
+                        .iter()
+                        .filter(|_| !job.pending_removed)
+                        .cloned(),
+                )
+                .chain(
+                    job.construction
+                        .iter()
+                        .flat_map(|rows| rows.as_slice().iter().cloned()),
+                ),
+            &mut work,
+        );
+        state.hull_jobs = partition(
+            source
+                .hull_jobs
+                .as_slice()
+                .iter()
+                .cloned()
+                .chain(job.pending_hull.iter().cloned())
+                .chain(
+                    job.hull_jobs
+                        .iter()
+                        .flat_map(|rows| rows.as_slice().iter().cloned()),
+                ),
+            &mut work,
+        );
+        let events = if let Some(append) = &job.append {
+            let (collector, storage) = append.retained_for_test();
+            assert!(
+                storage.is_none(),
+                "canonical Ordinal refusal precedes storage detachment"
+            );
+            collector.unwrap()
+        } else {
+            &job.events
+        };
+        assert!(
+            events.decisions.is_empty()
+                && events.creator_recoveries.is_empty()
+                && events.corridor_restrictions.is_empty()
+                && events.explained.is_empty(),
+            "ordinary-only observer fixture"
+        );
+        work += 1 + events.len(); // collector metadata and each copied ordinary payload
+        (state, events.clone(), work)
+    }
+    #[test]
+    fn occupation_bounded_literal_forward_and_stopped_counts() {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        for schedule in OCCUPATION_SCHEDULES {
+            let initial = LivingOccupationJobV2::begin(
+                authority.catalog(),
+                Default::default(),
+                Default::default(),
+                LivingTickV2(1),
+            );
+            assert_eq!(retire_occupation(initial, schedule), 143);
+            let mut prepared = LivingOccupationJobV2::begin(
+                authority.catalog(),
+                Default::default(),
+                Default::default(),
+                LivingTickV2(1),
+            );
+            prepared.poll(1).unwrap();
+            assert_eq!(retire_occupation(prepared, schedule), 170);
+            for colony in [false, true] {
+                let mut state = LivingGalaxyStateV2::default();
+                if colony {
+                    state.colonies = LivingSortedVecV2::new(vec![
+                        authority.state().colonies.as_slice()[0].clone(),
+                    ])
+                    .unwrap();
+                }
+                let mut job = LivingOccupationJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    Default::default(),
+                    LivingTickV2(1),
+                );
+                assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+                assert_eq!(job.poll(1025), Err(LivingLifecycleJobErrorV2::Budget));
+                assert_eq!(job.total_visits(), 0);
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                run_occupation(&mut job, schedule).unwrap();
+                assert_eq!(job.total_visits(), if colony { 115 } else { 108 });
+                assert!(job.retirement.is_empty() && job.catalog.0.is_none());
+                assert_eq!(job.snapshot.capacity(), 0);
+                assert_eq!(
+                    job.take_ready_result().unwrap(),
+                    (state, Default::default())
+                );
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                assert_eq!(job.poll(64).unwrap(), LivingLifecycleProgressV2::Ready);
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(retire_occupation(job, schedule), 140);
+            }
+        }
+    }
+    #[test]
+    fn occupation_bounded_full_canonical_refusal_prefixes() {
+        // Synthetic event-capacity controls use unchanged independent Rules, not
+        // admitted gameplay histories. Prefix includes every earlier colony/job.
+        let (authority, mut state) = occupation_fixture();
+        let claimant = state.fleets.as_slice()[0].owner;
+        state.civilizations.find_mut(&claimant).unwrap().status =
+            LivingCivilizationStatusV2::Dormant;
+        assert_occupation_refusal_prefixes(&authority, &state, None);
+    }
+    #[test]
+    fn occupation_bounded_dormant_claimant_refusal_prefix() {
+        // One captured colony makes Dormant the first status event. The claimant
+        // must still be Dormant if that append fails, unlike the multi-colony case.
+        let (authority, state) = literal_occupation_fixture();
+        let claimant = state.occupations.as_slice()[0].claimant;
+        assert_eq!(state.colonies.as_slice().len(), 1);
+        assert_eq!(state.occupations.as_slice().len(), 1);
+        assert_eq!(
+            state
+                .civilizations
+                .as_slice()
+                .iter()
+                .find(|c| c.id == claimant)
+                .unwrap()
+                .status,
+            LivingCivilizationStatusV2::Dormant
+        );
+        assert_occupation_refusal_prefixes(&authority, &state, Some(claimant));
+    }
+    fn assert_occupation_refusal_prefixes(
+        authority: &LivingGalaxyAuthorityV2,
+        state: &LivingGalaxyStateV2,
+        single_colony_claimant: Option<LivingEntityIdV2>,
+    ) {
+        let (_, success) = reference_occupation(authority, state);
+        let expected_kinds: Vec<_> = success.payloads().iter().map(|p| p.kind).collect();
+        assert!(expected_kinds.contains(&LivingEventKindV2::ConstructionCancelled));
+        assert!(expected_kinds.contains(&LivingEventKindV2::CivilizationDormant));
+        assert!(expected_kinds.contains(&LivingEventKindV2::ColonyCaptured));
+        for (refused, refused_kind) in expected_kinds.iter().enumerate() {
+            let mut input = LivingPendingEventsV2::for_forecast();
+            for _ in 0..super::super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2 - refused {
+                input
+                    .record(
+                        LivingEventProvenanceV2::Autonomous {
+                            phase: LivingPhaseV2::ResolveConflict,
+                        },
+                        LivingEventKindV2::CombatRound,
+                    )
+                    .unwrap();
+            }
+            let mut expected = state.clone();
+            let mut expected_events = input.clone();
+            let error = super::super::rules::reference_occupation_for_cursor_test(
+                &mut LivingStepContextV2 {
+                    catalog: authority.catalog(),
+                    genesis_seed: [33; 32],
+                    branch: authority.branch(),
+                    tick: LivingTickV2(11),
+                    state: &mut expected,
+                    events: &mut expected_events,
+                    arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
+                },
+            )
+            .unwrap_err();
+            for schedule in OCCUPATION_SCHEDULES {
+                let moved = input.clone();
+                let mut job = LivingOccupationJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    moved,
+                    LivingTickV2(11),
+                );
+                assert_eq!(
+                    run_occupation(&mut job, schedule),
+                    Err(LivingLifecycleJobErrorV2::Fault(error.clone()))
+                );
+                let before = job.total_visits();
+                let append = job.append.as_ref().unwrap();
+                let collector = append.retained_for_test().0.unwrap().payloads().as_ptr();
+                let occupation_tail = job.occupation_source.as_slice().as_ptr();
+                let construction_tail = job.construction.as_ref().map(|s| s.as_slice().as_ptr());
+                let (observed, events, work) = observe_occupation(&job);
+                assert_eq!(observed, expected, "refused {refused_kind:?}");
+                assert_eq!(events, expected_events);
+                assert_eq!(
+                    events.payloads()[input.len()..]
+                        .iter()
+                        .map(|event| event.kind)
+                        .collect::<Vec<_>>(),
+                    expected_kinds[..refused],
+                    "only successful earlier events survive refusal of {refused_kind:?}"
+                );
+                if let Some(claimant) = single_colony_claimant {
+                    assert_eq!(observed.occupations, state.occupations);
+                    let claimant_status = observed
+                        .civilizations
+                        .as_slice()
+                        .iter()
+                        .find(|c| c.id == claimant)
+                        .unwrap()
+                        .status;
+                    match refused_kind {
+                        LivingEventKindV2::CivilizationDormant => {
+                            assert_eq!(claimant_status, LivingCivilizationStatusV2::Dormant);
+                            assert!(!events.payloads().iter().any(|event| matches!(
+                                event.kind,
+                                LivingEventKindV2::CivilizationDormant
+                                    | LivingEventKindV2::ColonyCaptured
+                            )));
+                        }
+                        LivingEventKindV2::ColonyCaptured => {
+                            assert_eq!(claimant_status, LivingCivilizationStatusV2::Active);
+                            assert!(events.payloads().iter().any(|event| {
+                                event.kind == LivingEventKindV2::CivilizationDormant
+                            }));
+                            assert!(
+                                !events.payloads().iter().any(|event| {
+                                    event.kind == LivingEventKindV2::ColonyCaptured
+                                })
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(work > events.len());
+                assert_eq!(job.total_visits(), before);
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Fault(error.clone()))
+                );
+                job.cancel();
+                for budget in [0, 1, 64, 1025] {
+                    assert_eq!(
+                        job.poll(budget),
+                        Err(LivingLifecycleJobErrorV2::Fault(error.clone()))
+                    );
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                assert_eq!(
+                    job.append
+                        .as_ref()
+                        .unwrap()
+                        .retained_for_test()
+                        .0
+                        .unwrap()
+                        .payloads()
+                        .as_ptr(),
+                    collector
+                );
+                assert_eq!(job.occupation_source.as_slice().as_ptr(), occupation_tail);
+                assert_eq!(
+                    job.construction.as_ref().map(|s| s.as_slice().as_ptr()),
+                    construction_tail
+                );
+                retire_occupation(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn occupation_bounded_actual_storage_poll_and_extraction_failures() {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        for which in 0..5 {
+            for extracted in [false, true] {
+                for trigger in [1, 64, 7, 1024] {
+                    for cleanup in OCCUPATION_SCHEDULES {
+                        let mut job = LivingOccupationJobV2::begin(
+                            authority.catalog(),
+                            authority.state().clone(),
+                            Default::default(),
+                            LivingTickV2(1),
+                        );
+                        job.stage = [
+                            OccupationStage::PrepareSnapshot,
+                            OccupationStage::PrepareConstruction,
+                            OccupationStage::PrepareHull,
+                            OccupationStage::PrepareOccupations,
+                            OccupationStage::PrepareRelations,
+                        ][which];
+                        macro_rules! inject {
+                            ($field:ident,$ctor:ident) => {{
+                                let mut storage =
+                                    $ctor::begin_empty(if extracted { 13 } else { usize::MAX });
+                                if extracted {
+                                    storage.poll(1).unwrap();
+                                    storage.delivered = true;
+                                }
+                                job.$field = Some(storage);
+                            }};
+                        }
+                        match which {
+                            0 => inject!(snapshot_storage, LivingVecStorageJobV2),
+                            1 => inject!(construction_storage, LivingSortedStorageJobV2),
+                            2 => inject!(hull_storage, LivingSortedStorageJobV2),
+                            3 => inject!(occupation_storage, LivingSortedStorageJobV2),
+                            _ => inject!(relation_storage, LivingSortedStorageJobV2),
+                        }
+                        macro_rules! allocation {
+                            () => {{
+                                macro_rules! pointer {
+                                    ($field:ident) => {
+                                        job.$field.as_ref().unwrap().destination.as_ref().map(|v| {
+                                            (v.as_slice().as_ptr().cast::<()>(), v.capacity())
+                                        })
+                                    };
+                                }
+                                match which {
+                                    0 => pointer!(snapshot_storage),
+                                    1 => pointer!(construction_storage),
+                                    2 => pointer!(hull_storage),
+                                    3 => pointer!(occupation_storage),
+                                    _ => pointer!(relation_storage),
+                                }
+                            }};
+                        }
+                        let original_destination = allocation!();
+                        assert_eq!(
+                            original_destination.map(|(_, capacity)| capacity),
+                            extracted.then_some(13)
+                        );
+                        let worlds = job.state.worlds.as_slice().as_ptr();
+                        let original_jobs = job.state.construction_jobs.as_slice().as_ptr();
+                        let error = if extracted {
+                            OccupationFailure::ProtocolInvariant.public()
+                        } else {
+                            OccupationFailure::PreparationCapacity.public()
+                        };
+                        assert_eq!(job.poll(trigger), Err(error.clone()));
+                        assert_eq!(job.last_poll_visits(), 1);
+                        assert_eq!(job.state.worlds.as_slice().as_ptr(), worlds);
+                        assert_eq!(
+                            job.state.construction_jobs.as_slice().as_ptr(),
+                            original_jobs
+                        );
+                        assert_eq!(job.take_ready_result(), Err(error.clone()));
+                        job.cancel();
+                        assert_eq!(job.poll(0), Err(error));
+                        assert_eq!(job.last_poll_visits(), 0);
+                        assert_eq!(allocation!(), original_destination);
+                        retire_occupation(job, cleanup);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn occupation_bounded_conflict_original_boxes_errors_and_borrowed_handoff() {
+        for cause in 0..6 {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in OCCUPATION_SCHEDULES {
+                    let (authority, state) = literal_occupation_fixture();
+                    let mut input_events = LivingPendingEventsV2::new();
+                    if cause == 4 {
+                        for _ in 0..super::super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2 {
+                            input_events
+                                .record(
+                                    LivingEventProvenanceV2::Autonomous {
+                                        phase: LivingPhaseV2::ResolveConflict,
+                                    },
+                                    LivingEventKindV2::CombatRound,
+                                )
+                                .unwrap();
+                        }
+                    }
+                    if matches!(cause, 3 | 5) {
+                        input_events
+                            .record(
+                                LivingEventProvenanceV2::Autonomous {
+                                    phase: LivingPhaseV2::ResolveConflict,
+                                },
+                                LivingEventKindV2::CombatRound,
+                            )
+                            .unwrap();
+                    }
+                    let mut externally_taken = None;
+                    let mut parent = Box::new(LivingConflictJobV2::begin(
+                        authority.catalog(),
+                        state,
+                        input_events,
+                        LivingTickV2(11),
+                        [33; 32],
+                        Vec::new(),
+                    ));
+                    for _ in 0..100_000 {
+                        if matches!(parent.component, Some(ConflictComponent::Occupation(_)))
+                            && parent.retirement.is_empty()
+                        {
+                            break;
+                        }
+                        parent.poll(1).unwrap();
+                    }
+                    let parent_box = std::ptr::from_ref(&*parent);
+                    let exclusions = BTreeSet::from([LivingEntityIdV2([222; 16])]);
+                    parent.repair_exclusions = exclusions.clone();
+                    let Some(ConflictComponent::Occupation(child)) = parent.component.as_mut()
+                    else {
+                        panic!("actual Occupation child")
+                    };
+                    let child_box = std::ptr::from_ref(&**child);
+                    let original_entries = child.events.payloads().as_ptr();
+                    let error = match cause {
+                        0 => {
+                            child.snapshot_storage =
+                                Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+                            OccupationFailure::PreparationCapacity.public()
+                        }
+                        1 => {
+                            run_occupation(child, &[64]).unwrap();
+                            child.delivered = true; // private borrowed protocol refusal on actual Ready producer
+                            OccupationFailure::ProtocolInvariant.public()
+                        }
+                        2 => {
+                            while !(child.stage == OccupationStage::RelationOutput
+                                && child.pending_relation.is_some()
+                                && child.retirement.is_empty())
+                            {
+                                child.poll(1).unwrap();
+                            }
+                            child
+                                .state
+                                .relations
+                                .push_sorted(*child.pending_relation.as_ref().unwrap())
+                                .unwrap();
+                            OccupationFailure::KeyedOrder.public()
+                        }
+                        3 => {
+                            while child.stage != OccupationStage::Append {
+                                child.poll(1).unwrap();
+                            }
+                            let append = child.append.as_mut().unwrap();
+                            append.poll(1).unwrap();
+                            append.poll(1).unwrap();
+                            assert!(append.inject_entry_capacity_failure());
+                            OccupationFailure::PreparationCapacity.public()
+                        }
+                        4 => {
+                            while child.stage != OccupationStage::Append {
+                                child.poll(1).unwrap();
+                            }
+                            child.append.as_mut().unwrap().poll(1).unwrap();
+                            OccupationFailure::TooManyEvents.public()
+                        }
+                        _ => {
+                            while child.stage != OccupationStage::Append {
+                                child.poll(1).unwrap();
+                            }
+                            let append = child.append.as_mut().unwrap();
+                            while append.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+                            externally_taken = Some(append.take_ready_result().unwrap().0);
+                            OccupationFailure::ProtocolInvariant.public()
+                        }
+                    };
+                    let before = parent.total_visits();
+                    assert_eq!(parent.poll(trigger), Err(error.clone()));
+                    assert_eq!(parent.last_poll_visits(), 1);
+                    assert_eq!(parent.total_visits(), before + 1);
+                    assert_eq!(parent.occupation_identity(), Some(child_box.cast()));
+                    if let Some(ConflictComponent::Occupation(child)) = &parent.component {
+                        if cause == 3 {
+                            let storage = child
+                                .append
+                                .as_ref()
+                                .unwrap()
+                                .retained_for_test()
+                                .1
+                                .unwrap();
+                            assert_eq!(
+                                storage.original.as_ref().unwrap().as_ptr(),
+                                original_entries
+                            );
+                        } else if cause == 4 {
+                            assert_eq!(
+                                child
+                                    .append
+                                    .as_ref()
+                                    .unwrap()
+                                    .retained_for_test()
+                                    .0
+                                    .unwrap()
+                                    .payloads()
+                                    .as_ptr(),
+                                original_entries
+                            );
+                        } else if cause == 5 {
+                            assert_eq!(
+                                externally_taken.as_ref().unwrap().payloads().as_ptr(),
+                                original_entries
+                            );
+                        }
+                    }
+                    assert_eq!(std::ptr::from_ref(&*parent), parent_box);
+                    assert_eq!(parent.repair_exclusions, exclusions);
+                    assert!(parent.output.is_none());
+                    assert_eq!(parent.take_ready_result(), Err(error.clone()));
+                    assert_eq!(
+                        parent.advance(),
+                        Err(if cause == 1 {
+                            LivingLifecycleJobErrorV2::NotReady
+                        } else {
+                            error.clone()
+                        })
+                    );
+                    assert_eq!(parent.occupation_identity(), Some(child_box.cast()));
+                    parent.cancel();
+                    for b in [0, 1, 64, 1025] {
+                        assert_eq!(parent.poll(b), Err(error.clone()));
+                        assert_eq!(parent.last_poll_visits(), 0);
+                    }
+                    retire_occupation(parent, cleanup);
+                    retire_occupation(externally_taken, cleanup);
+                }
+            }
+        }
+    }
+    #[test]
+    fn occupation_bounded_conflict_success_preserves_prior_exclusions() {
+        for tick in [LivingTickV2(11), LivingTickV2(20)] {
+            let (authority, state) = literal_occupation_fixture();
+            let (expected, events) = reference_occupation(&authority, &state);
+            for schedule in OCCUPATION_SCHEDULES {
+                let mut parent = LivingConflictJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    Default::default(),
+                    tick,
+                    [33; 32],
+                    Vec::new(),
+                );
+                for _ in 0..100_000 {
+                    if matches!(parent.component, Some(ConflictComponent::Occupation(_)))
+                        && parent.retirement.is_empty()
+                    {
+                        break;
+                    }
+                    parent.poll(1).unwrap();
+                }
+                let exclusions = BTreeSet::from([LivingEntityIdV2([222; 16])]);
+                parent.repair_exclusions = exclusions.clone();
+                for i in 0..100_000 {
+                    if parent.poll(schedule[i % schedule.len()]).unwrap()
+                        == LivingLifecycleProgressV2::Ready
+                    {
+                        break;
+                    }
+                }
+                let (actual, actual_events, actual_exclusions) =
+                    parent.take_ready_with_exclusions().unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(actual_events, events);
+                assert_eq!(actual_exclusions, exclusions);
+                assert_eq!(
+                    parent.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                retire_occupation(parent, schedule);
+            }
+        }
+    }
+    #[test]
+    fn occupation_bounded_public_genesis_no_claimant_reference_control() {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let source = authority.state();
+        let (expected, events) = reference_occupation(&authority, source);
+        assert_eq!(expected, *source);
+        assert!(events.is_empty());
+        for schedule in OCCUPATION_SCHEDULES {
+            let mut job = LivingOccupationJobV2::begin(
+                authority.catalog(),
+                source.clone(),
+                Default::default(),
+                LivingTickV2(11),
+            );
+            run_occupation(&mut job, schedule).unwrap();
+            assert_eq!(
+                job.take_ready_result().unwrap(),
+                (expected.clone(), events.clone())
+            );
+            retire_occupation(job, schedule);
+        }
+    }
+    #[test]
+    fn occupation_bounded_independent_literal_predicate_and_refund_axes() {
+        // Direct private-state controls. Only the separate genesis control is
+        // an admitted public fixture. Invalid resource/progress extremes below
+        // test existing saturating/discard behavior, not new gameplay admission.
+        for axis in 0..12 {
+            let (authority, mut state) = literal_occupation_fixture();
+            let owner = state.colonies.as_slice()[0].owner;
+            let world = state.colonies.as_slice()[0].world;
+            match axis {
+                0 => state.fleets = Default::default(),
+                1 => state.occupations.record_at_mut(0).unwrap().progress_ticks = 98,
+                2 => state.occupations.record_at_mut(0).unwrap().claimant = owner,
+                3 => state.occupations.record_at_mut(0).unwrap().progress_ticks = u32::MAX,
+                4..=6 => {
+                    state.facilities = LivingSortedVecV2::new(vec![LivingFacilityV2 {
+                        id: LivingEntityIdV2([250; 16]),
+                        world,
+                        definition: LivingSlugV2::new("defense_battery").unwrap(),
+                        status: LivingFacilityStatusV2::Operational,
+                        paid_alloy: 40,
+                        hit_points: if axis == 5 { 0 } else { 40 },
+                        next_due: None,
+                        next_repair: None,
+                        blocked_reasons: Default::default(),
+                        disabled: axis == 6,
+                    }])
+                    .unwrap()
+                }
+                7 | 8 => {
+                    let mut defender = state.fleets.as_slice()[0].clone();
+                    defender.id = LivingEntityIdV2([251; 16]);
+                    defender.owner = owner;
+                    defender.hulls.record_at_mut(0).unwrap().id = LivingEntityIdV2([252; 16]);
+                    defender.hulls.record_at_mut(0).unwrap().hit_points =
+                        if axis == 7 { 1 } else { 0 };
+                    let mut fleets = state.fleets.into_vec();
+                    fleets.push(defender);
+                    fleets.sort_by_key(|f| f.id);
+                    state.fleets = LivingSortedVecV2::new(fleets).unwrap();
+                }
+                9 => state.wars.record_at_mut(0).unwrap().end_tick = LivingTickV2(11),
+                10 => state.worlds.record_at_mut(0).unwrap().inventory.alloy = u32::MAX,
+                _ => {
+                    state
+                        .fleets
+                        .record_at_mut(0)
+                        .unwrap()
+                        .hulls
+                        .record_at_mut(0)
+                        .unwrap()
+                        .hit_points = 0
+                }
+            }
+            let capture = matches!(axis, 3 | 5 | 6 | 8 | 10 | 11);
+            let (expected, events) = reference_occupation(&authority, &state);
+            assert_eq!(
+                expected.colonies.as_slice()[0].owner != owner,
+                capture,
+                "axis {axis}"
+            );
+            if axis == 1 {
+                assert_eq!(expected.occupations.as_slice()[0].progress_ticks, 99);
+            }
+            if axis == 2 {
+                assert_eq!(expected.occupations.as_slice()[0].progress_ticks, 1);
+            }
+            if matches!(axis, 0 | 4 | 7 | 9) {
+                assert!(expected.occupations.as_slice().is_empty());
+            }
+            if axis == 10 {
+                assert_eq!(expected.worlds.as_slice()[0].inventory.alloy, u32::MAX);
+            }
+            assert_eq!(events.len(), if capture { 4 } else { 0 });
+            for schedule in OCCUPATION_SCHEDULES {
+                let mut job = LivingOccupationJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    Default::default(),
+                    LivingTickV2(11),
+                );
+                run_occupation(&mut job, schedule).unwrap();
+                assert_eq!(
+                    job.take_ready_result().unwrap(),
+                    (expected.clone(), events.clone()),
+                    "axis {axis}"
+                );
+                retire_occupation(job, schedule);
+            }
+        }
+    }
+    fn literal_settlement_fixture() -> (
+        LivingGalaxyAuthorityV2,
+        LivingGalaxyStateV2,
+        Vec<LivingEntityIdV2>,
+    ) {
+        // Private setup: an unowned world with a stale colony exercises replacing
+        // its allocated-empty reasons; HP0 ark exercises the exact eligibility rule.
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let source = authority.state();
+        let mut colony = source.colonies.as_slice()[0].clone();
+        let world = colony.world;
+        let actor = colony.owner;
+        colony.hub.blocked_reasons = LivingSortedVecV2::new(Vec::with_capacity(7)).unwrap();
+        let mut planet = source
+            .worlds
+            .as_slice()
+            .iter()
+            .find(|row| row.id == world)
+            .unwrap()
+            .clone();
+        planet.owner = None;
+        let mut civilization = source
+            .civilizations
+            .as_slice()
+            .iter()
+            .find(|row| row.id == actor)
+            .unwrap()
+            .clone();
+        civilization.status = LivingCivilizationStatusV2::Dormant;
+        let mut fleet = source.fleets.as_slice()[0].clone();
+        fleet.owner = actor;
+        fleet.location = LivingFleetLocationV2::Docked { world };
+        fleet.order = Some(LivingFleetOrderV2 {
+            kind: LivingFleetOrderKindV2::Settle,
+            target_world: Some(world),
+            not_before_tick: LivingTickV2(0),
+            lane_path: vec![LivingEntityIdV2([91; 16]), LivingEntityIdV2([92; 16])],
+        });
+        fleet.hulls = LivingSortedVecV2::new(vec![LivingHullV2 {
+            id: LivingEntityIdV2([90; 16]),
+            definition: LivingSlugV2::new("colony_ark").unwrap(),
+            hit_points: 0,
+            return_credit: false,
+            next_repair: None,
+        }])
+        .unwrap();
+        let arrivals = vec![fleet.id];
+        let state = LivingGalaxyStateV2 {
+            worlds: LivingSortedVecV2::new(vec![planet]).unwrap(),
+            civilizations: LivingSortedVecV2::new(vec![civilization]).unwrap(),
+            colonies: LivingSortedVecV2::new(vec![colony]).unwrap(),
+            fleets: LivingSortedVecV2::new(vec![fleet]).unwrap(),
+            settlement_claims: LivingSortedVecV2::new(vec![LivingSettlementClaimV2 {
+                world,
+                civilization: actor,
+                arrival_tick: LivingTickV2(0),
+                close_tick: LivingTickV2(50),
+            }])
+            .unwrap(),
+            ..Default::default()
+        };
+        (authority, state, arrivals)
+    }
+    fn run_settlement(
+        job: &mut LivingSettlementJobV2<'_>,
+        schedule: &[usize],
+    ) -> Result<(), LivingLifecycleJobErrorV2> {
+        for i in 0..1_000_000 {
+            let before = job.total_visits();
+            let result = job.poll(schedule[i % schedule.len()]);
+            assert!(job.last_poll_visits() <= schedule[i % schedule.len()]);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            if result? == LivingLifecycleProgressV2::Ready {
+                return Ok(());
+            }
+        }
+        panic!("Settlement did not complete");
+    }
+    fn observe_settlement(
+        job: &LivingSettlementJobV2<'_>,
+    ) -> (LivingGalaxyStateV2, LivingPendingEventsV2, usize) {
+        // Read-only structural assembly of actual distributed owners. No Rules
+        // predicate, expected state, duplicate repair or original iterator advance.
+        let mut state = job.state.clone();
+        let mut work = 1;
+        macro_rules! count {
+            ($($field:ident),*) => {$(work += 1 + job.state.$field.as_slice().len();)*};
+        }
+        count!(
+            systems,
+            stars,
+            worlds,
+            lanes,
+            civilizations,
+            deposits,
+            colonies,
+            facilities,
+            construction_jobs,
+            hull_jobs,
+            fleets,
+            routes,
+            shipments,
+            relations,
+            agreements,
+            wars,
+            observations,
+            hazards,
+            settlement_claims,
+            occupations
+        );
+        for row in job.state.colonies.as_slice() {
+            work += 1 + row.hub.blocked_reasons.as_slice().len();
+        }
+        for row in job.state.facilities.as_slice() {
+            work += 1 + row.blocked_reasons.as_slice().len();
+        }
+        for row in job.state.fleets.as_slice() {
+            work += 1
+                + row.hulls.as_slice().len()
+                + row.order.as_ref().map_or(0, |o| 1 + o.lane_path.len());
+        }
+        for row in job.state.observations.as_slice() {
+            work += 2 + row.facilities.as_slice().len() + row.stationed_hulls.as_slice().len();
+        }
+        fn partition<T: Clone + LivingKeyedV2>(
+            parts: impl Iterator<Item = T>,
+            work: &mut usize,
+        ) -> LivingSortedVecV2<T> {
+            let mut rows: Vec<_> = parts.inspect(|_| *work += 1).collect();
+            rows.sort_by(|a, b| {
+                *work += 1;
+                a.living_key().cmp(&b.living_key())
+            });
+            *work += 1 + rows.len().saturating_sub(1);
+            LivingSortedVecV2::new(rows).unwrap()
+        }
+        state.settlement_claims = partition(
+            job.state
+                .settlement_claims
+                .as_slice()
+                .iter()
+                .copied()
+                .chain(job.pending_claim)
+                .chain(job.claims.values().copied())
+                .chain(job.claim_source.as_slice().iter().copied()),
+            &mut work,
+        );
+        let detached_colonies: Vec<_> = job
+            .pending_colony
+            .iter()
+            .chain(job.colonies.values())
+            .chain(job.colony_source.as_slice())
+            .collect();
+        for row in &detached_colonies {
+            work += 1 + row.hub.blocked_reasons.as_slice().len();
+        }
+        state.colonies = partition(
+            std::mem::take(&mut state.colonies)
+                .into_vec()
+                .into_iter()
+                .chain(detached_colonies.into_iter().cloned()),
+            &mut work,
+        );
+        let mut held = job.fleet.clone();
+        if let Some(fleet) = &mut held {
+            work += 1
+                + fleet.hulls.as_slice().len()
+                + fleet.order.as_ref().map_or(0, |o| 1 + o.lane_path.len());
+            fleet.hulls = partition(
+                std::mem::take(&mut fleet.hulls)
+                    .into_vec()
+                    .into_iter()
+                    .chain(job.pending_hull.iter().cloned())
+                    .chain(job.hulls.iter().flat_map(|r| r.as_slice().iter().cloned())),
+                &mut work,
+            );
+        }
+        let detached_fleets: Vec<_> = job
+            .pending_fleet
+            .iter()
+            .chain(job.fleet_source.iter().flat_map(|r| r.as_slice()))
+            .collect();
+        for row in &detached_fleets {
+            work += 1
+                + row.hulls.as_slice().len()
+                + row.order.as_ref().map_or(0, |o| 1 + o.lane_path.len());
+        }
+        state.fleets = partition(
+            std::mem::take(&mut state.fleets)
+                .into_vec()
+                .into_iter()
+                .chain(detached_fleets.into_iter().cloned())
+                .chain(held),
+            &mut work,
+        );
+        let events = if let Some(append) = &job.append {
+            let (events, storage) = append.retained_for_test();
+            assert!(
+                storage.is_none(),
+                "canonical Ordinal refusal precedes storage detachment"
+            );
+            events.unwrap()
+        } else {
+            &job.events
+        };
+        work += 1 + events.len();
+        assert!(
+            events.decisions.is_empty()
+                && events.creator_recoveries.is_empty()
+                && events.corridor_restrictions.is_empty()
+                && events.explained.is_empty()
+        );
+        (state, events.clone(), work)
+    }
+    #[test]
+    fn settlement_bounded_literal_every_cut_counts_and_original_allocations() {
+        // Root-pinned v2 source correction: triple custom node is a leaf.
+        const STOPPED: &[u64] = &[
+            168, 183, 204, 204, 204, 203, 204, 216, 216, 215, 216, 216, 216, 195, 225, 220, 219,
+            218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202,
+            201, 200, 199, 198, 199, 199, 229, 225, 224, 223, 222, 221, 220, 219, 218, 217, 216,
+            215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 204, 204, 201, 200,
+            201, 198, 197, 198, 185, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186,
+            185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 174, 171, 170, 171,
+            174, 174, 173, 172, 171, 170, 171, 219, 219, 222, 249, 252, 249, 248, 246, 246, 246,
+            225, 224, 223, 222, 221, 220, 219, 218, 217, 216, 215, 214, 213, 212, 211, 210, 209,
+            208, 207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192,
+            191, 190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175,
+            174, 173, 174, 174, 171, 219, 219, 222, 249, 252, 252, 249, 248, 246, 246, 246, 225,
+            224, 223, 222, 221, 220, 219, 218, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208,
+            207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191,
+            190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174,
+            173, 174, 204, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 183, 182,
+            181, 180, 179, 178, 177, 176, 175, 174, 173, 174, 204, 195, 194, 193, 192, 191, 190,
+            189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173,
+            174, 162, 161, 161, 160, 161, 161, 160, 161, 161, 160, 161, 161, 160, 161, 161, 160,
+            159, 158, 157, 158, 158, 157, 158, 158, 157, 158, 158, 157, 156, 155, 154, 155,
+        ];
+        assert_eq!(STOPPED.len(), 322);
+        let (authority, state, arrivals) = literal_settlement_fixture();
+        let expected =
+            reference_settlement(&authority, &state, arrivals, LivingTickV2(50)).unwrap();
+        for schedule in OCCUPATION_SCHEDULES {
+            let (_, state, arrivals) = literal_settlement_fixture();
+            let mut job = LivingSettlementJobV2::begin(
+                authority.catalog(),
+                state,
+                Default::default(),
+                LivingTickV2(50),
+                [33; 32],
+                arrivals,
+            );
+            run_settlement(&mut job, schedule).unwrap();
+            assert_eq!(job.total_visits(), 321);
+            assert!(job.retirement.is_empty() && job.catalog.0.is_none());
+            assert!(
+                job.claim_source.as_slice().is_empty() && job.colony_source.as_slice().is_empty()
+            );
+            assert!(job.fleet_source.is_none() && job.hulls.is_none() && job.append.is_none());
+            assert_eq!(job.arrivals.capacity(), 0);
+            assert_eq!(job.take_ready_result().unwrap(), expected);
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            );
+            assert_eq!(job.poll(64).unwrap(), LivingLifecycleProgressV2::Ready);
+            assert_eq!(job.last_poll_visits(), 0);
+            assert_eq!(retire_occupation(job, schedule), 143);
+        }
+        for (cut, expected) in STOPPED.iter().copied().enumerate() {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in OCCUPATION_SCHEDULES {
+                    let (_, state, arrivals) = literal_settlement_fixture();
+                    let world_pointer = state.worlds.as_slice().as_ptr();
+                    let claim_pointer = state.settlement_claims.as_slice().as_ptr();
+                    let colony_pointer = state.colonies.as_slice().as_ptr();
+                    let fleet_pointer = state.fleets.as_slice().as_ptr();
+                    let hull_pointer = state.fleets.as_slice()[0].hulls.as_slice().as_ptr();
+                    let path_pointer = state.fleets.as_slice()[0]
+                        .order
+                        .as_ref()
+                        .unwrap()
+                        .lane_path
+                        .as_ptr();
+                    let reason_pointer = state.colonies.as_slice()[0]
+                        .hub
+                        .blocked_reasons
+                        .as_slice()
+                        .as_ptr();
+                    let mut job = Box::new(LivingSettlementJobV2::begin(
+                        authority.catalog(),
+                        state,
+                        Default::default(),
+                        LivingTickV2(50),
+                        [33; 32],
+                        arrivals,
+                    ));
+                    let original_box = std::ptr::from_ref(&*job);
+                    while job.total_visits() < cut as u64 {
+                        job.poll(trigger.min(cut - job.total_visits() as usize))
+                            .unwrap();
+                    }
+                    assert_eq!(job.total_visits(), cut as u64);
+                    assert_eq!(job.state.worlds.as_slice().as_ptr(), world_pointer);
+                    if job.stage == SettlementStage::Fleet || job.stage == SettlementStage::Hull {
+                        assert_eq!(job.state.fleets.as_slice().as_ptr(), fleet_pointer);
+                    }
+                    if !job.claim_source.as_slice().is_empty() {
+                        assert_eq!(job.claim_source.as_slice().as_ptr(), claim_pointer);
+                    }
+                    if !job.colony_source.as_slice().is_empty() {
+                        assert_eq!(job.colony_source.as_slice().as_ptr(), colony_pointer);
+                    }
+                    if let Some(rows) = &job.fleet_source {
+                        assert_eq!(
+                            rows.as_slice().as_ptr(),
+                            fleet_pointer.wrapping_add(1 - rows.len())
+                        );
+                    }
+                    if let Some(rows) = &job.hulls {
+                        assert_eq!(
+                            rows.as_slice().as_ptr(),
+                            hull_pointer.wrapping_add(1 - rows.len())
+                        );
+                    }
+                    if let Some(fleet) = &job.fleet
+                        && let Some(order) = &fleet.order
+                    {
+                        assert_eq!(order.lane_path.as_ptr(), path_pointer);
+                    }
+                    if job.retired_path.capacity() > 0 {
+                        assert_eq!(job.retired_path.as_ptr(), path_pointer);
+                    }
+                    if let Some(rows) = &job.retired_reasons {
+                        assert_eq!(rows.as_slice().as_ptr(), reason_pointer);
+                    }
+                    job.cancel();
+                    assert_eq!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    );
+                    for budget in [0, 1, 64, 1025] {
+                        assert_eq!(job.poll(budget), Err(LivingLifecycleJobErrorV2::Cancelled));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                    let mut drain = LivingPhaseRetirementJobV2::begin(
+                        job,
+                        LivingStateRetirementPolicyV2::ReleaseHandle,
+                    );
+                    assert_eq!(
+                        std::ptr::from_ref(&**drain.root.owner.as_ref().unwrap()),
+                        original_box
+                    );
+                    let mut n = 0;
+                    loop {
+                        if let Some(owner) = &drain.root.owner {
+                            assert_eq!(std::ptr::from_ref(&**owner), original_box);
+                        }
+                        let result = drain.poll(cleanup[n % cleanup.len()]).unwrap();
+                        n += 1;
+                        if result == LivingLifecycleProgressV2::Ready {
+                            break;
+                        }
+                    }
+                    assert_eq!(drain.total_visits(), expected, "cut {cut}");
+                }
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_all_event_refusals_and_both_deadline_prefixes() {
+        for case in 0..5 {
+            let (authority, mut state, mut arrivals) = literal_settlement_fixture();
+            let tick = if case >= 3 {
+                LivingTickV2(u64::MAX - 1)
+            } else {
+                LivingTickV2(50)
+            };
+            if case == 0 || case == 3 {
+                state.settlement_claims = Default::default();
+            }
+            if case == 4 {
+                state.settlement_claims.record_at_mut(0).unwrap().close_tick = tick;
+            }
+            if case == 2 {
+                state.civilizations.record_at_mut(0).unwrap().status =
+                    LivingCivilizationStatusV2::Active;
+            }
+            if case == 0 {
+                arrivals.extend_from_within(..);
+            }
+            let mut input = LivingPendingEventsV2::for_forecast();
+            if case < 3 {
+                for _ in 0..super::super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2 {
+                    input
+                        .record(
+                            LivingEventProvenanceV2::Autonomous {
+                                phase: LivingPhaseV2::ResolveConflict,
+                            },
+                            LivingEventKindV2::CombatRound,
+                        )
+                        .unwrap();
+                }
+            }
+            let mut expected = state.clone();
+            let mut expected_events = input.clone();
+            let fault = super::super::rules::reference_settlement_for_cursor_test(
+                &mut LivingStepContextV2 {
+                    catalog: authority.catalog(),
+                    genesis_seed: [33; 32],
+                    branch: authority.branch(),
+                    tick,
+                    state: &mut expected,
+                    events: &mut expected_events,
+                    arrivals: arrivals.clone(),
+                    repair_exclusions: Default::default(),
+                },
+            )
+            .unwrap_err();
+            for schedule in OCCUPATION_SCHEDULES {
+                let mut job = LivingSettlementJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    input.clone(),
+                    tick,
+                    [33; 32],
+                    arrivals.clone(),
+                );
+                let error = LivingLifecycleJobErrorV2::Fault(fault.clone());
+                assert_eq!(run_settlement(&mut job, schedule), Err(error.clone()));
+                let before = job.total_visits();
+                let (actual, events, observation) = observe_settlement(&job);
+                assert!(observation > 0);
+                assert_eq!(job.total_visits(), before);
+                assert_eq!(actual, expected, "case {case}");
+                assert_eq!(events, expected_events, "case {case}");
+                assert_eq!(job.take_ready_result(), Err(error.clone()));
+                job.cancel();
+                for b in [0, 1, 64, 1025] {
+                    assert_eq!(job.poll(b), Err(error.clone()));
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                assert_eq!(job.take_ready_result(), Err(error));
+                retire_occupation(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_output_storage_and_protocol_failures_retain_originals() {
+        for which in 0..4 {
+            for extracted in [false, true] {
+                for trigger in [1, 64, 7, 1024] {
+                    for cleanup in OCCUPATION_SCHEDULES {
+                        let (authority, state, arrivals) = literal_settlement_fixture();
+                        let mut job = LivingSettlementJobV2::begin(
+                            authority.catalog(),
+                            state,
+                            Default::default(),
+                            LivingTickV2(50),
+                            [33; 32],
+                            arrivals,
+                        );
+                        let stage = [
+                            SettlementStage::PrepareFleets,
+                            SettlementStage::PrepareHulls,
+                            SettlementStage::PrepareClaims,
+                            SettlementStage::PrepareColonies,
+                        ][which];
+                        while !job.retirement.is_empty()
+                            || !match which {
+                                0 | 1 => job.stage == stage,
+                                2 => job.claim_preparation_pending(),
+                                _ => {
+                                    job.stage == SettlementStage::ClaimOutput
+                                        && job.claims.is_empty()
+                                        && job.pending_claim.is_none()
+                                }
+                            }
+                        {
+                            job.poll(1).unwrap();
+                        }
+                        macro_rules! inject {
+                            ($field:ident) => {{
+                                assert!(job.$field.is_none());
+                                let mut storage =
+                                    LivingSortedStorageJobV2::begin_empty(if extracted {
+                                        13
+                                    } else {
+                                        usize::MAX
+                                    });
+                                if extracted {
+                                    storage.poll(1).unwrap();
+                                    storage.delivered = true;
+                                }
+                                job.$field = Some(storage);
+                            }};
+                        }
+                        match which {
+                            0 => inject!(fleet_storage),
+                            1 => inject!(hull_storage),
+                            2 => inject!(claim_storage),
+                            _ => inject!(colony_storage),
+                        }
+                        macro_rules! destination {
+                            () => {{
+                                macro_rules! allocation {
+                                    ($field:ident) => {
+                                        job.$field.as_ref().unwrap().destination.as_ref().map(|v| {
+                                            (v.as_slice().as_ptr().cast::<()>(), v.capacity())
+                                        })
+                                    };
+                                }
+                                match which {
+                                    0 => allocation!(fleet_storage),
+                                    1 => allocation!(hull_storage),
+                                    2 => allocation!(claim_storage),
+                                    _ => allocation!(colony_storage),
+                                }
+                            }};
+                        }
+                        let original_destination = destination!();
+                        assert_eq!(
+                            original_destination.map(|(_, capacity)| capacity),
+                            extracted.then_some(13)
+                        );
+                        let worlds = job.state.worlds.as_slice().as_ptr();
+                        let error = if extracted {
+                            SettlementFailure::ProtocolInvariant.public()
+                        } else {
+                            SettlementFailure::PreparationCapacity.public()
+                        };
+                        assert_eq!(job.poll(trigger), Err(error.clone()));
+                        assert_eq!(job.last_poll_visits(), 1);
+                        assert_eq!(job.state.worlds.as_slice().as_ptr(), worlds);
+                        assert_eq!(job.take_ready_result(), Err(error.clone()));
+                        job.cancel();
+                        assert_eq!(job.poll(0), Err(error));
+                        assert_eq!(job.last_poll_visits(), 0);
+                        assert_eq!(destination!(), original_destination);
+                        retire_occupation(job, cleanup);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_keyed_pending_rows_are_never_lost() {
+        // Private malformed-output controls exercise each fallible commit without
+        // changing the authority or deriving semantic expectations from the job.
+        for which in 0..4 {
+            for trigger in [1, 64, 7, 1024] {
+                let (authority, mut state, arrivals) = literal_settlement_fixture();
+                let mut second = state.fleets.as_slice()[0].clone();
+                second.id = LivingEntityIdV2([250; 16]);
+                state.fleets.push_sorted(second).unwrap();
+                let first = state.fleets.record_at_mut(0).unwrap();
+                let mut hull = first.hulls.as_slice()[0].clone();
+                hull.id = LivingEntityIdV2([251; 16]);
+                first.hulls.push_sorted(hull).unwrap();
+                if which == 2 {
+                    state.settlement_claims.record_at_mut(0).unwrap().close_tick =
+                        LivingTickV2(100);
+                }
+                let mut job = LivingSettlementJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    Default::default(),
+                    LivingTickV2(50),
+                    [33; 32],
+                    arrivals,
+                );
+                loop {
+                    let ready = job.retirement.is_empty()
+                        && match which {
+                            0 => job.pending_fleet.is_some(),
+                            1 => job
+                                .pending_hull
+                                .as_ref()
+                                .is_some_and(|h| h.id != job.consume_hull),
+                            2 => job.pending_claim.is_some(),
+                            _ => job.pending_colony.is_some(),
+                        };
+                    if ready {
+                        break;
+                    }
+                    job.poll(1).unwrap();
+                }
+                match which {
+                    0 => job
+                        .state
+                        .fleets
+                        .push_sorted(job.pending_fleet.as_ref().unwrap().clone())
+                        .unwrap(),
+                    1 => job
+                        .fleet
+                        .as_mut()
+                        .unwrap()
+                        .hulls
+                        .push_sorted(job.pending_hull.as_ref().unwrap().clone())
+                        .unwrap(),
+                    2 => job
+                        .state
+                        .settlement_claims
+                        .push_sorted(*job.pending_claim.as_ref().unwrap())
+                        .unwrap(),
+                    _ => job
+                        .state
+                        .colonies
+                        .push_sorted(job.pending_colony.as_ref().unwrap().clone())
+                        .unwrap(),
+                }
+                let expected = (
+                    job.pending_fleet.clone(),
+                    job.pending_hull.clone(),
+                    job.pending_claim,
+                    job.pending_colony.clone(),
+                );
+                let tail = job
+                    .fleet_source
+                    .as_ref()
+                    .map(|s| (s.as_slice().as_ptr(), s.len()));
+                let hull_tail = job.hulls.as_ref().map(|s| (s.as_slice().as_ptr(), s.len()));
+                let error = SettlementFailure::KeyedOrder.public();
+                assert_eq!(job.poll(trigger), Err(error.clone()));
+                assert_eq!(job.last_poll_visits(), 1);
+                assert_eq!(
+                    (
+                        job.pending_fleet.clone(),
+                        job.pending_hull.clone(),
+                        job.pending_claim,
+                        job.pending_colony.clone()
+                    ),
+                    expected
+                );
+                assert_eq!(
+                    job.fleet_source
+                        .as_ref()
+                        .map(|s| (s.as_slice().as_ptr(), s.len())),
+                    tail
+                );
+                assert_eq!(
+                    job.hulls.as_ref().map(|s| (s.as_slice().as_ptr(), s.len())),
+                    hull_tail
+                );
+                assert_eq!(job.take_ready_result(), Err(error.clone()));
+                job.cancel();
+                assert_eq!(job.poll(1), Err(error));
+                retire_occupation(job, &[1, 64, 7, 1024]);
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_predicate_axes_and_public_reference_trajectories() {
+        for axis in 0..11 {
+            let (authority, mut state, arrivals) = settlement_fixture(Some(LivingTickV2(50)));
+            let world = state.settlement_claims.as_slice()[0].world;
+            let actor = state.fleets.as_slice()[0].owner;
+            // Apply explicit private predicate controls to original rows.
+            let ids: Vec<_> = state.fleets.as_slice().iter().map(|f| f.id).collect();
+            for id in ids {
+                let fleet = state.fleets.find_mut(&id).unwrap();
+                match axis {
+                    0 => fleet.order = None,
+                    1 => fleet.order.as_mut().unwrap().kind = LivingFleetOrderKindV2::Move,
+                    2 => fleet.hulls.record_at_mut(0).unwrap().hit_points = 0,
+                    3 => {
+                        fleet.hulls.record_at_mut(0).unwrap().definition =
+                            LivingSlugV2::new("scout").unwrap()
+                    }
+                    4 | 5 => {
+                        fleet.hulls.record_at_mut(0).unwrap().definition =
+                            LivingSlugV2::new("escort").unwrap();
+                        if axis == 5 {
+                            fleet.owner = actor;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if (6..=9).contains(&axis) {
+                let mut facility = authority.state().facilities.as_slice()[0].clone();
+                facility.world = world;
+                facility.definition = LivingSlugV2::new("defense_battery").unwrap();
+                facility.disabled = axis == 6;
+                facility.hit_points = if axis == 7 { 0 } else { 20 };
+                state.facilities = LivingSortedVecV2::new(vec![facility]).unwrap();
+            }
+            if axis == 9 {
+                state.worlds.find_mut(&world).unwrap().owner = Some(actor);
+            }
+            if axis == 10 {
+                // Closing claim has no present ark; other arriving actor starts
+                // a new window only after closing arbitration/clear.
+                state.settlement_claims = LivingSortedVecV2::new(vec![LivingSettlementClaimV2 {
+                    world,
+                    civilization: LivingEntityIdV2([254; 16]),
+                    arrival_tick: LivingTickV2(0),
+                    close_tick: LivingTickV2(50),
+                }])
+                .unwrap();
+            }
+            let expected =
+                reference_settlement(&authority, &state, arrivals.clone(), LivingTickV2(50))
+                    .unwrap();
+            for schedule in OCCUPATION_SCHEDULES {
+                let mut job = LivingSettlementJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    Default::default(),
+                    LivingTickV2(50),
+                    [33; 32],
+                    arrivals.clone(),
+                );
+                run_settlement(&mut job, schedule).unwrap();
+                assert_eq!(job.take_ready_result().unwrap(), expected, "axis {axis}");
+                retire_occupation(job, schedule);
+            }
+        }
+        // Public built-in genesis is a separate admitted reference trajectory;
+        // the synthetic stale-colony controls above are not labelled genesis.
+        let authority = builtin_living_sandbox_v2().unwrap();
+        for schedule in OCCUPATION_SCHEDULES {
+            let mut state = authority.state().clone();
+            for tick in [1, 50, 100] {
+                let expected =
+                    reference_settlement(&authority, &state, Vec::new(), LivingTickV2(tick))
+                        .unwrap();
+                let mut job = LivingSettlementJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    Default::default(),
+                    LivingTickV2(tick),
+                    [33; 32],
+                    Vec::new(),
+                );
+                run_settlement(&mut job, schedule).unwrap();
+                let actual = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected);
+                state = actual.0;
+                retire_occupation(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_multiple_world_reconstructions_and_repeated_arrivals() {
+        let (authority, mut state, mut arrivals) = settlement_fixture(Some(LivingTickV2(50)));
+        let target = state.settlement_claims.as_slice()[0].world;
+        let other = state
+            .worlds
+            .as_slice()
+            .iter()
+            .find(|w| w.id != target)
+            .unwrap()
+            .id;
+        state.worlds.find_mut(&other).unwrap().owner = None;
+        let actor = state.fleets.as_slice()[0].owner;
+        let mut fleets = state.fleets.into_vec();
+        for (i, fleet) in fleets.iter_mut().enumerate() {
+            if i >= 2 {
+                fleet.location = LivingFleetLocationV2::Docked { world: other };
+                fleet.owner = actor;
+                fleet.order.as_mut().unwrap().target_world = Some(other);
+            }
+            // More than one ark tests first sorted hull and fleet consumption.
+            let mut hull = fleet.hulls.as_slice()[0].clone();
+            hull.id = LivingEntityIdV2([240 + i as u8; 16]);
+            fleet.hulls.push_sorted(hull).unwrap();
+        }
+        state.fleets = LivingSortedVecV2::new(fleets).unwrap();
+        let mut claims = state.settlement_claims.into_vec();
+        claims.push(LivingSettlementClaimV2 {
+            world: other,
+            civilization: actor,
+            arrival_tick: LivingTickV2(0),
+            close_tick: LivingTickV2(50),
+        });
+        claims.sort_by_key(|r| (r.world, r.civilization));
+        state.settlement_claims = LivingSortedVecV2::new(claims).unwrap();
+        arrivals.extend_from_within(..);
+        for closing in [true, false] {
+            if !closing {
+                state.settlement_claims = Default::default();
+            }
+            let expected =
+                reference_settlement(&authority, &state, arrivals.clone(), LivingTickV2(50))
+                    .unwrap();
+            for schedule in OCCUPATION_SCHEDULES {
+                let mut job = LivingSettlementJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    Default::default(),
+                    LivingTickV2(50),
+                    [33; 32],
+                    arrivals.clone(),
+                );
+                run_settlement(&mut job, schedule).unwrap();
+                assert_eq!(job.take_ready_result().unwrap(), expected);
+                retire_occupation(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn settlement_bounded_conflict_original_box_fault_and_borrowed_handoffs() {
+        for cause in 0..7 {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in OCCUPATION_SCHEDULES {
+                    let (authority, state, arrivals) = settlement_fixture(Some(LivingTickV2(50)));
+                    let mut parent = Box::new(LivingConflictJobV2::begin(
+                        authority.catalog(),
+                        state,
+                        Default::default(),
+                        LivingTickV2(50),
+                        [33; 32],
+                        arrivals,
+                    ));
+                    // Finite diagnostic search guard, independent of measured totals.
+                    // 100000 single-record polls exceeds these literal small-state
+                    // source passes and adopted typed-owner slot traversals.
+                    let mut boundary_polls = 0;
+                    while !(matches!(parent.component, Some(ConflictComponent::Settlement(_)))
+                        && parent.retirement.is_empty())
+                    {
+                        boundary_polls += 1;
+                        assert!(
+                            boundary_polls < 100_000,
+                            "Settlement parent boundary search exhausted"
+                        );
+                        assert_eq!(parent.poll(1).unwrap(), LivingLifecycleProgressV2::Pending);
+                    }
+                    let original_parent = std::ptr::from_ref(&*parent);
+                    let original_child = parent.settlement_identity().unwrap();
+                    let exclusions = BTreeSet::from([LivingEntityIdV2([253; 16])]);
+                    parent.repair_exclusions = exclusions.clone();
+                    let Some(ConflictComponent::Settlement(child)) = parent.component.as_mut()
+                    else {
+                        unreachable!()
+                    };
+                    if cause == 3 {
+                        child
+                            .events
+                            .record(
+                                LivingEventProvenanceV2::Autonomous {
+                                    phase: LivingPhaseV2::ResolveConflict,
+                                },
+                                LivingEventKindV2::CombatRound,
+                            )
+                            .unwrap();
+                    }
+                    let original_entries = child.events.payloads().as_ptr();
+                    let mut extracted = None;
+                    let error = match cause {
+                        0 => {
+                            while !child.claim_preparation_pending() {
+                                boundary_polls += 1;
+                                assert!(
+                                    boundary_polls < 100_000,
+                                    "Settlement child boundary search exhausted"
+                                );
+                                assert_ne!(
+                                    child.poll(1).unwrap(),
+                                    LivingLifecycleProgressV2::Ready,
+                                    "expected retained Settlement boundary"
+                                );
+                            }
+                            child.claim_storage =
+                                Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+                            SettlementFailure::PreparationCapacity.public()
+                        }
+                        1 => {
+                            run_settlement(child, &[64]).unwrap();
+                            child.delivered = true;
+                            SettlementFailure::ProtocolInvariant.public()
+                        }
+                        2 => {
+                            while !(child.stage == SettlementStage::ColonyOutput
+                                && child.pending_colony.is_some()
+                                && child.retirement.is_empty())
+                            {
+                                boundary_polls += 1;
+                                assert!(
+                                    boundary_polls < 100_000,
+                                    "Settlement child boundary search exhausted"
+                                );
+                                assert_ne!(
+                                    child.poll(1).unwrap(),
+                                    LivingLifecycleProgressV2::Ready,
+                                    "expected retained Settlement boundary"
+                                );
+                            }
+                            child
+                                .state
+                                .colonies
+                                .push_sorted(child.pending_colony.as_ref().unwrap().clone())
+                                .unwrap();
+                            SettlementFailure::KeyedOrder.public()
+                        }
+                        3..=5 => {
+                            if cause == 4 {
+                                for _ in 0..super::super::receipt::LIVING_MAX_BOUNDARY_EVENTS_V2 {
+                                    child
+                                        .events
+                                        .record(
+                                            LivingEventProvenanceV2::Autonomous {
+                                                phase: LivingPhaseV2::ResolveConflict,
+                                            },
+                                            LivingEventKindV2::CombatRound,
+                                        )
+                                        .unwrap();
+                                }
+                            }
+                            while child.stage != SettlementStage::Append {
+                                boundary_polls += 1;
+                                assert!(
+                                    boundary_polls < 100_000,
+                                    "Settlement child boundary search exhausted"
+                                );
+                                assert_ne!(
+                                    child.poll(1).unwrap(),
+                                    LivingLifecycleProgressV2::Ready,
+                                    "expected retained Settlement boundary"
+                                );
+                            }
+                            let append = child.append.as_mut().unwrap();
+                            if cause == 3 {
+                                append.poll(1).unwrap();
+                                append.poll(1).unwrap();
+                                assert!(append.inject_entry_capacity_failure());
+                                SettlementFailure::PreparationCapacity.public()
+                            } else if cause == 4 {
+                                append.poll(1).unwrap();
+                                SettlementFailure::TooManyEvents.public()
+                            } else {
+                                while append.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+                                extracted = Some(append.take_ready_result().unwrap().0);
+                                SettlementFailure::ProtocolInvariant.public()
+                            }
+                        }
+                        _ => {
+                            while child.stage != SettlementStage::Establish
+                                || !child.retirement.is_empty()
+                            {
+                                boundary_polls += 1;
+                                assert!(
+                                    boundary_polls < 100_000,
+                                    "Settlement child boundary search exhausted"
+                                );
+                                assert_ne!(
+                                    child.poll(1).unwrap(),
+                                    LivingLifecycleProgressV2::Ready,
+                                    "expected retained Settlement boundary"
+                                );
+                            }
+                            child.tick = LivingTickV2(u64::MAX - 1);
+                            SettlementFailure::Arithmetic.public()
+                        }
+                    };
+                    let before = parent.total_visits();
+                    assert_eq!(parent.poll(trigger), Err(error.clone()));
+                    assert_eq!(parent.last_poll_visits(), 1);
+                    assert_eq!(parent.total_visits(), before + 1);
+                    assert_eq!(parent.settlement_identity(), Some(original_child));
+                    if cause == 3 {
+                        let Some(ConflictComponent::Settlement(child)) = &parent.component else {
+                            unreachable!()
+                        };
+                        let storage = child
+                            .append
+                            .as_ref()
+                            .unwrap()
+                            .retained_for_test()
+                            .1
+                            .unwrap();
+                        assert_eq!(
+                            storage.original.as_ref().unwrap().as_ptr(),
+                            original_entries
+                        );
+                        assert_eq!(storage.original.as_ref().unwrap().len(), 1);
+                    }
+                    assert_eq!(std::ptr::from_ref(&*parent), original_parent);
+                    assert!(parent.output.is_none());
+                    assert_eq!(parent.repair_exclusions, exclusions);
+                    assert_eq!(parent.take_ready_result(), Err(error.clone()));
+                    assert!(parent.advance().is_err());
+                    assert_eq!(parent.settlement_identity(), Some(original_child));
+                    parent.cancel();
+                    for b in [0, 1, 64, 1025] {
+                        assert_eq!(parent.poll(b), Err(error.clone()));
+                        assert_eq!(parent.last_poll_visits(), 0);
+                    }
+                    assert_eq!(parent.take_ready_result(), Err(error));
+                    retire_occupation(parent, cleanup);
+                    retire_occupation(extracted, cleanup);
+                }
+            }
+        }
+    }
+    #[test]
+    fn conflict_bounded_closed_child_categories_and_noninteractive_finish() {
+        // Finite category mapping controls complement authentic production
+        // failures above and the adopted Combat/Retreat/Occupation suites.
+        let combat = [
+            LifecycleFailure::Arithmetic,
+            LifecycleFailure::KeyedOrder,
+            LifecycleFailure::TooManyEvents,
+            LifecycleFailure::PreparationCapacity(LifecyclePreparationCause::OutputCapacity),
+            LifecycleFailure::PreparationCapacity(LifecyclePreparationCause::EventStorageCapacity),
+            LifecycleFailure::ProtocolInvariant,
+        ];
+        for cause in combat {
+            assert_eq!(
+                ConflictCombatFailure::copied(cause).public(),
+                cause.public()
+            );
+        }
+        for cause in [
+            LifecycleFailure::ExplainedTooManyEvents,
+            LifecycleFailure::Facts,
+            LifecycleFailure::Json,
+            LifecycleFailure::Capacity,
+        ] {
+            assert_eq!(
+                ConflictCombatFailure::copied(cause),
+                ConflictCombatFailure::ProtocolInvariant
+            );
+        }
+        let authority = builtin_living_sandbox_v2().unwrap();
+        for cancelled in [false, true] {
+            let mut parent = LivingConflictJobV2::begin(
+                authority.catalog(),
+                authority.state().clone(),
+                Default::default(),
+                LivingTickV2(1),
+                [33; 32],
+                Vec::new(),
+            );
+            if cancelled {
+                parent.cancel();
+            }
+            assert_eq!(
+                parent.finish(),
+                Err(if cancelled {
+                    LivingLifecycleJobErrorV2::Cancelled
+                } else {
+                    LivingLifecycleJobErrorV2::NotReady
+                })
+            );
+        }
+        let (authority, state, arrivals) = settlement_fixture(None);
+        let expected =
+            reference_conflict(&authority, &state, LivingTickV2(50), arrivals.clone()).unwrap();
+        for schedule in OCCUPATION_SCHEDULES {
+            let mut parent = LivingConflictJobV2::begin(
+                authority.catalog(),
+                state.clone(),
+                Default::default(),
+                LivingTickV2(50),
+                [33; 32],
+                arrivals.clone(),
+            );
+            let mut i = 0;
+            while parent.poll(schedule[i % schedule.len()]).unwrap()
+                != LivingLifecycleProgressV2::Ready
+            {
+                i += 1;
+            }
+            assert!(parent.catalog.0.is_none() && parent.retirement.is_empty());
+            assert_eq!(parent.finish().unwrap(), expected);
+        }
+    }
     fn settlement_fixture(
         close: Option<LivingTickV2>,
     ) -> (
@@ -7740,6 +16041,7 @@ mod occupation_settlement_tests {
             state: &mut state,
             events: &mut events,
             arrivals,
+            repair_exclusions: Default::default(),
         })?;
         Ok((state, events))
     }
@@ -7943,6 +16245,7 @@ mod occupation_settlement_tests {
             state: &mut state,
             events: &mut events,
             arrivals,
+            repair_exclusions: Default::default(),
         })?;
         Ok((state, events))
     }
@@ -8110,6 +16413,53 @@ mod occupation_settlement_tests {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConflictCombatFailure {
+    Arithmetic,
+    KeyedOrder,
+    TooManyEvents,
+    PreparationCapacity(LifecyclePreparationCause),
+    ProtocolInvariant,
+}
+impl ConflictCombatFailure {
+    fn copied(fault: LifecycleFailure) -> Self {
+        match fault {
+            LifecycleFailure::Arithmetic => Self::Arithmetic,
+            LifecycleFailure::KeyedOrder => Self::KeyedOrder,
+            LifecycleFailure::TooManyEvents => Self::TooManyEvents,
+            LifecycleFailure::PreparationCapacity(cause) => Self::PreparationCapacity(cause),
+            _ => Self::ProtocolInvariant,
+        }
+    }
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Arithmetic => SettlementFailure::Arithmetic.public(),
+            Self::KeyedOrder => SettlementFailure::KeyedOrder.public(),
+            Self::TooManyEvents => SettlementFailure::TooManyEvents.public(),
+            Self::PreparationCapacity(_) => LivingLifecycleJobErrorV2::PreparationCapacity,
+            Self::ProtocolInvariant => SettlementFailure::ProtocolInvariant.public(),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConflictFailure {
+    Retreat(RetreatFailure),
+    Combat(ConflictCombatFailure),
+    Occupation(OccupationFailure),
+    Settlement(SettlementFailure),
+    ProtocolInvariant,
+}
+impl ConflictFailure {
+    fn public(self) -> LivingLifecycleJobErrorV2 {
+        match self {
+            Self::Retreat(fault) => fault.public(),
+            Self::Combat(fault) => fault.public(),
+            Self::Occupation(fault) => fault.public(),
+            Self::Settlement(fault) => fault.public(),
+            Self::ProtocolInvariant => SettlementFailure::ProtocolInvariant.public(),
+        }
+    }
+}
 enum ConflictComponent<'a> {
     Retreat(Box<LivingRetreatJobV2<'a>>),
     Combat(Box<LivingCombatJobV2<'a>>),
@@ -8121,6 +16471,7 @@ enum ConflictComponent<'a> {
 /// Candidate state and events remain unpublished throughout this composition.
 pub struct LivingConflictJobV2<'a> {
     retirement: PhaseRetirementLane<'a>,
+    repair_exclusions: BTreeSet<LivingEntityIdV2>,
     delivered: bool,
     catalog: PhaseCatalogSlot<'a>,
     tick: LivingTickV2,
@@ -8129,7 +16480,7 @@ pub struct LivingConflictJobV2<'a> {
     component: Option<ConflictComponent<'a>>,
     output: Option<Box<(LivingGalaxyStateV2, LivingPendingEventsV2)>>,
     cancelled: bool,
-    fault: Option<LivingDeterministicFaultV2>,
+    fault: Option<ConflictFailure>,
     last_poll_visits: usize,
     total_visits: u64,
 }
@@ -8163,6 +16514,7 @@ impl<'a> LivingConflictJobV2<'a> {
         let retreat = LivingRetreatJobV2::with_catalog(catalog.clone(), state, events, tick);
         Self {
             retirement: PhaseRetirementLane::default(),
+            repair_exclusions: BTreeSet::new(),
             delivered: false,
             catalog: PhaseCatalogSlot(Some(catalog)),
             tick,
@@ -8194,14 +16546,14 @@ impl<'a> LivingConflictJobV2<'a> {
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
         if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
             return Err(LivingLifecycleJobErrorV2::Budget);
-        }
-        if let Some(fault) = &self.fault {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
         }
         while self.last_poll_visits < budget {
             if self.retirement.visit() {
@@ -8211,6 +16563,12 @@ impl<'a> LivingConflictJobV2<'a> {
             }
 
             if self.output.is_some() {
+                if self.catalog.0.is_some() {
+                    self.retirement.start(self.catalog.0.take());
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    continue;
+                }
                 return Ok(LivingLifecycleProgressV2::Ready);
             }
             let remaining = budget - self.last_poll_visits;
@@ -8236,45 +16594,47 @@ impl<'a> LivingConflictJobV2<'a> {
                     }
                     self.last_poll_visits += 1;
                     self.total_visits += 1;
-                    if let Err(fault) = self.advance() {
-                        self.fault = Some(fault.clone());
-                        return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    if let Err(error) = self.advance() {
+                        return Err(self.latch_child_error(error));
                     }
                 }
                 Err(error) => {
-                    let fault = match error {
-                        LivingLifecycleJobErrorV2::Fault(fault) => fault,
-                        _ => LivingDeterministicFaultV2::Invariant,
-                    };
-                    self.fault = Some(fault.clone());
-                    return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    return Err(self.latch_child_error(error));
                 }
             }
         }
-        Ok(if self.output.is_some() && self.retirement.node.is_none() {
-            LivingLifecycleProgressV2::Ready
-        } else {
-            LivingLifecycleProgressV2::Pending
-        })
+        Ok(
+            if self.output.is_some() && self.retirement.is_empty() && self.catalog.0.is_none() {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            },
+        )
     }
-    /// Move the fully completed conflict candidate onward. Ready children have
-    /// already retired their temporary records; this does not publish truth.
+    /// Noninteractive compatibility drain: capture borrowed output, then retire
+    /// the original parent and child owners before returning the captured result.
     pub fn finish(
         mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
-        self.take_ready_result()
+        let result = self.take_ready_result();
+        let mut retirement =
+            self.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(LIVING_MAX_PHASE_POLL_VISITS_V2)? != LivingLifecycleProgressV2::Ready
+        {
+        }
+        result
     }
     /// Borrowed one-time extraction; rejected calls preserve every owner.
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        if let Some(fault) = self.fault {
+            return Err(fault.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
-        if let Some(fault) = self.fault.clone() {
-            return Err(LivingLifecycleJobErrorV2::Fault(fault));
-        }
-        if self.delivered || self.retirement.node.is_some() {
+        if self.delivered || !self.retirement.is_empty() || self.catalog.0.is_some() {
             return Err(LivingLifecycleJobErrorV2::NotReady);
         }
         let output = self
@@ -8284,24 +16644,74 @@ impl<'a> LivingConflictJobV2<'a> {
         self.delivered = true;
         Ok((std::mem::take(&mut output.0), std::mem::take(&mut output.1)))
     }
-    fn advance(&mut self) -> Result<(), LivingDeterministicFaultV2> {
-        let map_error = |error| match error {
-            LivingLifecycleJobErrorV2::Fault(fault) => fault,
-            _ => LivingDeterministicFaultV2::Invariant,
+    pub(crate) fn take_ready_with_exclusions(
+        &mut self,
+    ) -> Result<
+        (
+            LivingGalaxyStateV2,
+            LivingPendingEventsV2,
+            BTreeSet<LivingEntityIdV2>,
+        ),
+        LivingLifecycleJobErrorV2,
+    > {
+        let (state, events) = self.take_ready_result()?;
+        Ok((state, events, std::mem::take(&mut self.repair_exclusions)))
+    }
+    fn latch_child_error(&mut self, error: LivingLifecycleJobErrorV2) -> LivingLifecycleJobErrorV2 {
+        let fault = match self.component.as_ref() {
+            Some(ConflictComponent::Retreat(_)) => {
+                ConflictFailure::Retreat(RetreatFailure::from_public(error))
+            }
+            Some(ConflictComponent::Occupation(_)) => {
+                ConflictFailure::Occupation(OccupationFailure::from_public(error))
+            }
+            Some(ConflictComponent::Settlement(_)) => {
+                ConflictFailure::Settlement(SettlementFailure::from_public(error))
+            }
+            Some(ConflictComponent::Combat(job)) => {
+                let cause = job
+                    .fault
+                    .map(ConflictCombatFailure::copied)
+                    .unwrap_or(ConflictCombatFailure::ProtocolInvariant);
+                ConflictFailure::Combat(cause)
+            }
+            None => ConflictFailure::ProtocolInvariant,
         };
+        self.fault = Some(fault);
+        fault.public()
+    }
+    fn advance(&mut self) -> Result<(), LivingLifecycleJobErrorV2> {
         let (kind, output) = match self.component.as_mut().expect("ready conflict child") {
-            ConflictComponent::Retreat(job) => (0, job.take_ready_result()),
-            ConflictComponent::Combat(job) => (1, job.take_ready_result()),
-            ConflictComponent::Occupation(job) => (2, job.take_ready_result()),
-            ConflictComponent::Settlement(job) => (3, job.take_ready_result()),
+            ConflictComponent::Retreat(job) => (0, job.take_ready_with_exclusions()),
+            ConflictComponent::Combat(job) => (1, job.take_ready_with_exclusions()),
+            ConflictComponent::Occupation(job) => (
+                2,
+                job.take_ready_result()
+                    .map(|(s, e)| (s, e, BTreeSet::new())),
+            ),
+            ConflictComponent::Settlement(job) => (
+                3,
+                job.take_ready_result()
+                    .map(|(s, e)| (s, e, BTreeSet::new())),
+            ),
         };
-        let (state, events) = output.map_err(map_error)?;
+        let (state, events, exclusions) = output?;
+        if kind < 2 {
+            self.repair_exclusions = exclusions;
+        }
         self.retirement
             .start(self.component.take().expect("retained ready child"));
         self.component = match kind {
-            0 => Some(ConflictComponent::Combat(Box::new(
-                LivingCombatJobV2::with_catalog((*self.catalog).clone(), state, events, self.tick),
-            ))),
+            0 => {
+                let mut job = LivingCombatJobV2::with_catalog(
+                    (*self.catalog).clone(),
+                    state,
+                    events,
+                    self.tick,
+                );
+                job.repair_exclusions = std::mem::take(&mut self.repair_exclusions);
+                Some(ConflictComponent::Combat(Box::new(job)))
+            }
             1 => Some(ConflictComponent::Occupation(Box::new(
                 LivingOccupationJobV2::with_catalog(
                     (*self.catalog).clone(),
@@ -8328,6 +16738,118 @@ impl<'a> LivingConflictJobV2<'a> {
         Ok(())
     }
     #[cfg(test)]
+    pub(crate) fn inject_settlement_storage_capacity_failure(&mut self, which: usize) -> bool {
+        if !self.retirement.is_empty() {
+            return false;
+        }
+        let Some(ConflictComponent::Settlement(job)) = self.component.as_mut() else {
+            return false;
+        };
+        if !job.retirement.is_empty() {
+            return false;
+        }
+        match which {
+            0 if job.claim_preparation_pending() && job.claim_storage.is_none() => {
+                job.claim_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+            }
+            1 if job.stage == SettlementStage::ClaimOutput
+                && job.claims.is_empty()
+                && job.pending_claim.is_none()
+                && job.colony_storage.is_none() =>
+            {
+                job.colony_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX));
+            }
+            _ => return false,
+        }
+        true
+    }
+    #[cfg(test)]
+    pub(crate) fn settlement_identity(&self) -> Option<*const ()> {
+        match &self.component {
+            Some(ConflictComponent::Settlement(job)) => Some(std::ptr::from_ref(&**job).cast()),
+            _ => None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_occupation_storage_capacity_failure(&mut self, which: usize) -> bool {
+        if !self.retirement.is_empty() {
+            return false;
+        }
+        let Some(ConflictComponent::Occupation(job)) = self.component.as_mut() else {
+            return false;
+        };
+        if !job.retirement.is_empty() {
+            return false;
+        }
+        match (which, job.stage) {
+            (0, OccupationStage::PrepareSnapshot) if job.snapshot_storage.is_none() => {
+                job.snapshot_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+            }
+            (1, OccupationStage::Colony)
+                if job.colony_index == job.snapshot.len() && job.occupation_storage.is_none() =>
+            {
+                job.occupation_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX))
+            }
+            (2, OccupationStage::OccupationOutput)
+                if job.occupations.is_empty()
+                    && job.pending_occupation.is_none()
+                    && job.relation_storage.is_none() =>
+            {
+                job.relation_storage = Some(LivingSortedStorageJobV2::begin_empty(usize::MAX))
+            }
+            _ => return false,
+        }
+        true
+    }
+    #[cfg(test)]
+    pub(crate) fn occupation_identity(&self) -> Option<*const ()> {
+        match &self.component {
+            Some(ConflictComponent::Occupation(job)) => Some(std::ptr::from_ref(&**job).cast()),
+            _ => None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_retreat_storage_capacity_failure(&mut self, storage: usize) -> bool {
+        let Some(ConflictComponent::Retreat(job)) = self.component.as_mut() else {
+            return false;
+        };
+        match (storage, job.stage) {
+            (0, RetreatStage::Worlds)
+                if job.index == job.state.worlds.as_slice().len()
+                    && job.state.wars.as_slice().is_empty()
+                    && job.colony_storage.is_none() =>
+            {
+                job.colony_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+            }
+            (0, RetreatStage::Wars)
+                if job.index == job.state.wars.as_slice().len() && job.colony_storage.is_none() =>
+            {
+                job.colony_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+            }
+            (1, RetreatStage::Colonies)
+                if job.index == job.state.colonies.as_slice().len()
+                    && job.system_storage.is_none() =>
+            {
+                job.system_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+            }
+            (2, RetreatStage::Systems)
+                if job.index == job.state.systems.as_slice().len()
+                    && job.lane_storage.is_none() =>
+            {
+                job.lane_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX))
+            }
+            _ => return false,
+        }
+        true
+    }
+    #[cfg(test)]
+    pub(crate) fn retreat_identity(&self) -> Option<*const ()> {
+        match &self.component {
+            Some(ConflictComponent::Retreat(job)) => Some(std::ptr::from_ref(&**job).cast()),
+            _ => None,
+        }
+    }
+    #[cfg(test)]
     fn component_name(&self) -> &'static str {
         match &self.component {
             Some(ConflictComponent::Retreat(_)) => "retreat",
@@ -8336,6 +16858,23 @@ impl<'a> LivingConflictJobV2<'a> {
             Some(ConflictComponent::Settlement(_)) => "settlement",
             None => "ready",
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_local_capacity_for_extraction(&mut self) {
+        self.fault = Some(ConflictFailure::Combat(
+            ConflictCombatFailure::PreparationCapacity(LifecyclePreparationCause::OutputCapacity),
+        ));
+    }
+    #[cfg(test)]
+    pub(crate) fn inject_combat_piece_capacity_failure(&mut self) -> bool {
+        let Some(ConflictComponent::Combat(job)) = self.component.as_mut() else {
+            return false;
+        };
+        if job.stage == CombatStage::Ready || job.piece_storage.is_some() {
+            return false;
+        }
+        job.piece_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+        true
     }
 }
 impl LivingConflictJobV2<'static> {
@@ -9569,6 +18108,7 @@ mod diplomacy_tests {
             state: &mut state,
             events: &mut events,
             arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
         };
         super::super::rules::reference_diplomacy_for_cursor_test(&mut context).unwrap();
         (state, events)
@@ -9902,6 +18442,7 @@ mod diplomacy_tests {
                 state: &mut expected_state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             },
         )
         .unwrap_err();
@@ -10005,6 +18546,7 @@ mod diplomacy_tests {
                     state: &mut state,
                     events: &mut events,
                     arrivals: Vec::new(),
+                    repair_exclusions: Default::default(),
                 },
             )
             .unwrap_err();
@@ -10104,6 +18646,7 @@ pub struct LivingDispatchJobV2<'a> {
     shipments: BTreeMap<LivingEntityIdV2, LivingShipmentV2>,
     retired_shipment: Option<LivingShipmentV2>,
     cancelled: bool,
+    path_fault: Option<RetreatPathFailure>,
     fault: Option<LivingDeterministicFaultV2>,
     last_poll_visits: usize,
     total_visits: u64,
@@ -10178,6 +18721,7 @@ impl<'a> LivingDispatchJobV2<'a> {
             shipments: BTreeMap::new(),
             retired_shipment: None,
             cancelled: false,
+            path_fault: None,
             fault: None,
             last_poll_visits: 0,
             total_visits: 0,
@@ -10201,6 +18745,9 @@ impl<'a> LivingDispatchJobV2<'a> {
         budget: usize,
     ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
         self.last_poll_visits = 0;
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
@@ -10214,6 +18761,48 @@ impl<'a> LivingDispatchJobV2<'a> {
             if self.retirement.visit() {
                 self.last_poll_visits += 1;
                 self.total_visits += 1;
+                continue;
+            }
+
+            if matches!(
+                self.stage,
+                DispatchStage::FleetTravel | DispatchStage::RouteTravel
+            ) && self.search.is_some()
+            {
+                let child = self.search.as_mut().expect("retained path child");
+                let progress = child.poll(budget - self.last_poll_visits);
+                let visits = child.last_poll_visits();
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                match progress {
+                    Err(error) => {
+                        let failure = RetreatPathFailure::from_public(error);
+                        self.path_fault = Some(failure);
+                        return Err(failure.public());
+                    }
+                    Ok(LivingLifecycleProgressV2::Pending) => {}
+                    Ok(LivingLifecycleProgressV2::Ready) if self.last_poll_visits < budget => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        let result = match self.search.as_mut().unwrap().take_ready_result() {
+                            Ok(result) => result,
+                            Err(error) => {
+                                let failure = RetreatPathFailure::from_public(error);
+                                self.path_fault = Some(failure);
+                                return Err(failure.public());
+                            }
+                        };
+                        let previous = if let Some((duration, path)) = result {
+                            self.duration = Some(duration);
+                            std::mem::replace(&mut self.path, path)
+                        } else {
+                            Vec::new()
+                        };
+                        self.retirement
+                            .start((self.search.take().unwrap(), previous));
+                    }
+                    Ok(LivingLifecycleProgressV2::Ready) => {}
+                }
                 continue;
             }
 
@@ -10247,6 +18836,9 @@ impl<'a> LivingDispatchJobV2<'a> {
     pub fn take_ready_result(
         &mut self,
     ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        if let Some(error) = self.path_fault {
+            return Err(error.public());
+        }
         if self.cancelled {
             return Err(LivingLifecycleJobErrorV2::Cancelled);
         }
@@ -10284,24 +18876,6 @@ impl<'a> LivingDispatchJobV2<'a> {
                 ));
             }
         }
-    }
-    fn travel_visit(&mut self) -> bool {
-        if let Some(search) = &mut self.search {
-            if !search.ready() {
-                return search.visit();
-            }
-            if let Some((duration, path)) = search
-                .take_ready_result()
-                .expect("undelivered ready search")
-            {
-                self.duration = Some(duration);
-                self.path = path;
-            }
-            self.retirement
-                .start(self.search.take().expect("retained ready search"));
-            return true;
-        }
-        false
     }
     fn owned(&self, world: LivingEntityIdV2, actor: LivingEntityIdV2) -> bool {
         self.colonies.get(&world) == Some(&actor)
@@ -10488,9 +19062,6 @@ impl<'a> LivingDispatchJobV2<'a> {
                 return Ok(true);
             }
             FleetTravel => {
-                if self.search.is_some() {
-                    return Ok(self.travel_visit());
-                }
                 if self.duration.is_none() {
                     self.fleet_index += 1;
                     self.advance(Fleet);
@@ -10628,9 +19199,6 @@ impl<'a> LivingDispatchJobV2<'a> {
                 return Ok(true);
             }
             RouteTravel => {
-                if self.search.is_some() {
-                    return Ok(self.travel_visit());
-                }
                 self.advance(RouteAdvance);
             }
             RouteAdvance => {
@@ -11000,6 +19568,7 @@ mod dispatch_tests {
                 state: &mut state,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             },
         )?;
         Ok((state, events))
@@ -11766,6 +20335,7 @@ mod dispatch_tests {
                 state: &mut reference,
                 events: &mut events,
                 arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
             },
         )
         .unwrap();
@@ -12955,6 +21525,32 @@ enum StateRetirementRows {
     Occupations(IntoIter<super::model::LivingOccupationV2>),
 }
 impl StateRetirementRows {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        match self {
+            Self::Systems(rows) => rows.creator_allocations(out),
+            Self::Stars(rows) => rows.creator_allocations(out),
+            Self::Worlds(rows) => rows.creator_allocations(out),
+            Self::Lanes(rows) => rows.creator_allocations(out),
+            Self::Civilizations(rows) => rows.creator_allocations(out),
+            Self::Deposits(rows) => rows.creator_allocations(out),
+            Self::Colonies(rows) => rows.creator_allocations(out),
+            Self::Facilities(rows) => rows.creator_allocations(out),
+            Self::ConstructionJobs(rows) => rows.creator_allocations(out),
+            Self::HullJobs(rows) => rows.creator_allocations(out),
+            Self::Fleets(rows) => rows.creator_allocations(out),
+            Self::Routes(rows) => rows.creator_allocations(out),
+            Self::Shipments(rows) => rows.creator_allocations(out),
+            Self::Relations(rows) => rows.creator_allocations(out),
+            Self::Agreements(rows) => rows.creator_allocations(out),
+            Self::Wars(rows) => rows.creator_allocations(out),
+            Self::Observations(rows) => rows.creator_allocations(out),
+            Self::Hazards(rows) => rows.creator_allocations(out),
+            Self::Claims(rows) => rows.creator_allocations(out),
+            Self::Occupations(rows) => rows.creator_allocations(out),
+        }
+    }
+
     fn begin(state: &mut LivingGalaxyStateV2, collection: usize) -> Self {
         match collection {
             0 => Self::Systems(std::mem::take(&mut state.systems).into_vec().into_iter()),
@@ -13116,6 +21712,17 @@ enum StateRetirementChildren {
     ObservedHulls(IntoIter<super::model::LivingObservedHullV2>),
 }
 impl StateRetirementChildren {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        match self {
+            Self::Reasons(rows) => rows.creator_allocations(out),
+            Self::Path(rows) => rows.creator_allocations(out),
+            Self::Hulls(rows) => rows.creator_allocations(out),
+            Self::ObservedFacilities(rows) => rows.creator_allocations(out),
+            Self::ObservedHulls(rows) => rows.creator_allocations(out),
+        }
+    }
+
     fn remaining(&self) -> usize {
         match self {
             Self::Reasons(rows) => rows.len(),
@@ -13146,6 +21753,20 @@ impl StateRetirementChildren {
     }
 }
 impl StateRetirementParent {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        match self {
+            Self::Colony(rows) => rows.creator_allocations(out),
+            Self::BoxedColony(rows) => (**rows).creator_allocations(out),
+            Self::Facility(rows) => rows.creator_allocations(out),
+            Self::BoxedFacility(rows) => (**rows).creator_allocations(out),
+            Self::Fleet(rows) => rows.creator_allocations(out),
+            Self::BoxedFleet(rows) => (**rows).creator_allocations(out),
+            Self::Observation(rows) => rows.creator_allocations(out),
+            Self::BoxedObservation(rows) => (**rows).creator_allocations(out),
+        }
+    }
+
     fn child(&mut self, index: usize) -> Option<StateRetirementChildren> {
         match (self, index) {
             (Self::Colony(row), 0) => Some(StateRetirementChildren::Reasons(
@@ -14648,9 +23269,19 @@ pub(crate) enum RetirementStep {
 }
 pub(crate) trait RetirementPoll {
     #[cfg(test)]
+    fn production_source_tail(&self, _pointer: *const ()) -> Option<usize> {
+        None
+    }
+    #[cfg(test)]
+    fn path_allocation(&self, _pointer: *const (), _capacity: usize) -> Option<usize> {
+        None
+    }
+    #[cfg(test)]
     fn shared_identity(&self) -> Option<*const ()> {
         None
     }
+    #[cfg(test)]
+    fn creator_allocations(&self, _out: &mut Vec<(usize, usize, Option<usize>, usize)>) {}
     fn retirement_step(&mut self) -> RetirementStep;
 }
 /// A retained exact owner. Ordinary Drop is deliberately not a reclamation API.
@@ -14666,6 +23297,17 @@ pub(crate) struct PrivateDeferredRetirementV2 {
     node: Box<dyn RetirementPoll + 'static>,
 }
 pub(crate) trait RetirementFields<'a>: Sized + 'a {
+    #[cfg(test)]
+    fn creator_allocations(&self, _out: &mut Vec<(usize, usize, Option<usize>, usize)>) {}
+
+    #[cfg(test)]
+    fn production_source_tail(&self, _pointer: *const ()) -> Option<usize> {
+        None
+    }
+    #[cfg(test)]
+    fn path_allocation(&self, _pointer: *const (), _capacity: usize) -> Option<usize> {
+        None
+    }
     const CUSTOM_NODE: bool = false;
     const LEAF: bool = false;
     fn retirement_child(
@@ -14699,6 +23341,38 @@ impl<'a, T> RetirementTree<'a, T> {
     }
 }
 impl<'a, T: RetirementFields<'a>> RetirementPoll for RetirementTree<'a, T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if let Some(owner) = &self.owner {
+            owner.creator_allocations(out);
+        }
+        if let Some(child) = &self.child {
+            child.creator_allocations(out);
+        }
+    }
+
+    #[cfg(test)]
+    fn production_source_tail(&self, pointer: *const ()) -> Option<usize> {
+        self.owner
+            .as_ref()
+            .and_then(|owner| owner.production_source_tail(pointer))
+            .or_else(|| {
+                self.child
+                    .as_ref()
+                    .and_then(|child| child.production_source_tail(pointer))
+            })
+    }
+    #[cfg(test)]
+    fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+        self.owner
+            .as_ref()
+            .and_then(|owner| owner.path_allocation(pointer, capacity))
+            .or_else(|| {
+                self.child
+                    .as_ref()
+                    .and_then(|child| child.path_allocation(pointer, capacity))
+            })
+    }
     fn retirement_step(&mut self) -> RetirementStep {
         if let Some(child) = &mut self.child {
             return match child.retirement_step() {
@@ -14841,6 +23515,7 @@ retirement_leaves!(
     super::model::LivingBlockedReasonV2,
     LivingEventKindV2,
     CombatPiece,
+    RepairTarget,
     CargoCursor,
     super::receipt::LivingEventPayloadV2,
     super::decision::LivingDecisionReasonV2,
@@ -14850,6 +23525,13 @@ retirement_leaves!(
     super::simulation::LivingCreatorRecoveryCandidateV2
 );
 impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for Option<T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if let Some(v) = self {
+            v.creator_allocations(out);
+        }
+    }
+
     const LEAF: bool = T::LEAF;
     fn retirement_child(
         &mut self,
@@ -14860,6 +23542,28 @@ impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for Option<T> {
     }
 }
 impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for Vec<T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        out.push((
+            self.as_ptr() as usize,
+            self.len(),
+            Some(self.capacity()),
+            std::mem::size_of::<T>(),
+        ));
+        for row in self {
+            row.creator_allocations(out);
+        }
+    }
+
+    #[cfg(test)]
+    fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+        if self.as_ptr().cast() == pointer && self.capacity() == capacity {
+            Some(self.len())
+        } else {
+            self.iter()
+                .find_map(|owner| owner.path_allocation(pointer, capacity))
+        }
+    }
     fn retirement_child(
         &mut self,
         _: usize,
@@ -14869,6 +23573,27 @@ impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for Vec<T> {
     }
 }
 impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for IntoIter<T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if !self.as_slice().is_empty()
+            || self.as_slice().as_ptr() != std::ptr::NonNull::<T>::dangling().as_ptr()
+        {
+            out.push((
+                self.as_slice().as_ptr() as usize,
+                self.len(),
+                None,
+                std::mem::size_of::<T>(),
+            ));
+        }
+        for row in self.as_slice() {
+            row.creator_allocations(out);
+        }
+    }
+
+    #[cfg(test)]
+    fn production_source_tail(&self, pointer: *const ()) -> Option<usize> {
+        (self.as_slice().as_ptr().cast() == pointer).then_some(self.len())
+    }
     fn retirement_child(
         &mut self,
         _: usize,
@@ -14878,6 +23603,13 @@ impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for IntoIter<T> {
     }
 }
 impl<'a, T: RetirementFields<'a>> RetirementFields<'a> for std::collections::VecDeque<T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        for row in self {
+            row.creator_allocations(out);
+        }
+    }
+
     fn retirement_child(
         &mut self,
         _: usize,
@@ -14918,6 +23650,19 @@ impl<'a, K: RetirementFields<'a>, V: RetirementFields<'a>> RetirementFields<'a>
     }
 }
 impl<'a, T: RetirementFields<'a> + LivingKeyedV2> RetirementFields<'a> for LivingSortedVecV2<T> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        out.push((
+            self.as_slice().as_ptr() as usize,
+            self.as_slice().len(),
+            Some(self.capacity()),
+            std::mem::size_of::<T>(),
+        ));
+        for row in self.as_slice() {
+            row.creator_allocations(out);
+        }
+    }
+
     fn retirement_child(
         &mut self,
         index: usize,
@@ -14931,6 +23676,10 @@ impl<'a, T: RetirementFields<'a> + LivingKeyedV2> RetirementFields<'a> for Livin
 macro_rules! boxed_phase_retirement {
     ($($ty:ty),* $(,)?)=>{$(
         impl<'a> RetirementFields<'a> for Box<$ty> {
+            #[cfg(test)]
+            fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+                (**self).path_allocation(pointer, capacity)
+            }
             fn retirement_child(&mut self,index:usize,policy:LivingStateRetirementPolicyV2)->Option<Box<dyn RetirementPoll+'a>> {
                 (**self).retirement_child(index,policy)
             }
@@ -14974,6 +23723,12 @@ impl<'a> RetirementFields<'a> for Box<LivingGalaxyStateV2> {
 // Tuple fields are moved once without requiring Default or reconstructing rows.
 struct RetiredPair<A, B>(Option<A>, Option<B>);
 impl<'a, A: RetirementFields<'a>, B: RetirementFields<'a>> RetirementFields<'a> for (A, B) {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.0.creator_allocations(out);
+        self.1.creator_allocations(out);
+    }
+
     const LEAF: bool = A::LEAF && B::LEAF;
     const CUSTOM_NODE: bool = true;
     fn retirement_child(
@@ -14997,6 +23752,12 @@ impl<'a, A: RetirementFields<'a>, B: RetirementFields<'a>> RetirementFields<'a> 
 impl<'a, A: RetirementFields<'a>, B: RetirementFields<'a>> RetirementFields<'a>
     for RetiredPair<A, B>
 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.0.creator_allocations(out);
+        self.1.creator_allocations(out);
+    }
+
     fn retirement_child(
         &mut self,
         index: usize,
@@ -15012,6 +23773,13 @@ impl<'a, A: RetirementFields<'a>, B: RetirementFields<'a>> RetirementFields<'a>
 impl<'a, A: RetirementFields<'a>, B: RetirementFields<'a>, C: RetirementFields<'a>>
     RetirementFields<'a> for (A, B, C)
 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.0.creator_allocations(out);
+        self.1.creator_allocations(out);
+        self.2.creator_allocations(out);
+    }
+
     const CUSTOM_NODE: bool = true;
     fn retirement_child(
         &mut self,
@@ -15050,6 +23818,25 @@ struct StateRetirementNode {
     complete: bool,
 }
 impl RetirementPoll for StateRetirementNode {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if let Some(state) = &self.job.owned {
+            state.creator_allocations(out);
+        }
+        if let Some(state) = &self.job.boxed {
+            (**state).creator_allocations(out);
+        }
+        if let Some(rows) = &self.job.rows {
+            rows.creator_allocations(out);
+        }
+        if let Some(parent) = &self.job.parent {
+            parent.creator_allocations(out);
+        }
+        if let Some(children) = &self.job.children {
+            children.creator_allocations(out);
+        }
+    }
+
     fn retirement_step(&mut self) -> RetirementStep {
         if self.complete {
             return RetirementStep::Done;
@@ -15096,6 +23883,30 @@ impl RetirementPoll for CatalogRetirementNode {
     }
 }
 impl<'a> RetirementFields<'a> for LivingGalaxyStateV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.systems.creator_allocations(out);
+        self.stars.creator_allocations(out);
+        self.worlds.creator_allocations(out);
+        self.lanes.creator_allocations(out);
+        self.civilizations.creator_allocations(out);
+        self.deposits.creator_allocations(out);
+        self.colonies.creator_allocations(out);
+        self.facilities.creator_allocations(out);
+        self.construction_jobs.creator_allocations(out);
+        self.hull_jobs.creator_allocations(out);
+        self.fleets.creator_allocations(out);
+        self.routes.creator_allocations(out);
+        self.shipments.creator_allocations(out);
+        self.relations.creator_allocations(out);
+        self.agreements.creator_allocations(out);
+        self.wars.creator_allocations(out);
+        self.observations.creator_allocations(out);
+        self.hazards.creator_allocations(out);
+        self.settlement_claims.creator_allocations(out);
+        self.occupations.creator_allocations(out);
+    }
+
     const CUSTOM_NODE: bool = true;
     fn retirement_child(
         &mut self,
@@ -15247,6 +24058,16 @@ struct RowRetirementNode {
     index: usize,
 }
 impl RetirementPoll for RowRetirementNode {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if let Some(parent) = &self.parent {
+            parent.creator_allocations(out);
+        }
+        if let Some(children) = &self.children {
+            children.creator_allocations(out);
+        }
+    }
+
     fn retirement_step(&mut self) -> RetirementStep {
         if let Some(children) = &mut self.children {
             if children.remaining() != 0 {
@@ -15272,8 +24093,16 @@ impl RetirementPoll for RowRetirementNode {
     }
 }
 macro_rules! retirement_rows {
+    (@observe $row:ident,$out:ident,Colony)=>{$row.hub.blocked_reasons.creator_allocations($out)};
+    (@observe $row:ident,$out:ident,Facility)=>{$row.blocked_reasons.creator_allocations($out)};
+    (@observe $row:ident,$out:ident,Fleet)=>{{if let Some(order)=&$row.order {order.lane_path.creator_allocations($out);} $row.hulls.creator_allocations($out);}};
+    (@observe $row:ident,$out:ident,Observation)=>{{$row.facilities.creator_allocations($out);$row.stationed_hulls.creator_allocations($out);}};
     ($($ty:ty => $variant:ident),* $(,)?)=>{$(
         impl<'a> RetirementFields<'a> for $ty {
+            #[cfg(test)]
+            fn creator_allocations(&self,out:&mut Vec<(usize,usize,Option<usize>,usize)>) {
+                retirement_rows!(@observe self,out,$variant);
+            }
             const CUSTOM_NODE: bool = true;
             fn retirement_child(&mut self,_:usize,_:LivingStateRetirementPolicyV2)->Option<Box<dyn RetirementPoll+'a>> { unreachable!("row uses shared state child cursor") }
             fn retirement_node(self,_:LivingStateRetirementPolicyV2)->Box<dyn RetirementPoll+'a> {
@@ -15349,31 +24178,52 @@ impl<'a> RetirementFields<'a> for LivingLifecycleJobV2 {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            state,
+            events,
+            agreements,
+            wars,
+            occupations,
+            agreement_rows,
+            agreement_output,
+            ended_pairs,
+            owners,
+            pending_agreement,
+            pending_war,
+            pending_occupation,
+            agreement_storage,
+            war_storage,
+            occupation_storage,
+            append,
+            retirement,
+            delivered: _,
+            tick: _,
+            resume: _,
+            cursor: _,
+            index: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
-            0 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
-            1 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
-            2 => Some(retirement_node(
-                std::mem::take(&mut self.agreements),
-                policy,
-            )),
-            3 => Some(retirement_node(std::mem::take(&mut self.wars), policy)),
-            4 => Some(retirement_node(
-                std::mem::take(&mut self.occupations),
-                policy,
-            )),
-            5 => Some(retirement_node(
-                std::mem::take(&mut self.agreement_rows),
-                policy,
-            )),
-            6 => Some(retirement_node(
-                std::mem::take(&mut self.agreement_output),
-                policy,
-            )),
-            7 => Some(retirement_node(
-                std::mem::take(&mut self.ended_pairs),
-                policy,
-            )),
-            8 => Some(retirement_node(std::mem::take(&mut self.owners), policy)),
+            0 => Some(retirement_node(std::mem::take(state), policy)),
+            1 => Some(retirement_node(std::mem::take(events), policy)),
+            2 => Some(retirement_node(std::mem::take(agreements), policy)),
+            3 => Some(retirement_node(std::mem::take(wars), policy)),
+            4 => Some(retirement_node(std::mem::take(occupations), policy)),
+            5 => Some(retirement_node(std::mem::take(agreement_rows), policy)),
+            6 => Some(retirement_node(agreement_output.take(), policy)),
+            7 => Some(retirement_node(std::mem::take(ended_pairs), policy)),
+            8 => Some(retirement_node(std::mem::take(owners), policy)),
+            9 => Some(retirement_node(pending_agreement.take(), policy)),
+            10 => Some(retirement_node(pending_war.take(), policy)),
+            11 => Some(retirement_node(pending_occupation.take(), policy)),
+            12 => Some(retirement_node(agreement_storage.take(), policy)),
+            13 => Some(retirement_node(war_storage.take(), policy)),
+            14 => Some(retirement_node(occupation_storage.take(), policy)),
+            15 => Some(retirement_node(append.take(), policy)),
+            16 => Some(retirement_node(std::mem::take(retirement), policy)),
             _ => None,
         }
     }
@@ -15395,37 +24245,59 @@ impl<'a> RetirementFields<'a> for LivingArrivalJobV2 {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement,
+            active_fleet,
+            delivered: _,
+            state,
+            events,
+            tick: _,
+            fleets,
+            shipments,
+            relations,
+            world_meta,
+            active_wars,
+            relation_rows,
+            relation_output,
+            arrivals,
+            pending_arrival,
+            pending_relation,
+            fleet_storage,
+            shipment_storage,
+            relation_storage,
+            arrival_storage,
+            append,
+            append_explained: _,
+            resume: _,
+            cursor: _,
+            index: _,
+            cargo,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
-            0 => Some(retirement_node(
-                std::mem::take(&mut self.retirement),
-                policy,
-            )),
-            1 => Some(retirement_node(self.active_fleet.take(), policy)),
-            2 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
-            3 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
-            4 => Some(retirement_node(std::mem::take(&mut self.fleets), policy)),
-            5 => Some(retirement_node(std::mem::take(&mut self.shipments), policy)),
-            6 => Some(retirement_node(std::mem::take(&mut self.relations), policy)),
-            7 => Some(retirement_node(
-                std::mem::take(&mut self.world_meta),
-                policy,
-            )),
-            8 => Some(retirement_node(std::mem::take(&mut self.graph), policy)),
-            9 => Some(retirement_node(
-                std::mem::take(&mut self.active_wars),
-                policy,
-            )),
-            10 => Some(retirement_node(
-                std::mem::take(&mut self.relation_rows),
-                policy,
-            )),
-            11 => Some(retirement_node(
-                std::mem::take(&mut self.relation_output),
-                policy,
-            )),
-            12 => Some(retirement_node(std::mem::take(&mut self.arrivals), policy)),
-            13 => Some(retirement_node(std::mem::take(&mut self.cargo), policy)),
-            14 => Some(retirement_node(std::mem::take(&mut self.search), policy)),
+            0 => Some(retirement_node(std::mem::take(retirement), policy)),
+            1 => Some(retirement_node(active_fleet.take(), policy)),
+            2 => Some(retirement_node(std::mem::take(state), policy)),
+            3 => Some(retirement_node(std::mem::take(events), policy)),
+            4 => Some(retirement_node(std::mem::take(fleets), policy)),
+            5 => Some(retirement_node(std::mem::take(shipments), policy)),
+            6 => Some(retirement_node(std::mem::take(relations), policy)),
+            7 => Some(retirement_node(std::mem::take(world_meta), policy)),
+            8 => Some(retirement_node(std::mem::take(active_wars), policy)),
+            9 => Some(retirement_node(std::mem::take(relation_rows), policy)),
+            10 => Some(retirement_node(std::mem::take(relation_output), policy)),
+            11 => Some(retirement_node(std::mem::take(arrivals), policy)),
+            12 => Some(retirement_node(pending_arrival.take(), policy)),
+            13 => Some(retirement_node(pending_relation.take(), policy)),
+            14 => Some(retirement_node(fleet_storage.take(), policy)),
+            15 => Some(retirement_node(shipment_storage.take(), policy)),
+            16 => Some(retirement_node(relation_storage.take(), policy)),
+            17 => Some(retirement_node(arrival_storage.take(), policy)),
+            18 => Some(retirement_node(append.take(), policy)),
+            19 => Some(retirement_node(cargo.take(), policy)),
             _ => None,
         }
     }
@@ -15447,18 +24319,33 @@ impl<'a> RetirementFields<'a> for LivingRecipeJobV2 {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            delivered: _,
+            inventory: _,
+            remaining_deposit: _,
+            deposit_units: _,
+            inputs,
+            outputs,
+            stage: _,
+            index: _,
+            pending_reason,
+            reasons,
+            reason_output,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+            reason_storage,
+            retirement,
+        } = self;
         match index {
-            0 => Some(retirement_node(self.inputs.0.take(), policy)),
-            1 => Some(retirement_node(self.outputs.0.take(), policy)),
-            2 => Some(retirement_node(
-                std::mem::take(&mut self.pending_reason),
-                policy,
-            )),
-            3 => Some(retirement_node(std::mem::take(&mut self.reasons), policy)),
-            4 => Some(retirement_node(
-                std::mem::take(&mut self.reason_output),
-                policy,
-            )),
+            0 => Some(retirement_node(inputs.0.take(), policy)),
+            1 => Some(retirement_node(outputs.0.take(), policy)),
+            2 => Some(retirement_node(pending_reason.take(), policy)),
+            3 => Some(retirement_node(std::mem::take(reasons), policy)),
+            4 => Some(retirement_node(std::mem::take(reason_output), policy)),
+            5 => Some(retirement_node(reason_storage.take(), policy)),
+            6 => Some(retirement_node(std::mem::take(retirement), policy)),
             _ => None,
         }
     }
@@ -15480,28 +24367,39 @@ impl<'a> RetirementFields<'a> for LivingRepairJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement,
+            delivered: _,
+            catalog,
+            state,
+            tick: _,
+            world_index,
+            hit_points,
+            battery_hit_points,
+            targets,
+            exclusions,
+            pending: _,
+            index: _,
+            hull_index: _,
+            world_position: _,
+            cursor: _,
+            resume: _,
+            cleanup_index: _,
+            paid: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
-            0 => Some(retirement_node(self.catalog.0.take(), policy)),
-            1 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
-            2 => Some(retirement_node(std::mem::take(&mut self.source), policy)),
-            3 => Some(retirement_node(
-                std::mem::take(&mut self.world_index),
-                policy,
-            )),
-            4 => Some(retirement_node(
-                std::mem::take(&mut self.hit_points),
-                policy,
-            )),
-            5 => Some(retirement_node(std::mem::take(&mut self.fleet), policy)),
-            6 => Some(retirement_node(
-                std::mem::take(&mut self.hull_source),
-                policy,
-            )),
-            7 => Some(retirement_node(
-                std::mem::take(&mut self.hull_output),
-                policy,
-            )),
-            8 => Some(retirement_node(std::mem::take(&mut self.hull), policy)),
+            0 => Some(retirement_node(std::mem::take(retirement), policy)),
+            1 => Some(retirement_node(catalog.0.take(), policy)),
+            2 => Some(retirement_node(std::mem::take(state), policy)),
+            3 => Some(retirement_node(std::mem::take(world_index), policy)),
+            4 => Some(retirement_node(std::mem::take(hit_points), policy)),
+            5 => Some(retirement_node(std::mem::take(battery_hit_points), policy)),
+            6 => Some(retirement_node(std::mem::take(targets), policy)),
+            7 => Some(retirement_node(std::mem::take(exclusions), policy)),
             _ => None,
         }
     }
@@ -15572,6 +24470,46 @@ impl<'a> RetirementFields<'a> for LivingCombatJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement: _,
+            repair_exclusions: _,
+            delivered: _,
+            catalog: _,
+            state: _,
+            events: _,
+            tick: _,
+            stage: _,
+            index: _,
+            hull_index: _,
+            target_index: _,
+            piece_bound: _,
+            target: _,
+            pieces: _,
+            piece_storage: _,
+            harm_storage: _,
+            facility_storage: _,
+            fleet_storage: _,
+            hull_storage: _,
+            append: _,
+            resume: _,
+            wars: _,
+            hull_fleets: _,
+            harm_index: _,
+            harm: _,
+            facilities: _,
+            fleets: _,
+            dead_reasons: _,
+            pending_facility: _,
+            fleet: _,
+            pending_hull: _,
+            hulls: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+            #[cfg(test)]
+                stage_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(self.catalog.0.take(), policy)),
             1 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
@@ -15599,6 +24537,22 @@ impl<'a> RetirementFields<'a> for LivingCombatJobV2<'a> {
             )),
             12 => Some(retirement_node(std::mem::take(&mut self.fleet), policy)),
             13 => Some(retirement_node(std::mem::take(&mut self.hulls), policy)),
+            14 => Some(retirement_node(
+                std::mem::take(&mut self.repair_exclusions),
+                policy,
+            )),
+            15 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
+            16 => Some(retirement_node(self.piece_storage.take(), policy)),
+            17 => Some(retirement_node(self.harm_storage.take(), policy)),
+            18 => Some(retirement_node(self.facility_storage.take(), policy)),
+            19 => Some(retirement_node(self.fleet_storage.take(), policy)),
+            20 => Some(retirement_node(self.hull_storage.take(), policy)),
+            21 => Some(retirement_node(self.append.take(), policy)),
+            22 => Some(retirement_node(self.pending_facility.take(), policy)),
+            23 => Some(retirement_node(self.pending_hull.take(), policy)),
             _ => None,
         }
     }
@@ -15615,17 +24569,56 @@ impl<'a> LivingCombatJobV2<'a> {
 }
 
 impl<'a> RetirementFields<'a> for RetreatPathJob {
+    #[cfg(test)]
+    fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+        self.best
+            .path_allocation(pointer, capacity)
+            .or_else(|| self.copied.path_allocation(pointer, capacity))
+            .or_else(|| self.retirement.path_allocation(pointer, capacity))
+    }
     fn retirement_child(
         &mut self,
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        // Exhaustive inventory: owner slots below, fixed controls remain in the root.
+        let Self {
+            retirement: _,
+            best_storage: _,
+            copy_storage: _,
+            fault: _,
+            cancelled: _,
+            last_poll_visits: _,
+            total_visits: _,
+            graph: _,
+            origin: _,
+            destination: _,
+            stage: _,
+            best: _,
+            index: _,
+            choice: _,
+            selected: _,
+            lane: _,
+            next: _,
+            next_cost: _,
+            compare: _,
+            copied: _,
+            retired: _,
+            result: _,
+            delivered: _,
+        } = self;
         match index {
             0 => Some(retirement_node(self.graph.0.take(), policy)),
             1 => Some(retirement_node(std::mem::take(&mut self.best), policy)),
             2 => Some(retirement_node(std::mem::take(&mut self.copied), policy)),
             3 => Some(retirement_node(std::mem::take(&mut self.retired), policy)),
             4 => Some(retirement_node(std::mem::take(&mut self.result), policy)),
+            5 => Some(retirement_node(self.best_storage.take(), policy)),
+            6 => Some(retirement_node(self.copy_storage.take(), policy)),
+            7 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
             _ => None,
         }
     }
@@ -15647,6 +24640,43 @@ impl<'a> RetirementFields<'a> for LivingRetreatJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        // Exhaustive inventory: owner slots below, fixed controls remain in the root.
+        let Self {
+            retirement: _,
+            repair_exclusions: _,
+            delivered: _,
+            catalog: _,
+            state: _,
+            events: _,
+            tick: _,
+            stage: _,
+            index: _,
+            fleet_index: _,
+            hull_index: _,
+            colony_index: _,
+            origin_world: _,
+            destination_world: _,
+            metadata: _,
+            wars: _,
+            colonies: _,
+            graph: _,
+            search: _,
+            winner: _,
+            retired_path: _,
+            cancelled: _,
+            colony_storage: _,
+            system_storage: _,
+            lane_storage: _,
+            pending_colony: _,
+            pending_system: _,
+            pending_lane: _,
+            append: _,
+            retired_order: _,
+            departure_duration: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
                 std::mem::take(&mut self.retirement),
@@ -15665,6 +24695,18 @@ impl<'a> RetirementFields<'a> for LivingRetreatJobV2<'a> {
                 std::mem::take(&mut self.retired_path),
                 policy,
             )),
+            11 => Some(retirement_node(
+                std::mem::take(&mut self.repair_exclusions),
+                policy,
+            )),
+            12 => Some(retirement_node(self.colony_storage.take(), policy)),
+            13 => Some(retirement_node(self.system_storage.take(), policy)),
+            14 => Some(retirement_node(self.lane_storage.take(), policy)),
+            15 => Some(retirement_node(self.pending_colony.take(), policy)),
+            16 => Some(retirement_node(self.pending_system.take(), policy)),
+            17 => Some(retirement_node(self.pending_lane.take(), policy)),
+            18 => Some(retirement_node(self.append.take(), policy)),
+            19 => Some(retirement_node(self.retired_order.take(), policy)),
             _ => None,
         }
     }
@@ -15686,36 +24728,129 @@ impl<'a> RetirementFields<'a> for LivingOccupationJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement: _,
+            snapshot_storage: _,
+            construction_storage: _,
+            hull_storage: _,
+            occupation_storage: _,
+            relation_storage: _,
+            pending_snapshot: _,
+            pending_construction: _,
+            pending_hull: _,
+            pending_occupation: _,
+            pending_relation: _,
+            pending_removed: _,
+            append: _,
+            after_append: _,
+            delivered: _,
+            catalog: _,
+            state: _,
+            events: _,
+            tick: _,
+            stage: _,
+            index: _,
+            fleet_index: _,
+            hull_index: _,
+            colony_index: _,
+            snapshot: _,
+            wars: _,
+            escorts: _,
+            living_escorts: _,
+            batteries: _,
+            occupations: _,
+            relations: _,
+            occupation_source: _,
+            relation_source: _,
+            construction: _,
+            hull_jobs: _,
+            world: _,
+            owner: _,
+            claimant: _,
+            claimants: _,
+            after: _,
+            contested: _,
+            remaining: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
-            0 => Some(retirement_node(self.catalog.0.take(), policy)),
-            1 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
-            2 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
-            3 => Some(retirement_node(std::mem::take(&mut self.snapshot), policy)),
-            4 => Some(retirement_node(std::mem::take(&mut self.wars), policy)),
-            5 => Some(retirement_node(std::mem::take(&mut self.escorts), policy)),
-            6 => Some(retirement_node(
+            0 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
+            1 => Some(retirement_node(self.catalog.0.take(), policy)),
+            2 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
+            3 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
+            4 => Some(retirement_node(std::mem::take(&mut self.snapshot), policy)),
+            5 => Some(retirement_node(std::mem::take(&mut self.wars), policy)),
+            6 => Some(retirement_node(std::mem::take(&mut self.escorts), policy)),
+            7 => Some(retirement_node(
                 std::mem::take(&mut self.living_escorts),
                 policy,
             )),
-            7 => Some(retirement_node(std::mem::take(&mut self.batteries), policy)),
-            8 => Some(retirement_node(
+            8 => Some(retirement_node(std::mem::take(&mut self.batteries), policy)),
+            9 => Some(retirement_node(
                 std::mem::take(&mut self.occupations),
                 policy,
             )),
-            9 => Some(retirement_node(std::mem::take(&mut self.relations), policy)),
-            10 => Some(retirement_node(
+            10 => Some(retirement_node(std::mem::take(&mut self.relations), policy)),
+            11 => Some(retirement_node(
                 std::mem::take(&mut self.occupation_source),
                 policy,
             )),
-            11 => Some(retirement_node(
+            12 => Some(retirement_node(
                 std::mem::take(&mut self.relation_source),
                 policy,
             )),
-            12 => Some(retirement_node(
+            13 => Some(retirement_node(
                 std::mem::take(&mut self.construction),
                 policy,
             )),
-            13 => Some(retirement_node(std::mem::take(&mut self.hull_jobs), policy)),
+            14 => Some(retirement_node(std::mem::take(&mut self.hull_jobs), policy)),
+            15 => Some(retirement_node(
+                std::mem::take(&mut self.snapshot_storage),
+                policy,
+            )),
+            16 => Some(retirement_node(
+                std::mem::take(&mut self.construction_storage),
+                policy,
+            )),
+            17 => Some(retirement_node(
+                std::mem::take(&mut self.hull_storage),
+                policy,
+            )),
+            18 => Some(retirement_node(
+                std::mem::take(&mut self.occupation_storage),
+                policy,
+            )),
+            19 => Some(retirement_node(
+                std::mem::take(&mut self.relation_storage),
+                policy,
+            )),
+            20 => Some(retirement_node(
+                std::mem::take(&mut self.pending_snapshot),
+                policy,
+            )),
+            21 => Some(retirement_node(
+                std::mem::take(&mut self.pending_construction),
+                policy,
+            )),
+            22 => Some(retirement_node(
+                std::mem::take(&mut self.pending_hull),
+                policy,
+            )),
+            23 => Some(retirement_node(
+                std::mem::take(&mut self.pending_occupation),
+                policy,
+            )),
+            24 => Some(retirement_node(
+                std::mem::take(&mut self.pending_relation),
+                policy,
+            )),
+            25 => Some(retirement_node(std::mem::take(&mut self.append), policy)),
             _ => None,
         }
     }
@@ -15737,6 +24872,56 @@ impl<'a> RetirementFields<'a> for LivingSettlementJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement: _,
+            fleet_storage: _,
+            hull_storage: _,
+            claim_storage: _,
+            colony_storage: _,
+            pending_fleet: _,
+            pending_hull: _,
+            pending_claim: _,
+            pending_colony: _,
+            append: _,
+            after_append: _,
+            delivered: _,
+            catalog: _,
+            state: _,
+            events: _,
+            tick: _,
+            seed: _,
+            arrivals: _,
+            stage: _,
+            index: _,
+            fleet_index: _,
+            hull_index: _,
+            world_index: _,
+            arrival_index: _,
+            armed: _,
+            docked: _,
+            fleet_arks: _,
+            arks: _,
+            claims: _,
+            colonies: _,
+            claim_source: _,
+            colony_source: _,
+            world: _,
+            close: _,
+            after: _,
+            winner: _,
+            consume_fleet: _,
+            consume_hull: _,
+            fleet_source: _,
+            fleet: _,
+            hulls: _,
+            retired_path: _,
+            retired_reasons: _,
+            clear_then: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(self.catalog.0.take(), policy)),
             1 => Some(retirement_node(std::mem::take(&mut self.state), policy)),
@@ -15773,6 +24958,43 @@ impl<'a> RetirementFields<'a> for LivingSettlementJobV2<'a> {
                 std::mem::take(&mut self.retired_reasons),
                 policy,
             )),
+            17 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
+            18 => Some(retirement_node(
+                std::mem::take(&mut self.fleet_storage),
+                policy,
+            )),
+            19 => Some(retirement_node(
+                std::mem::take(&mut self.hull_storage),
+                policy,
+            )),
+            20 => Some(retirement_node(
+                std::mem::take(&mut self.claim_storage),
+                policy,
+            )),
+            21 => Some(retirement_node(
+                std::mem::take(&mut self.colony_storage),
+                policy,
+            )),
+            22 => Some(retirement_node(
+                std::mem::take(&mut self.pending_fleet),
+                policy,
+            )),
+            23 => Some(retirement_node(
+                std::mem::take(&mut self.pending_hull),
+                policy,
+            )),
+            24 => Some(retirement_node(
+                std::mem::take(&mut self.pending_claim),
+                policy,
+            )),
+            25 => Some(retirement_node(
+                std::mem::take(&mut self.pending_colony),
+                policy,
+            )),
+            26 => Some(retirement_node(std::mem::take(&mut self.append), policy)),
             _ => None,
         }
     }
@@ -15864,6 +25086,54 @@ impl<'a> RetirementFields<'a> for LivingDispatchJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        // Exhaustive inventory: owner slots below, fixed controls remain in the root.
+        let Self {
+            retirement: _,
+            delivered: _,
+            catalog: _,
+            state: _,
+            events: _,
+            tick: _,
+            genesis_seed: _,
+            branch: _,
+            stage: _,
+            index: _,
+            fleet_index: _,
+            hull_index: _,
+            route_index: _,
+            metadata: _,
+            colonies: _,
+            dormant: _,
+            busy: _,
+            remembered: _,
+            trade: _,
+            lanes: _,
+            hazard_effects: _,
+            graph: _,
+            search: _,
+            duration: _,
+            path: _,
+            retired_path: _,
+            origin: _,
+            destination: _,
+            missing_credit: _,
+            has_ark: _,
+            consumes_credit: _,
+            grant_credit: _,
+            route: _,
+            eligible: _,
+            batch: _,
+            hazard: _,
+            permitted: _,
+            shipment_input: _,
+            shipments: _,
+            retired_shipment: _,
+            cancelled: _,
+            path_fault: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
                 std::mem::take(&mut self.retirement),
@@ -15955,6 +25225,21 @@ impl<'a> RetirementFields<'a> for LivingConflictJobV2<'a> {
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            retirement: _,
+            repair_exclusions: _,
+            delivered: _,
+            catalog: _,
+            tick: _,
+            seed: _,
+            arrivals: _,
+            component: _,
+            output: _,
+            cancelled: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
                 std::mem::take(&mut self.retirement),
@@ -15967,6 +25252,10 @@ impl<'a> RetirementFields<'a> for LivingConflictJobV2<'a> {
             )),
             3 => Some(retirement_node(std::mem::take(&mut self.arrivals), policy)),
             4 => Some(retirement_node(self.catalog.0.take(), policy)),
+            5 => Some(retirement_node(
+                std::mem::take(&mut self.repair_exclusions),
+                policy,
+            )),
             _ => None,
         }
     }
@@ -16011,6 +25300,10 @@ impl<'a> RetirementFields<'a> for RetreatGraph {
 }
 
 impl<'a> RetirementFields<'a> for RetreatDistance {
+    #[cfg(test)]
+    fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+        self.path.path_allocation(pointer, capacity)
+    }
     fn retirement_child(
         &mut self,
         index: usize,
@@ -16106,19 +25399,45 @@ impl<'a> RetirementFields<'a> for ConflictComponent<'a> {
 impl<'a, T: LivingKeyedV2 + RetirementFields<'a>> RetirementFields<'a>
     for LivingSortedInsertionJobV2<T>
 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.source.creator_allocations(out);
+        self.output.creator_allocations(out);
+        self.inserted.creator_allocations(out);
+        self.held.creator_allocations(out);
+        self.preparation.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+    }
+
     fn retirement_child(
         &mut self,
         index: usize,
         policy: LivingStateRetirementPolicyV2,
     ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            preparation,
+            replace_equal: _,
+            source,
+            output,
+            inserted,
+            held,
+            retirement,
+            delivered: _,
+            source_finished: _,
+            setup: _,
+            source_retired: _,
+            fault: _,
+        } = self;
         match index {
             0 => Some(retirement_node(
-                std::mem::replace(&mut self.source, Vec::new().into_iter()),
+                std::mem::replace(source, Vec::new().into_iter()),
                 policy,
             )),
-            1 => Some(retirement_node(std::mem::take(&mut self.output), policy)),
-            2 => Some(retirement_node(self.inserted.take(), policy)),
-            3 => Some(retirement_node(self.held.take(), policy)),
+            1 => Some(retirement_node(std::mem::take(output), policy)),
+            2 => Some(retirement_node(inserted.take(), policy)),
+            3 => Some(retirement_node(held.take(), policy)),
+            4 => Some(retirement_node(std::mem::take(retirement), policy)),
+            5 => Some(retirement_node(preparation.take(), policy)),
             _ => None,
         }
     }
@@ -16139,8 +25458,18 @@ pub(crate) struct PhaseRetirementLane<'a> {
     deferred: Option<LivingPhaseDeferredRetirementV2>,
 }
 impl<'a> PhaseRetirementLane<'a> {
+    #[cfg(test)]
+    pub(crate) fn production_source_tail(&self, pointer: *const ()) -> Option<usize> {
+        self.node
+            .as_ref()
+            .and_then(|node| node.production_source_tail(pointer))
+    }
     pub(crate) fn is_empty(&self) -> bool {
         self.node.is_none() && self.deferred.is_none()
+    }
+    pub(crate) fn start_node(&mut self, node: Box<dyn RetirementPoll + 'a>) {
+        assert!(self.is_empty(), "one retained retirement lane");
+        self.node = Some(node);
     }
     pub(crate) fn start<T: RetirementFields<'a>>(&mut self, owner: T) {
         assert!(
@@ -16170,6 +25499,19 @@ impl<'a> PhaseRetirementLane<'a> {
     }
 }
 impl<'a, 'b: 'a> RetirementFields<'a> for PhaseRetirementLane<'b> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        if let Some(node) = &self.node {
+            node.creator_allocations(out);
+        }
+    }
+
+    #[cfg(test)]
+    fn path_allocation(&self, pointer: *const (), capacity: usize) -> Option<usize> {
+        self.node
+            .as_ref()
+            .and_then(|node| node.path_allocation(pointer, capacity))
+    }
     fn retirement_child(
         &mut self,
         index: usize,
@@ -16211,6 +25553,11 @@ fn ensure_retained_sorted<T: LivingKeyedV2>(
 }
 
 impl<'a> RetirementFields<'a> for LivingFleetOrderV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.lane_path.creator_allocations(out);
+    }
+
     fn retirement_child(
         &mut self,
         index: usize,
@@ -16307,6 +25654,13 @@ mod phase_retirement_tests {
         }
     }
     macro_rules! phase_case {
+        (@cause phase_retirement_repair) => { RepairFailure::Arithmetic };
+        (@cause phase_retirement_lifecycle) => { LifecycleFailure::Arithmetic };
+        (@cause phase_retirement_arrival) => { LifecycleFailure::Arithmetic };
+        (@cause phase_retirement_combat) => { LifecycleFailure::Arithmetic };
+        (@cause phase_retirement_retreat) => { RetreatFailure::Arithmetic };
+        (@cause phase_retirement_settlement) => { SettlementFailure::Arithmetic };
+        (@cause $other:ident) => { LivingDeterministicFaultV2::Arithmetic };
         ($name:ident,$factory:expr,$stage:ident) => {
             #[test]
             fn $name() {
@@ -16319,7 +25673,7 @@ mod phase_retirement_tests {
                     |j, b| j.poll(b),
                     |j, fault| {
                         if fault {
-                            j.fault = Some(LivingDeterministicFaultV2::Arithmetic)
+                            j.fault = Some(phase_case!(@cause $name))
                         } else {
                             j.cancel()
                         }
@@ -16358,16 +25712,6 @@ mod phase_retirement_tests {
     phase_case!(
         phase_retirement_retreat,
         |s, c| LivingRetreatJobV2::begin_owned(c, s, LivingPendingEventsV2::new(), LivingTickV2(1)),
-        stage
-    );
-    phase_case!(
-        phase_retirement_occupation,
-        |s, c| LivingOccupationJobV2::begin_owned(
-            c,
-            s,
-            LivingPendingEventsV2::new(),
-            LivingTickV2(1)
-        ),
         stage
     );
     phase_case!(
@@ -16444,7 +25788,7 @@ mod phase_retirement_tests {
             |j, b| j.poll(b),
             |j, f| {
                 if f {
-                    j.fault = Some(LivingDeterministicFaultV2::Arithmetic)
+                    j.fault = Some(ConflictFailure::Settlement(SettlementFailure::Arithmetic))
                 } else {
                     j.cancel()
                 }
@@ -16455,28 +25799,43 @@ mod phase_retirement_tests {
     }
     #[test]
     fn phase_retirement_recipe() {
-        exercise(
-            || {
-                LivingRecipeJobV2::begin(
-                    Default::default(),
-                    10,
-                    0,
-                    vec![(LivingResourceV2::Ore, 2); 4],
-                    vec![(LivingResourceV2::Energy, 1); 3],
-                )
-            },
-            |j, b| j.poll(b),
-            |j, f| {
-                if f {
-                    j.fault = Some(LivingDeterministicFaultV2::Arithmetic)
-                } else {
-                    j.cancel()
+        // C7 + M4 + 2K2 + setup/map4 =17; fixed cause is Invariant,
+        // so this scoped regression cannot use the generic Arithmetic injector.
+        for cut in 0..=17 {
+            for fault in [false, true] {
+                let mut expected = None;
+                for budgets in [&[1][..], &[64][..], &[1024][..], MIXED] {
+                    let mut job = LivingRecipeJobV2::begin(
+                        Default::default(),
+                        10,
+                        0,
+                        vec![(LivingResourceV2::Ore, 2); 4],
+                        vec![(LivingResourceV2::Energy, 1); 3],
+                    );
+                    for _ in 0..cut {
+                        job.poll(1).unwrap();
+                    }
+                    let error = if fault {
+                        job.fault = Some(RecipeFailure::Invariant);
+                        RecipeFailure::Invariant.public()
+                    } else {
+                        job.cancel();
+                        LivingLifecycleJobErrorV2::Cancelled
+                    };
+                    assert!(matches!(job.take_ready_result(),Err(e) if e==error));
+                    assert_eq!(job.poll(1), Err(error));
+                    assert_eq!(job.last_poll_visits(), 0);
+                    let total = drain(job, budgets);
+                    if let Some(expected) = expected {
+                        assert_eq!(total, expected);
+                    } else {
+                        expected = Some(total);
+                    }
                 }
-            },
-            |j| j.take_ready_result().map(|_| ()),
-            |j| j.stage.to_string(),
-        );
+            }
+        }
     }
+
     #[test]
     fn phase_retirement_exact_leaf_and_nested_storage_totals() {
         // Every moved leaf uses one acquisition, one parent release and one
@@ -16514,7 +25873,8 @@ mod phase_retirement_tests {
             // source: 3 (move/storage/Box); output: 6 (SortedVec + Vec);
             // inserted: 13 (Option + shared Fleet cursor's 8 + shells);
             // absent held Option: 3; original insertion parent: 1.
-            assert_eq!(total, 3 + 6 + 13 + 3 + 1);
+            // New lane: acquire 1 + empty lane subtree 7 + dynamic shell 1.
+            assert_eq!(total, 3 + 6 + 13 + 3 + 9 + 3 + 1);
             state.facilities = LivingSortedVecV2::default();
         }
     }
@@ -16584,7 +25944,7 @@ mod phase_retirement_tests {
         let mut probe = make();
         let mut count = 0;
         while !probe.ready() {
-            probe.visit();
+            probe.poll(1).unwrap();
             count += 1;
             assert!(count < 1000);
         }
@@ -16593,7 +25953,7 @@ mod phase_retirement_tests {
             for budgets in [&[1][..], &[64][..], &[1024][..], MIXED] {
                 let mut path = make();
                 for _ in 0..cutoff {
-                    path.visit();
+                    path.poll(1).unwrap();
                 }
                 if !path.ready() {
                     assert!(path.take_ready_result().is_err());
@@ -16661,6 +26021,7 @@ mod phase_retirement_shared_tests {
             LivingSortedInsertionJobV2::begin(LivingSortedVecV2::default(), fleet.clone());
         job.output = LivingSortedVecV2::new(vec![fleet]).unwrap();
         job.source_finished = true;
+        job.setup = true;
         let inserted_pointer = job.inserted.as_ref().unwrap().hulls.as_slice().as_ptr();
         assert_ne!(pointer, inserted_pointer);
         assert!(job.visit().is_err());
@@ -16700,5 +26061,5065 @@ impl<'a> RetirementFields<'a> for LivingStateCopyJobV2 {
         policy: LivingStateRetirementPolicyV2,
     ) -> Box<dyn RetirementPoll + 'a> {
         Box::new(self.into_retirement(policy))
+    }
+}
+
+#[cfg(test)]
+mod storage_forward_tests {
+    use super::*;
+    use std::collections::VecDeque;
+    const SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 7, 1024, 3]];
+
+    fn id(value: u8) -> LivingEntityIdV2 {
+        LivingEntityIdV2([value; 16])
+    }
+    fn system(value: u8) -> super::super::model::LivingSystemV2 {
+        super::super::model::LivingSystemV2 {
+            id: id(value),
+            name: super::super::catalog::LivingNameV2::new("Storage").unwrap(),
+        }
+    }
+    fn source(n: usize, capacity: usize) -> LivingSortedVecV2<super::super::model::LivingSystemV2> {
+        let mut rows = Vec::with_capacity(capacity);
+        for value in 0..n {
+            rows.push(system(value as u8));
+        }
+        LivingSortedVecV2::new(rows).unwrap()
+    }
+    fn drain<T: RetirementFields<'static>>(owner: T, budget: &[usize]) -> u64 {
+        let mut job =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut calls = 0;
+        loop {
+            let progress = job.poll(budget[calls % budget.len()]).unwrap();
+            assert!(job.last_poll_visits() <= budget[calls % budget.len()]);
+            assert!(job.take_deferred_owner().is_none());
+            calls += 1;
+            if progress == LivingLifecycleProgressV2::Ready {
+                return job.total_visits();
+            }
+            assert!(calls < 10000);
+        }
+    }
+    // Independent field/node decomposition, not observations from drain().
+    fn cancelled_growth_cost(n: usize, cut: usize, sorted: bool) -> u64 {
+        let prefix = if cut <= 1 {
+            25
+        } else if cut <= n + 2 {
+            28
+        } else if cut == n + 4 {
+            24
+        } else {
+            25
+        };
+        (3 * n + prefix + if sorted { 3 } else { 0 }) as u64
+    }
+
+    #[test]
+    fn sorted_insertion_counts_setup_and_original_storage_cleanup() {
+        for n in [0, 1, 7, 100] {
+            for allocated_empty in [false, true] {
+                let original = source(n, if allocated_empty { n + 16 } else { n });
+                let original_ptr = original.as_slice().as_ptr();
+                let mut job = LivingSortedInsertionJobV2::begin(original, system(250));
+                assert!(job.take_ready_result().is_err());
+                assert_eq!(job.source.as_slice().as_ptr(), original_ptr);
+                let mut visits = 0;
+                let mut output_ptr = None;
+                while !job.ready() {
+                    visits += usize::from(job.visit().unwrap());
+                    if job.setup {
+                        let ptr = job.output.as_slice().as_ptr();
+                        assert_eq!(*output_ptr.get_or_insert(ptr), ptr);
+                        assert!(job.output.capacity() > n);
+                    }
+                    if !job.source_retired && job.source_finished {
+                        // IntoIter retains its original allocation through exhaustion.
+                        assert_eq!(job.source.as_slice().as_ptr(), original_ptr.wrapping_add(n));
+                    }
+                    assert!(visits < 10000);
+                }
+                // N acquisitions + N+1 emissions + setup + handoff/storage/node shell.
+                assert_eq!(visits, 2 * n + 33);
+                assert!(job.retirement.is_empty());
+                assert!(!job.visit().unwrap());
+                let result = job.take_ready_result().unwrap();
+                assert_eq!(result.as_slice().len(), n + 1);
+                assert_eq!(result.as_slice()[n].id, id(250));
+                assert!(job.take_ready_result().is_err());
+                assert!(!job.visit().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn vec_growth_spare_empty_formulas_and_stable_owners() {
+        for budgets in SCHEDULES {
+            for n in [0, 1, 7, 100] {
+                let mut original = Vec::with_capacity(n + 8);
+                original.extend(0..n as u64);
+                let pointer = original.as_ptr();
+                let capacity = original.capacity();
+                let mut spare = LivingVecStorageJobV2::begin(original, 1);
+                assert!(spare.take_ready_result().is_err());
+                assert_eq!(spare.poll(0), Err(LivingStorageJobErrorV2::Budget));
+                assert_eq!(spare.poll(1025), Err(LivingStorageJobErrorV2::Budget));
+                assert_eq!(spare.total_visits(), 0);
+                assert_eq!(
+                    spare.poll(budgets[0]).unwrap(),
+                    LivingLifecycleProgressV2::Ready
+                );
+                assert_eq!(spare.total_visits(), 1);
+                let mut prepared = spare.take_ready_result().unwrap();
+                assert_eq!(prepared.as_ptr(), pointer);
+                assert_eq!(prepared.capacity(), capacity);
+                let mut pending = Some(999);
+                LivingVecStorageJobV2::commit_one(&mut prepared, &mut pending).unwrap();
+                assert!(pending.is_none());
+                assert_eq!(prepared.as_ptr(), pointer);
+                assert_eq!(spare.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+                assert_eq!(spare.last_poll_visits(), 0);
+                assert!(spare.take_ready_result().is_err());
+                drain(prepared, budgets);
+
+                let mut input = Vec::with_capacity(n + 1);
+                input.extend(0..n as u64);
+                let original_ptr = input.as_ptr();
+                let additional = input.capacity() + 1;
+                let mut job = LivingVecStorageJobV2::begin(input, additional);
+                let mut calls = 0;
+                let mut destination_pointer = None;
+                while !job.ready() {
+                    job.poll(budgets[calls % budgets.len()]).unwrap();
+                    if let Some(destination) = &job.destination {
+                        assert_eq!(
+                            *destination_pointer.get_or_insert(destination.as_ptr()),
+                            destination.as_ptr()
+                        );
+                    }
+                    if let Some(source) = &job.source {
+                        let transferred = n - source.len();
+                        assert_eq!(
+                            source.as_slice().as_ptr(),
+                            original_ptr.wrapping_add(transferred)
+                        );
+                    }
+                    calls += 1;
+                }
+                assert_eq!(job.total_visits(), (n + 5) as u64);
+                let prepared = job.take_ready_result().unwrap();
+                assert_eq!(prepared, (0..n as u64).collect::<Vec<_>>());
+                assert!(prepared.capacity() >= n + additional);
+                assert_eq!(job.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+                assert_eq!(job.last_poll_visits(), 0);
+            }
+            let mut empty = LivingVecStorageJobV2::<u64>::begin_empty(0);
+            assert_eq!(
+                empty.poll(budgets[0]).unwrap(),
+                LivingLifecycleProgressV2::Ready
+            );
+            assert_eq!(empty.total_visits(), 1);
+            assert!(empty.take_ready_result().unwrap().is_empty());
+            let mut empty =
+                LivingSortedStorageJobV2::<super::super::model::LivingSystemV2>::begin_empty(15);
+            assert_eq!(
+                empty.poll(budgets[0]).unwrap(),
+                LivingLifecycleProgressV2::Ready
+            );
+            assert_eq!(empty.total_visits(), 1);
+            assert!(empty.take_ready_result().unwrap().capacity() >= 15);
+            let mut empty = LivingDequeStorageJobV2::<u64>::begin_empty(15);
+            assert_eq!(
+                empty.poll(budgets[0]).unwrap(),
+                LivingLifecycleProgressV2::Ready
+            );
+            assert_eq!(empty.total_visits(), 1);
+            assert!(empty.take_ready_result().unwrap().capacity() >= 15);
+        }
+    }
+
+    #[test]
+    fn sorted_growth_and_spare_preserve_capacity_and_order() {
+        for budgets in SCHEDULES {
+            for n in [0, 1, 7] {
+                for growth in [false, true] {
+                    let input = source(n, n + 4);
+                    let pointer = input.as_slice().as_ptr();
+                    let capacity = input.capacity();
+                    let additional = if growth { capacity + 1 } else { 1 };
+                    let mut job = LivingSortedStorageJobV2::begin(input, additional);
+                    let mut calls = 0;
+                    let mut output_pointer = None;
+                    while !job.ready() {
+                        job.poll(budgets[calls % budgets.len()]).unwrap();
+                        if let Some(out) = &job.destination {
+                            assert_eq!(
+                                *output_pointer.get_or_insert(out.as_slice().as_ptr()),
+                                out.as_slice().as_ptr()
+                            );
+                        }
+                        calls += 1;
+                    }
+                    assert_eq!(job.total_visits(), if growth { (n + 5) as u64 } else { 1 });
+                    let mut output = job.take_ready_result().unwrap();
+                    if !growth {
+                        assert_eq!(output.as_slice().as_ptr(), pointer);
+                        assert_eq!(output.capacity(), capacity);
+                    }
+                    for (index, row) in output.as_slice().iter().enumerate() {
+                        assert_eq!(row.id, id(index as u8));
+                    }
+                    let output_pointer = output.as_slice().as_ptr();
+                    let mut pending = Some(system(200));
+                    LivingSortedStorageJobV2::commit_one(&mut output, &mut pending).unwrap();
+                    assert_eq!(output.as_slice().as_ptr(), output_pointer);
+                    assert!(pending.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wrapped_deque_preserves_logical_order_spare_and_growth() {
+        for budgets in SCHEDULES {
+            for growth in [false, true] {
+                let mut input = VecDeque::with_capacity(8);
+                let capacity = input.capacity();
+                for value in 0..capacity as u64 {
+                    input.push_back(value);
+                }
+                for _ in 0..3 {
+                    input.pop_front();
+                }
+                for value in capacity as u64..capacity as u64 + 2 {
+                    input.push_back(value);
+                }
+                let (a, b) = input.as_slices();
+                assert!(!a.is_empty() && !b.is_empty());
+                let original_a = a.as_ptr();
+                let original_b = b.as_ptr();
+                let expected = input.iter().copied().collect::<Vec<_>>();
+                let n = input.len();
+                let additional = if growth { capacity + 1 } else { 1 };
+                let mut job = LivingDequeStorageJobV2::begin(input, additional);
+                let mut calls = 0;
+                while !job.ready() {
+                    job.poll(budgets[calls % budgets.len()]).unwrap();
+                    calls += 1;
+                }
+                assert_eq!(job.total_visits(), if growth { (n + 5) as u64 } else { 1 });
+                let output = job.take_ready_result().unwrap();
+                assert_eq!(output.iter().copied().collect::<Vec<_>>(), expected);
+                if !growth {
+                    assert_eq!(output.capacity(), capacity);
+                    assert_eq!(output.as_slices().0.as_ptr(), original_a);
+                    assert_eq!(output.as_slices().1.as_ptr(), original_b);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn growth_retains_original_allocation_until_counted_lane_release() {
+        for n in [0, 1, 7] {
+            let mut input = Vec::with_capacity(n + 8);
+            input.extend(0..n as u64);
+            let pointer = input.as_ptr();
+            let additional = input.capacity() + 1;
+            let mut job = LivingVecStorageJobV2::begin(input, additional);
+            job.poll(1).unwrap();
+            assert_eq!(job.original.as_ref().unwrap().as_ptr(), pointer);
+            job.poll(1).unwrap();
+            for _ in 0..n {
+                job.poll(1).unwrap();
+            }
+            assert_eq!(
+                job.source.as_ref().unwrap().as_slice().as_ptr(),
+                pointer.wrapping_add(n)
+            );
+            assert!(!job.ready());
+            assert!(job.retirement.is_empty());
+            job.poll(1).unwrap();
+            assert!(job.source.is_none());
+            assert!(!job.retirement.is_empty());
+            job.poll(1).unwrap();
+            assert!(!job.ready());
+            assert!(!job.retirement.is_empty());
+            job.poll(1).unwrap();
+            assert!(job.ready());
+            assert!(job.retirement.is_empty());
+            assert_eq!(job.total_visits(), (n + 5) as u64);
+        }
+    }
+
+    #[test]
+    fn cancellation_at_every_storage_visit_has_independent_typed_counts() {
+        let n = 3;
+        for cut in 0..=n + 5 {
+            for budgets in SCHEDULES {
+                let mut input = Vec::with_capacity(n);
+                input.extend(0..n as u64);
+                let mut vec = LivingVecStorageJobV2::begin(input, 10);
+                for _ in 0..cut {
+                    vec.poll(1).unwrap();
+                }
+                vec.cancel();
+                assert_eq!(vec.poll(1), Err(LivingStorageJobErrorV2::Cancelled));
+                assert_eq!(vec.last_poll_visits(), 0);
+                assert!(vec.take_ready_result().is_err());
+                assert_eq!(drain(vec, budgets), cancelled_growth_cost(n, cut, false));
+                let mut sorted = LivingSortedStorageJobV2::begin(source(n, n), 10);
+                for _ in 0..cut {
+                    sorted.poll(1).unwrap();
+                }
+                sorted.cancel();
+                assert!(sorted.take_ready_result().is_err());
+                assert_eq!(drain(sorted, budgets), cancelled_growth_cost(n, cut, true));
+                let mut input = VecDeque::with_capacity(n);
+                input.extend(0..n as u64);
+                let mut deque = LivingDequeStorageJobV2::begin(input, 10);
+                for _ in 0..cut {
+                    deque.poll(1).unwrap();
+                }
+                deque.cancel();
+                assert!(deque.take_ready_result().is_err());
+                assert_eq!(drain(deque, budgets), cancelled_growth_cost(n, cut, false));
+            }
+        }
+    }
+
+    fn nested_vec<T: RetirementFields<'static>, F: Fn() -> T, P: Fn(&T) -> *const ()>(
+        factory: F,
+        pointer: P,
+        subtree_visits: u64,
+    ) {
+        for cut in 0..=6 {
+            for budgets in SCHEDULES {
+                let row = factory();
+                let nested = pointer(&row);
+                let input = vec![row];
+                let mut job = LivingVecStorageJobV2::begin(input, 10);
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                }
+                let row = job
+                    .original
+                    .as_ref()
+                    .and_then(|v| v.first())
+                    .or_else(|| job.source.as_ref().and_then(|v| v.as_slice().first()))
+                    .or_else(|| job.destination.as_ref().and_then(|v| v.first()))
+                    .unwrap();
+                assert_eq!(pointer(row), nested);
+                // Replace the one leaf's R=1 with the independently derived subtree.
+                assert_eq!(
+                    drain(job, budgets),
+                    cancelled_growth_cost(1, cut, false) + subtree_visits - 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nested_fleet_shells_keep_exact_children_and_retire_via_reviewed_cursor() {
+        nested_vec(
+            || {
+                state_retirement_tests::fixture()
+                    .fleets
+                    .into_vec()
+                    .pop()
+                    .unwrap()
+            },
+            |fleet| fleet.order.as_ref().unwrap().lane_path.as_ptr().cast(),
+            8,
+        );
+        nested_vec(
+            || {
+                let mut fleet = state_retirement_tests::fixture()
+                    .fleets
+                    .into_vec()
+                    .pop()
+                    .unwrap();
+                fleet.order.as_mut().unwrap().lane_path = Vec::with_capacity(16);
+                fleet.hulls = LivingSortedVecV2::new(Vec::with_capacity(8)).unwrap();
+                fleet
+            },
+            |fleet| fleet.order.as_ref().unwrap().lane_path.as_ptr().cast(),
+            5,
+        );
+        for budgets in SCHEDULES {
+            let fleet = state_retirement_tests::fixture()
+                .fleets
+                .into_vec()
+                .pop()
+                .unwrap();
+            let pointer = fleet.hulls.as_slice().as_ptr();
+            let input = vec![fleet];
+            let mut sorted =
+                LivingSortedStorageJobV2::begin(LivingSortedVecV2::new(input).unwrap(), 10);
+            while sorted.poll(budgets[0]).unwrap() != LivingLifecycleProgressV2::Ready {}
+            let out = sorted.take_ready_result().unwrap();
+            assert_eq!(out.as_slice()[0].hulls.as_slice().as_ptr(), pointer);
+            drain(out, budgets);
+        }
+    }
+
+    #[test]
+    fn nested_facts_and_decision_rows_preserve_nonempty_and_allocated_empty_children() {
+        use super::super::event_facts::*;
+        nested_vec(
+            || LivingEventFactsV2 {
+                resources: vec![LivingEventResourceFactV2 {
+                    role: LivingEventResourceRoleV2::Output,
+                    resource: LivingResourceV2::Ore,
+                    quantity: 1,
+                }],
+                blocked_reasons: vec![super::super::model::LivingBlockedReasonV2::Disabled],
+                affected: Vec::with_capacity(16),
+                ..Default::default()
+            },
+            |facts| facts.resources.as_ptr().cast(),
+            16,
+        ); // three Vec children: 1+6+4+4+1.
+        use super::super::decision::*;
+        nested_vec(
+            || LivingIntentDecisionV2 {
+                phase: LivingPhaseV2::GenerateIntents,
+                actor: id(1),
+                ordinal: 0,
+                action: LivingIntentActionV2::War { peer: id(2) },
+                target: None,
+                score: LivingDecisionScoreV2(0),
+                tier: LivingDecisionTierV2::Ordinary,
+                snapshot_tick: LivingTickV2(0),
+                snapshot_digest: super::super::ids::LivingStateDigestV2([0; 32]),
+                observed_tick: None,
+                outcome: LivingDecisionOutcomeV2::Rejected,
+                reasons: vec![LivingDecisionReasonV2::OutputCapacity {
+                    world: id(1),
+                    resource: LivingResourceV2::Ore,
+                    amount: 1,
+                    available_capacity: 0,
+                }],
+            },
+            |decision| decision.reasons.as_ptr().cast(),
+            7,
+        ); // row1 + child edge2 + Vec4.
+        nested_vec(
+            || LivingEventFactsV2 {
+                resources: Vec::with_capacity(16),
+                blocked_reasons: Vec::with_capacity(8),
+                affected: Vec::with_capacity(4),
+                ..Default::default()
+            },
+            |facts| facts.resources.as_ptr().cast(),
+            10,
+        );
+    }
+
+    #[test]
+    fn known_empty_cancellation_and_early_extraction_retain_allocated_storage() {
+        for cut in 0..=1 {
+            for budgets in SCHEDULES {
+                let mut vec = LivingVecStorageJobV2::<u64>::begin_empty(16);
+                if cut == 0 {
+                    assert_eq!(
+                        vec.take_ready_result(),
+                        Err(LivingStorageJobErrorV2::NotReady)
+                    );
+                    assert!(vec.destination.is_none());
+                } else {
+                    vec.poll(1).unwrap();
+                    assert_eq!(vec.destination.as_ref().unwrap().capacity(), 16);
+                }
+                vec.cancel();
+                assert_eq!(drain(vec, budgets), if cut == 0 { 22 } else { 25 });
+                let mut sorted =
+                    LivingSortedStorageJobV2::<super::super::model::LivingSystemV2>::begin_empty(
+                        16,
+                    );
+                for _ in 0..cut {
+                    sorted.poll(1).unwrap();
+                }
+                sorted.cancel();
+                assert_eq!(drain(sorted, budgets), if cut == 0 { 22 } else { 28 });
+                let mut deque = LivingDequeStorageJobV2::<u64>::begin_empty(16);
+                for _ in 0..cut {
+                    deque.poll(1).unwrap();
+                }
+                deque.cancel();
+                assert_eq!(drain(deque, budgets), if cut == 0 { 22 } else { 25 });
+            }
+        }
+    }
+
+    #[test]
+    fn retained_sorted_key_rejection_preserves_exact_pending_and_conflicting_source() {
+        let fleet = state_retirement_tests::fixture()
+            .fleets
+            .into_vec()
+            .pop()
+            .unwrap();
+        let mut output = LivingSortedVecV2::new(Vec::with_capacity(4)).unwrap();
+        let mut first = Some(fleet.clone());
+        output.push_sorted_retained(&mut first).unwrap();
+        let mut pending = Some(fleet);
+        let nested = pending.as_ref().unwrap().hulls.as_slice().as_ptr();
+        let output_pointer = output.as_slice().as_ptr();
+        let capacity = output.capacity();
+        assert_eq!(
+            LivingSortedStorageJobV2::commit_one(&mut output, &mut pending),
+            Err(LivingStorageJobErrorV2::KeyedOrder)
+        );
+        assert_eq!(pending.as_ref().unwrap().hulls.as_slice().as_ptr(), nested);
+        assert_eq!(output.as_slice().as_ptr(), output_pointer);
+        assert_eq!(output.capacity(), capacity);
+        assert_eq!(output.as_slice().len(), 1);
+        drain((output, pending), &[1]);
+
+        let mut invalid = source(2, 2);
+        invalid.record_at_mut(1).unwrap().id = id(0);
+        let original_second = invalid.as_slice().as_ptr().wrapping_add(1);
+        let mut job = LivingSortedStorageJobV2::begin(invalid, 10);
+        assert_eq!(job.poll(1024), Err(LivingStorageJobErrorV2::KeyedOrder));
+        assert_eq!(
+            job.source.as_ref().unwrap().as_slice().as_ptr(),
+            original_second
+        );
+        assert_eq!(job.destination.as_ref().unwrap().as_slice().len(), 1);
+        assert!(job.pending_transfer.is_none());
+        let count = job.total_visits();
+        assert_eq!(job.poll(1), Err(LivingStorageJobErrorV2::KeyedOrder));
+        assert_eq!(job.last_poll_visits(), 0);
+        assert_eq!(job.total_visits(), count);
+        assert!(job.take_ready_result().is_err());
+        drain(job, &[1]);
+    }
+
+    #[test]
+    fn insertion_duplicate_precedes_key_error_and_retains_both_owners_stickily() {
+        let mut job = LivingSortedInsertionJobV2::begin(source(2, 4), system(0));
+        while job.held.is_none() {
+            assert!(job.visit().unwrap());
+        }
+        let held = job.held.as_ref().unwrap().name.as_str().as_ptr();
+        let inserted = job.inserted.as_ref().unwrap().name.as_str().as_ptr();
+        let error = InsertionFault::Duplicate.domain();
+        assert_eq!(job.visit(), Err(error.clone()));
+        assert_eq!(job.visit(), Err(error.clone()));
+        assert_eq!(job.take_ready_result(), Err(error));
+        assert_eq!(job.held.as_ref().unwrap().name.as_str().as_ptr(), held);
+        assert_eq!(
+            job.inserted.as_ref().unwrap().name.as_str().as_ptr(),
+            inserted
+        );
+        drain(job, &[1]);
+    }
+
+    #[test]
+    fn insertion_cancellation_every_visit_has_independent_owner_decomposition() {
+        // Literal source-derived cuts pinned before execution; three source leaves.
+        const STOPPED: &[u64] = &[
+            40, 64, 70, 64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46,
+            45, 44, 43, 42, 41, 40, 39, 40, 40, 40, 40, 40, 40, 40, 40, 40, 39, 40,
+        ];
+        for (cut, expected) in STOPPED.iter().copied().enumerate() {
+            for budgets in SCHEDULES {
+                let mut job = LivingSortedInsertionJobV2::begin(source(3, 3), system(200));
+                let pointer = job.source.as_slice().as_ptr();
+                let mut visits = 0;
+                for _attempt in 0..1024 {
+                    if visits == cut {
+                        break;
+                    }
+                    visits += usize::from(job.visit().unwrap());
+                    if !job.source_retired {
+                        assert_eq!(
+                            job.source.as_slice().as_ptr(),
+                            pointer.wrapping_add(3 - job.source.len())
+                        );
+                    }
+                }
+                assert_eq!(visits, cut, "insertion cut exceeded attempt bound");
+                assert_eq!(drain(job, budgets), expected, "cut {cut}");
+            }
+        }
+    }
+
+    #[test]
+    fn overflow_and_zst_retain_original_and_terminal_work_is_zero() {
+        let mut input = Vec::with_capacity(8);
+        input.push(9u64);
+        let pointer = input.as_ptr();
+        let mut job = LivingVecStorageJobV2::begin(input, usize::MAX);
+        assert_eq!(job.poll(64), Err(LivingStorageJobErrorV2::CapacityOverflow));
+        assert_eq!(job.original.as_ref().unwrap().as_ptr(), pointer);
+        assert_eq!(job.original.as_ref().unwrap(), &[9]);
+        assert_eq!(job.total_visits(), 1);
+        assert_eq!(job.poll(1), Err(LivingStorageJobErrorV2::CapacityOverflow));
+        assert_eq!(job.last_poll_visits(), 0);
+        assert!(job.take_ready_result().is_err());
+        drain(job, &[1]);
+        let mut zst = LivingVecStorageJobV2::begin(vec![(); 3], 10);
+        assert_eq!(zst.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+        let mut output = zst.take_ready_result().unwrap();
+        assert_eq!(output.len(), 3);
+        assert_eq!(output.capacity(), usize::MAX);
+        LivingVecStorageJobV2::commit_one(&mut output, &mut Some(())).unwrap();
+        assert_eq!(output.len(), 4);
+        let mut overflow = LivingVecStorageJobV2::begin(output, usize::MAX);
+        assert_eq!(
+            overflow.poll(1),
+            Err(LivingStorageJobErrorV2::CapacityOverflow)
+        );
+        assert_eq!(overflow.original.as_ref().unwrap().len(), 4);
+        drain(overflow, &[1]);
+        let mut empty = LivingVecStorageJobV2::<()>::begin_empty(usize::MAX);
+        assert_eq!(empty.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+        assert_eq!(empty.total_visits(), 1);
+        assert_eq!(empty.take_ready_result().unwrap().capacity(), usize::MAX);
+        assert_eq!(
+            storage_capacity::<u8>(0, usize::MAX / 2 + 1, usize::MAX),
+            None
+        );
+        // Checked doubling falls back to a representable required byte length.
+        assert_eq!(
+            storage_capacity::<u8>(0, isize::MAX as usize / 2 + 1, isize::MAX as usize),
+            Some(isize::MAX as usize)
+        );
+    }
+
+    #[test]
+    fn repeated_growth_and_two_destination_commit_stay_unpublished_until_prepared() {
+        let mut output = Vec::<u64>::new();
+        for value in 0..40 {
+            let n = output.len();
+            let capacity = output.capacity();
+            let mut job = LivingVecStorageJobV2::begin(output, 1);
+            while job.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+            assert_eq!(
+                job.total_visits(),
+                if n < capacity { 1 } else { (n + 5) as u64 }
+            );
+            output = job.take_ready_result().unwrap();
+            let pointer = output.as_ptr();
+            LivingVecStorageJobV2::commit_one(&mut output, &mut Some(value)).unwrap();
+            assert_eq!(output.as_ptr(), pointer);
+        }
+        assert_eq!(output, (0..40).collect::<Vec<_>>());
+        let mut a = LivingVecStorageJobV2::begin_empty(1);
+        let mut b = LivingVecStorageJobV2::begin_empty(1);
+        let mut pending_a = Some(1u64);
+        let mut pending_b = Some(2u64);
+        let mut published = None;
+        a.poll(1).unwrap();
+        assert!(published.is_none());
+        assert!(!b.ready());
+        assert!(pending_a.is_some());
+        b.poll(1).unwrap();
+        let mut a = a.take_ready_result().unwrap();
+        let mut b = b.take_ready_result().unwrap();
+        LivingVecStorageJobV2::commit_one(&mut a, &mut pending_a).unwrap();
+        assert!(published.is_none());
+        assert!(pending_b.is_some());
+        LivingVecStorageJobV2::commit_one(&mut b, &mut pending_b).unwrap();
+        published = Some((a, b));
+        assert_eq!(published, Some((vec![1], vec![2])));
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_legacy_oracle {
+    use super::*;
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Cursor {
+        Agreements,
+        Wars,
+        AgreementOutput,
+        WorldOwners,
+        Occupations,
+        HazardStarts,
+        HazardEnds,
+        RetireIndices,
+        Ready,
+    }
+
+    /// An owned phase-2 candidate that cannot mutate a resident authority.
+    ///
+    /// Each work unit visits one source or output record. Tree key comparisons and
+    /// scalar field checks are bounded metadata work; no nested entity collection
+    /// is cloned. Unchanged state collections are moved through the job verbatim.
+    /// The caller must validate and seal the complete boundary before publishing it.
+    #[derive(Debug)]
+    pub struct LivingLifecycleJobV2 {
+        delivered: bool,
+        state: LivingGalaxyStateV2,
+        events: LivingPendingEventsV2,
+        tick: LivingTickV2,
+        agreements: IntoIter<LivingAgreementV2>,
+        wars: IntoIter<LivingWarV2>,
+        occupations: IntoIter<LivingOccupationV2>,
+        agreement_rows: BTreeMap<AgreementKey, LivingAgreementV2>,
+        agreement_output:
+            Option<std::collections::btree_map::IntoIter<AgreementKey, LivingAgreementV2>>,
+        ended_pairs: BTreeSet<Pair>,
+        owners: BTreeMap<LivingEntityIdV2, Option<LivingEntityIdV2>>,
+        cursor: Cursor,
+        index: usize,
+        cancelled: bool,
+        fault: Option<LivingDeterministicFaultV2>,
+        last_poll_visits: usize,
+        total_visits: u64,
+    }
+
+    impl LivingLifecycleJobV2 {
+        /// Move one unpublished candidate and its existing phase-1 events into a job.
+        /// No records are visited until `poll` is called.
+        pub fn begin(
+            mut state: LivingGalaxyStateV2,
+            events: LivingPendingEventsV2,
+            tick: LivingTickV2,
+        ) -> Self {
+            let agreements = std::mem::take(&mut state.agreements).into_vec().into_iter();
+            let wars = std::mem::take(&mut state.wars).into_vec().into_iter();
+            let occupations = std::mem::take(&mut state.occupations)
+                .into_vec()
+                .into_iter();
+            Self {
+                delivered: false,
+                state,
+                events,
+                tick,
+                agreements,
+                wars,
+                occupations,
+                agreement_rows: BTreeMap::new(),
+                agreement_output: None,
+                ended_pairs: BTreeSet::new(),
+                owners: BTreeMap::new(),
+                cursor: Cursor::Agreements,
+                index: 0,
+                cancelled: false,
+                fault: None,
+                last_poll_visits: 0,
+                total_visits: 0,
+            }
+        }
+
+        /// Invalidate the unpublished candidate without touching any authority.
+        pub fn cancel(&mut self) {
+            self.cancelled = true;
+        }
+
+        /// Actual source/output record visits made by the preceding poll.
+        pub const fn last_poll_visits(&self) -> usize {
+            self.last_poll_visits
+        }
+
+        /// Actual source/output record visits since beginning this job.
+        pub const fn total_visits(&self) -> u64 {
+            self.total_visits
+        }
+
+        /// Process at most `budget` record visits, retaining all intermediate cursors.
+        pub fn poll(
+            &mut self,
+            budget: usize,
+        ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+            self.last_poll_visits = 0;
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
+                return Err(LivingLifecycleJobErrorV2::Budget);
+            }
+            if let Some(fault) = &self.fault {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+            }
+            while self.last_poll_visits < budget && self.cursor != Cursor::Ready {
+                match self.visit_next() {
+                    Ok(true) => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                    }
+                    Ok(false) => {}
+                    Err(fault) => {
+                        // The failed record was visited too; retain the fault so a
+                        // retry cannot accidentally finish a partially applied phase.
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        self.fault = Some(fault.clone());
+                        return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    }
+                }
+            }
+            Ok(if self.cursor == Cursor::Ready {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            })
+        }
+
+        /// Consume a ready candidate; cancelled or faulted candidates never escape.
+        pub fn finish(
+            mut self,
+        ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2>
+        {
+            self.take_ready_result()
+        }
+        /// Borrowed one-time extraction; rejected calls preserve every owner.
+        pub fn take_ready_result(
+            &mut self,
+        ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2>
+        {
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if let Some(fault) = self.fault.clone() {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault));
+            }
+            if self.cursor != Cursor::Ready {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            if self.delivered {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            self.delivered = true;
+            Ok((
+                std::mem::take(&mut self.state),
+                std::mem::take(&mut self.events),
+            ))
+        }
+
+        fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
+            self.events.record(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ExpireLifecycles,
+                },
+                kind,
+            )?;
+            Ok(())
+        }
+
+        fn visit_next(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+            match self.cursor {
+                Cursor::Agreements => {
+                    if let Some(row) = self.agreements.next() {
+                        if row.end_tick.0 <= self.tick.0 {
+                            self.emit(LivingEventKindV2::AgreementExpired)?;
+                        } else {
+                            self.agreement_rows.insert(row.living_key(), row);
+                        }
+                        return Ok(true);
+                    }
+                    self.cursor = Cursor::Wars;
+                }
+                Cursor::Wars => {
+                    if let Some(row) = self.wars.next() {
+                        if row.end_tick.0 <= self.tick.0 {
+                            let end = row
+                                .end_tick
+                                .0
+                                .checked_add(TRUCE_DURATION_TICKS)
+                                .ok_or(LivingDeterministicFaultV2::Arithmetic)?;
+                            let truce = LivingAgreementV2 {
+                                kind: LivingAgreementKindV2::Truce,
+                                participant_a: row.participant_a,
+                                participant_b: row.participant_b,
+                                start_tick: row.end_tick,
+                                end_tick: LivingTickV2(end),
+                            };
+                            self.agreement_rows.insert(truce.living_key(), truce);
+                            self.ended_pairs.insert(row.living_key());
+                            self.emit(LivingEventKindV2::WarEnded)?;
+                        } else {
+                            self.state.wars.push_sorted(row)?;
+                        }
+                        return Ok(true);
+                    }
+                    self.agreement_output =
+                        Some(std::mem::take(&mut self.agreement_rows).into_iter());
+                    self.cursor = Cursor::AgreementOutput;
+                }
+                Cursor::AgreementOutput => {
+                    if let Some((_, row)) = self.agreement_output.as_mut().and_then(Iterator::next)
+                    {
+                        self.state.agreements.push_sorted(row)?;
+                        return Ok(true);
+                    }
+                    self.cursor = Cursor::WorldOwners;
+                }
+                Cursor::WorldOwners => {
+                    if self.ended_pairs.is_empty() {
+                        self.cursor = Cursor::Occupations;
+                    } else if let Some(row) = self.state.worlds.as_slice().get(self.index) {
+                        self.owners.insert(row.id, row.owner);
+                        self.index += 1;
+                        return Ok(true);
+                    } else {
+                        self.index = 0;
+                        self.cursor = Cursor::Occupations;
+                    }
+                }
+                Cursor::Occupations => {
+                    if let Some(row) = self.occupations.next() {
+                        let removed =
+                            self.owners
+                                .get(&row.world)
+                                .copied()
+                                .flatten()
+                                .is_some_and(|owner| {
+                                    let pair = if owner < row.claimant {
+                                        (owner, row.claimant)
+                                    } else {
+                                        (row.claimant, owner)
+                                    };
+                                    self.ended_pairs.contains(&pair)
+                                });
+                        if !removed {
+                            self.state.occupations.push_sorted(row)?;
+                        }
+                        return Ok(true);
+                    }
+                    self.cursor = Cursor::HazardStarts;
+                }
+                Cursor::HazardStarts => {
+                    if let Some(row) = self.state.hazards.as_slice().get(self.index) {
+                        let started = row.start_tick == self.tick;
+                        self.index += 1;
+                        if started {
+                            self.emit(LivingEventKindV2::HazardStarted)?;
+                        }
+                        return Ok(true);
+                    }
+                    self.index = 0;
+                    self.cursor = Cursor::HazardEnds;
+                }
+                Cursor::HazardEnds => {
+                    if let Some(row) = self.state.hazards.as_slice().get(self.index) {
+                        let ended = row.end_tick == self.tick;
+                        self.index += 1;
+                        if ended {
+                            self.emit(LivingEventKindV2::HazardEnded)?;
+                        }
+                        return Ok(true);
+                    }
+                    self.cursor = Cursor::RetireIndices;
+                }
+                Cursor::RetireIndices => {
+                    if self.owners.pop_first().is_some() || self.ended_pairs.pop_first().is_some() {
+                        return Ok(true);
+                    }
+                    self.cursor = Cursor::Ready;
+                }
+                Cursor::Ready => {}
+            }
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod bounded_lifecycle_tests {
+    use super::super::receipt::{LIVING_MAX_BOUNDARY_EVENTS_V2, seal_living_tick_receipt_v2};
+    use super::*;
+    const SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 7, 1024, 3]];
+
+    fn complete(
+        mut job: LivingLifecycleJobV2,
+        schedule: &[usize],
+    ) -> (LivingGalaxyStateV2, LivingPendingEventsV2, u64) {
+        let mut n = 0;
+        loop {
+            let budget = schedule[n % schedule.len()];
+            let before = job.total_visits();
+            let result = job.poll(budget).unwrap();
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            assert!(job.last_poll_visits() <= budget);
+            n += 1;
+            if result == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+            // Largest fixture is a full ordinary collector:16+3*65536
+            // visits; phase/fixed/nested fixture roots add less than1024.
+            assert!(n < 3 * LIVING_MAX_BOUNDARY_EVENTS_V2 + 1024);
+        }
+        let visits = job.total_visits();
+        let result = job.take_ready_result().unwrap();
+        assert_eq!(
+            job.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        );
+        assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+        assert_eq!(job.last_poll_visits(), 0);
+        (result.0, result.1, visits)
+    }
+    fn legacy(
+        state: LivingGalaxyStateV2,
+        events: LivingPendingEventsV2,
+        tick: LivingTickV2,
+    ) -> Result<(LivingGalaxyStateV2, LivingPendingEventsV2), LivingLifecycleJobErrorV2> {
+        let mut job = lifecycle_legacy_oracle::LivingLifecycleJobV2::begin(state, events, tick);
+        assert_eq!(job.total_visits(), 0);
+        assert_eq!(job.last_poll_visits(), 0);
+        while job.poll(1024)? != LivingLifecycleProgressV2::Ready {
+            assert!(job.last_poll_visits() <= 1024);
+        }
+        job.finish()
+    }
+    fn tiny() -> LivingGalaxyStateV2 {
+        LivingGalaxyStateV2 {
+            agreements: LivingSortedVecV2::new(vec![LivingAgreementV2 {
+                kind: LivingAgreementKindV2::Trade,
+                participant_a: LivingEntityIdV2([1; 16]),
+                participant_b: LivingEntityIdV2([2; 16]),
+                start_tick: LivingTickV2(0),
+                end_tick: LivingTickV2(1),
+            }])
+            .unwrap(),
+            ..Default::default()
+        }
+    }
+    fn drain<T: RetirementFields<'static>>(job: T, schedule: &[usize]) -> u64 {
+        let mut retired =
+            LivingPhaseRetirementJobV2::begin(job, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut n = 0;
+        loop {
+            let budget = schedule[n % schedule.len()];
+            let progress = retired.poll(budget).unwrap();
+            assert!(retired.last_poll_visits() <= budget);
+            n += 1;
+            if progress == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+            // Largest fixture is a full ordinary collector:16+3*65536
+            // visits; phase/fixed/nested fixture roots add less than1024.
+            assert!(n < 3 * LIVING_MAX_BOUNDARY_EVENTS_V2 + 1024);
+        }
+        assert!(retired.take_deferred_owner().is_none());
+        retired.total_visits()
+    }
+
+    #[test]
+    fn bounded_lifecycle_legacy_control_oracle_is_independent() {
+        let mut oracle = lifecycle_legacy_oracle::LivingLifecycleJobV2::begin(
+            tiny(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(1),
+        );
+        assert_eq!(oracle.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+        oracle.cancel();
+        assert_eq!(oracle.poll(0), Err(LivingLifecycleJobErrorV2::Cancelled));
+        assert_eq!(
+            oracle.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::Cancelled)
+        );
+    }
+    #[test]
+    fn bounded_lifecycle_legacy_full_state_receipt_facts_and_modes() {
+        for tick in [9, 10, 11] {
+            for forecast in [false, true] {
+                let state = tests::fixture();
+                let mut events = if forecast {
+                    LivingPendingEventsV2::for_forecast()
+                } else {
+                    LivingPendingEventsV2::new()
+                };
+                events
+                    .record(
+                        LivingEventProvenanceV2::Autonomous {
+                            phase: LivingPhaseV2::ApplyCreatorInterventions,
+                        },
+                        LivingEventKindV2::CreatorIntervention,
+                    )
+                    .unwrap();
+                events
+                    .record_explained(
+                        LivingEventProvenanceV2::Autonomous {
+                            phase: LivingPhaseV2::RunProduction,
+                        },
+                        LivingEventKindV2::FacilityProduced,
+                        super::super::event_facts::LivingEventFactsV2 {
+                            affected: vec![LivingEntityIdV2([1; 16]), LivingEntityIdV2([2; 16])],
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                let expected = legacy(state.clone(), events.clone(), LivingTickV2(tick)).unwrap();
+                let mut count = None;
+                for schedule in SCHEDULES {
+                    let (actual, pending, visits) = complete(
+                        LivingLifecycleJobV2::begin(
+                            state.clone(),
+                            events.clone(),
+                            LivingTickV2(tick),
+                        ),
+                        schedule,
+                    );
+                    assert_eq!(actual, expected.0);
+                    assert_eq!(
+                        actual.canonical_bytes().unwrap(),
+                        expected.0.canonical_bytes().unwrap()
+                    );
+                    assert_eq!(pending, expected.1);
+                    let digest = super::super::ids::LivingStateDigestV2([7; 32]);
+                    let receipt =
+                        seal_living_tick_receipt_v2(LivingTickV2(tick), vec![], &pending, digest)
+                            .unwrap();
+                    let reference = seal_living_tick_receipt_v2(
+                        LivingTickV2(tick),
+                        vec![],
+                        &expected.1,
+                        digest,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        serde_json::to_vec(&receipt).unwrap(),
+                        serde_json::to_vec(&reference).unwrap()
+                    );
+                    let actual_facts =
+                        super::super::event_facts::seal_living_event_facts_receipt_v2(
+                            &receipt, &pending,
+                        );
+                    let expected_facts =
+                        super::super::event_facts::seal_living_event_facts_receipt_v2(
+                            &reference,
+                            &expected.1,
+                        );
+                    assert_eq!(actual_facts, expected_facts);
+                    if let Ok(facts) = actual_facts {
+                        assert_eq!(
+                            serde_json::to_vec(&facts).unwrap(),
+                            serde_json::to_vec(&expected_facts.unwrap()).unwrap()
+                        );
+                    }
+                    if let Some(previous) = count {
+                        assert_eq!(visits, previous);
+                    } else {
+                        count = Some(visits);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bounded_lifecycle_empty_allocated_sources_and_independent_ledger() {
+        for allocated in [false, true] {
+            for schedule in SCHEDULES {
+                // Construct fresh actual allocated-empty buffers per run; cloning
+                // an empty Vec would discard its capacity and invalidate this case.
+                let state = if allocated {
+                    LivingGalaxyStateV2 {
+                        agreements: LivingSortedVecV2::new(Vec::with_capacity(9)).unwrap(),
+                        wars: LivingSortedVecV2::new(Vec::with_capacity(8)).unwrap(),
+                        occupations: LivingSortedVecV2::new(Vec::with_capacity(7)).unwrap(),
+                        ..Default::default()
+                    }
+                } else {
+                    LivingGalaxyStateV2::default()
+                };
+                let original = state.agreements.as_slice().as_ptr();
+                if allocated {
+                    let unallocated = Vec::<LivingAgreementV2>::new();
+                    assert_ne!(original, unallocated.as_ptr());
+                }
+                let job = LivingLifecycleJobV2::begin(
+                    state,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                assert_eq!(job.agreements.as_slice().as_ptr(), original);
+                let (output, pending, visits) = complete(job, schedule);
+                assert_eq!(output, LivingGalaxyStateV2::default());
+                assert!(pending.is_empty());
+                // Three counted empty setups; four exhausted iterator/map roots
+                // and two empty index roots, each setup+storage+node shell3.
+                assert_eq!(visits, 3 + 6 * 3);
+            }
+        }
+        for schedule in SCHEDULES {
+            // One expired source + ordinary growth9 + delivered child retirement54,
+            // plus the independently derived empty phase21 =85.
+            assert_eq!(
+                complete(
+                    LivingLifecycleJobV2::begin(
+                        tiny(),
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(1)
+                    ),
+                    schedule
+                )
+                .2,
+                85
+            );
+        }
+    }
+
+    // Tiny fixture: all state rows are fixed diplomatic leaves, consumed into
+    // pending/source slots. Empty state retirement is20 moves+20 releases+root41.
+    // The 17 declared phase owners contribute34 edges+phase root35.
+    fn tiny_remaining(job: &LivingLifecycleJobV2, lane_remaining: u64) -> u64 {
+        let append = job.append.as_ref().map_or(1, |child| {
+            // Adopted ordinary append with initial zero entries/growth capacity1:
+            // modes0/1, ordinal2, inspect3, allocate4, handoff5,
+            // storage6, dynamic shell7, commit8, publication9.
+            let r = match child.total_visits() {
+                0 | 1 => 46,
+                2 => 49,
+                3 | 5 => 76,
+                4 => 79,
+                6 => 75,
+                7..=9 => 73,
+                _ => panic!("unexpected tiny append ledger"),
+            };
+            3 + r
+        });
+        let fleets = job.state.fleets.as_slice();
+        let state_r = 41
+            + fleets
+                .iter()
+                .map(|fleet| {
+                    4 + fleet.hulls.as_slice().len() as u64
+                        + fleet
+                            .order
+                            .as_ref()
+                            .map_or(0, |order| 2 + order.lane_path.len() as u64)
+                })
+                .sum::<u64>();
+        35 + state_r
+            + 16
+            + 3 * job.events.len() as u64
+            + 3 * job.agreements.len() as u64
+            + 1
+            + 1
+            + 1
+            + 1
+            + if job.agreement_output.is_some() { 4 } else { 1 }
+            + 1
+            + 1
+            + if job.pending_agreement.is_some() {
+                4
+            } else {
+                1
+            }
+            + 1
+            + 1
+            + 1
+            + 1
+            + 1
+            + append
+            + lane_remaining
+    }
+    #[test]
+    fn bounded_lifecycle_every_visit_cancel_has_independent_retirement_and_original_box() {
+        for cut in 0..=85 {
+            for schedule in SCHEDULES {
+                let mut state = tiny();
+                state.fleets = tests::fixture().fleets;
+                state.fleets.record_at_mut(0).unwrap().order = Some(LivingFleetOrderV2 {
+                    kind: super::super::model::LivingFleetOrderKindV2::Move,
+                    target_world: None,
+                    not_before_tick: LivingTickV2(2),
+                    lane_path: Vec::with_capacity(7),
+                });
+                let hull_pointer = state.fleets.as_slice()[0].hulls.as_slice().as_ptr();
+                let path_pointer = state.fleets.as_slice()[0]
+                    .order
+                    .as_ref()
+                    .unwrap()
+                    .lane_path
+                    .as_ptr();
+                let mut job = Box::new(LivingLifecycleJobV2::begin(
+                    state,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                ));
+                let pointer = &*job as *const _;
+                let source = job.agreements.as_slice().as_ptr();
+                let mut lane_remaining = 7;
+                for _ in 0..cut {
+                    let empty = job.retirement.is_empty();
+                    let stage = job.cursor;
+                    assert!(job.poll(1).is_ok());
+                    if empty && !job.retirement.is_empty() {
+                        // Exact original payload subtree: delivered append52,
+                        // otherwise an exhausted source or empty index root1.
+                        lane_remaining = 6 + if stage == Cursor::AppendExtract {
+                            52
+                        } else {
+                            1
+                        };
+                    } else if !empty {
+                        if job.retirement.is_empty() {
+                            lane_remaining = 7;
+                        } else {
+                            lane_remaining -= 1;
+                        }
+                    }
+                }
+                if cut <= 2 {
+                    assert_eq!(job.agreements.as_slice().as_ptr(), source);
+                }
+                assert_eq!(
+                    job.state.fleets.as_slice()[0].hulls.as_slice().as_ptr(),
+                    hull_pointer
+                );
+                assert_eq!(
+                    job.state.fleets.as_slice()[0]
+                        .order
+                        .as_ref()
+                        .unwrap()
+                        .lane_path
+                        .as_ptr(),
+                    path_pointer
+                );
+                let expected = tiny_remaining(&job, lane_remaining);
+                job.cancel();
+                for bad in [0, 1, 1025] {
+                    assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Cancelled));
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                );
+                assert_eq!(&*job as *const _, pointer);
+                // Original Box remains in typed node until every owner and its
+                // original shell release. No move-out/new Box substitution.
+                assert_eq!(drain(job, schedule), expected, "cut {cut}");
+            }
+        }
+    }
+
+    fn sticky(job: &mut LivingLifecycleJobV2, error: LivingLifecycleJobErrorV2) {
+        let total = job.total_visits();
+        for bad in [0, 1025] {
+            assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+        assert_eq!(job.poll(1), Err(error.clone()));
+        assert_eq!(job.last_poll_visits(), 0);
+        assert_eq!(job.take_ready_result(), Err(error.clone()));
+        job.cancel();
+        for budget in [0, 1, 1025] {
+            assert_eq!(job.poll(budget), Err(error.clone()));
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+        assert_eq!(
+            job.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::Cancelled)
+        );
+        assert_eq!(job.total_visits(), total);
+    }
+    #[test]
+    fn bounded_lifecycle_real_capacity_failure_retains_original_storage_and_sources() {
+        for schedule in SCHEDULES {
+            let mut job = Box::new(LivingLifecycleJobV2::begin(
+                tiny(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(1),
+            ));
+            let original = job.agreements.as_slice().as_ptr();
+            job.inject_output_capacity_failure();
+            assert_eq!(
+                job.poll(64),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(job.agreements.as_slice().as_ptr(), original);
+            let storage = job.war_storage.as_ref().unwrap() as *const _;
+            assert_eq!(
+                job.war_storage.as_ref().unwrap().fault,
+                Some(LivingStorageJobErrorV2::CapacityOverflow)
+            );
+            sticky(&mut job, LivingLifecycleJobErrorV2::PreparationCapacity);
+            assert_eq!(job.war_storage.as_ref().unwrap() as *const _, storage);
+            // Baseline116 plus Some<known-empty storage>:3+22-None1=24.
+            assert_eq!(drain(job, schedule), 140);
+        }
+    }
+    #[test]
+    fn bounded_lifecycle_event_capacity_keeps_original_append_and_sticky_cause() {
+        let mut job = Box::new(LivingLifecycleJobV2::begin(
+            tiny(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(1),
+        ));
+        while !job.inject_event_capacity_failure() {
+            job.poll(1).unwrap();
+        }
+        let append = job.append.as_ref().unwrap() as *const _;
+        let before = job.total_visits();
+        assert_eq!(
+            job.poll(64),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(job.last_poll_visits(), 1);
+        assert_eq!(job.total_visits(), before + 1);
+        assert_eq!(
+            job.fault,
+            Some(LifecycleFailure::PreparationCapacity(
+                LifecyclePreparationCause::EventStorageCapacity
+            ))
+        );
+        assert_eq!(
+            job.append.as_ref().unwrap().error(),
+            Some(
+                super::super::receipt::LivingPendingEventAppendErrorV2::Storage(
+                    LivingStorageJobErrorV2::CapacityOverflow
+                )
+            )
+        );
+        sticky(&mut job, LivingLifecycleJobErrorV2::PreparationCapacity);
+        assert_eq!(job.append.as_ref().unwrap() as *const _, append);
+        // Same 17 fields: append Option contains fixed failed storage at Inspect;
+        // child R76, plus its Option3, in place of absent append1.
+        assert_eq!(drain(job, &[1, 64, 1024]), 194);
+    }
+
+    #[test]
+    fn bounded_lifecycle_error_prefix_key_retention_and_receipt_nesting_match_legacy() {
+        let mut full = LivingPendingEventsV2::new();
+        for _ in 0..LIVING_MAX_BOUNDARY_EVENTS_V2 {
+            full.record(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ExpireLifecycles,
+                },
+                LivingEventKindV2::WarEnded,
+            )
+            .unwrap();
+        }
+        let mut war = tiny();
+        war.agreements = LivingSortedVecV2::default();
+        war.wars = LivingSortedVecV2::new(vec![LivingWarV2 {
+            participant_a: LivingEntityIdV2([1; 16]),
+            participant_b: LivingEntityIdV2([2; 16]),
+            declarer: LivingEntityIdV2([1; 16]),
+            start_tick: LivingTickV2(0),
+            end_tick: LivingTickV2(u64::MAX),
+        }])
+        .unwrap();
+        for (state, tick) in [(tiny(), LivingTickV2(1)), (war, LivingTickV2(u64::MAX))] {
+            let expected = legacy(state.clone(), full.clone(), tick).unwrap_err();
+            for schedule in SCHEDULES {
+                let mut job = LivingLifecycleJobV2::begin(state.clone(), full.clone(), tick);
+                let mut index = 0;
+                let error = loop {
+                    let result = job.poll(schedule[index % schedule.len()]);
+                    index += 1;
+                    match result {
+                        Ok(_) => {}
+                        Err(error) => break error,
+                    }
+                };
+                assert_eq!(error, expected);
+                let expected_remaining = if matches!(
+                    expected,
+                    LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Arithmetic)
+                ) {
+                    116
+                } else {
+                    164
+                } + 3 * LIVING_MAX_BOUNDARY_EVENTS_V2 as u64;
+                sticky(&mut job, error);
+                assert_eq!(drain(job, schedule), expected_remaining);
+            }
+        }
+        let mut state = LivingGalaxyStateV2::default();
+        let rows = [2, 3].map(|value| LivingWarV2 {
+            participant_a: LivingEntityIdV2([1; 16]),
+            participant_b: LivingEntityIdV2([value; 16]),
+            declarer: LivingEntityIdV2([1; 16]),
+            start_tick: LivingTickV2(0),
+            end_tick: LivingTickV2(9),
+        });
+        state.wars = LivingSortedVecV2::new(rows.to_vec()).unwrap();
+        state.wars.record_at_mut(1).unwrap().participant_b = LivingEntityIdV2([2; 16]);
+        let expected =
+            legacy(state.clone(), LivingPendingEventsV2::new(), LivingTickV2(1)).unwrap_err();
+        let mut job =
+            LivingLifecycleJobV2::begin(state, LivingPendingEventsV2::new(), LivingTickV2(1));
+        let error = loop {
+            match job.poll(1) {
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(error, expected);
+        assert!(job.pending_war.is_some());
+        assert_eq!(job.state.wars.as_slice().len(), 1);
+        sticky(&mut job, error);
+        drain(job, &[64]);
+    }
+    #[test]
+    fn bounded_lifecycle_scheduled_failure_precedence_retains_child_boxes() {
+        for event_storage in [false, true] {
+            let mut job = Box::new(LivingScheduledPhasesJobV2::begin(
+                tiny(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(1),
+            ));
+            let scheduled_pointer = &*job as *const _;
+            let original = job.lifecycle_identity().unwrap();
+            let mut attempts = 0;
+            while !job.inject_capacity_failure(event_storage) {
+                let before = job.total_visits();
+                job.poll(1).unwrap();
+                assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+                attempts += 1;
+                assert!(attempts <= 5); //2 preparations+row+mode+ordinal
+            }
+            let before = job.total_visits();
+            assert_eq!(
+                job.poll(1024),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            assert_eq!(job.total_visits() - before, 1);
+            assert_eq!(job.last_poll_visits(), 1);
+            for bad in [0, 1025] {
+                assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+                assert_eq!(job.last_poll_visits(), 0);
+            }
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+            );
+            job.cancel();
+            for budget in [0, 1, 1025] {
+                assert_eq!(
+                    job.poll(budget),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(job.last_poll_visits(), 0);
+            }
+            assert_eq!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::Cancelled)
+            );
+            assert_eq!(job.lifecycle_identity(), Some(original));
+            assert_eq!(&*job as *const _, scheduled_pointer);
+            // Scheduled has2 owner edges: empty lane7 and original cursor.
+            // Cursor directly delegates the original Box: no new cursor shell.
+            // Scheduled root1+edges4+lane7+Lifecycle140/194.
+            assert_eq!(
+                drain(job, &[1, 64, 1024]),
+                if event_storage { 206 } else { 152 }
+            );
+        }
+    }
+    #[test]
+    fn bounded_lifecycle_simultaneous_starts_precede_all_ends() {
+        let mut state = tests::fixture();
+        for i in 0..2 {
+            let row = state.hazards.record_at_mut(i).unwrap();
+            row.start_tick = LivingTickV2(10);
+            row.end_tick = LivingTickV2(10);
+        }
+        let expected = legacy(
+            state.clone(),
+            LivingPendingEventsV2::new(),
+            LivingTickV2(10),
+        )
+        .unwrap();
+        for schedule in SCHEDULES {
+            let (actual, events, _) = complete(
+                LivingLifecycleJobV2::begin(
+                    state.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(10),
+                ),
+                schedule,
+            );
+            assert_eq!((actual, events.clone()), expected);
+            assert_eq!(
+                events
+                    .payloads()
+                    .iter()
+                    .map(|row| row.kind)
+                    .collect::<Vec<_>>(),
+                vec![
+                    LivingEventKindV2::AgreementExpired,
+                    LivingEventKindV2::WarEnded,
+                    LivingEventKindV2::HazardStarted,
+                    LivingEventKindV2::HazardStarted,
+                    LivingEventKindV2::HazardEnded,
+                    LivingEventKindV2::HazardEnded,
+                ]
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod bounded_recipe_tests {
+    use super::super::model::LivingInventoryV2 as Inventory;
+    use super::*;
+    const SCHEDULES: [&[usize]; 4] = [&[1], &[64], &[1024], &[1, 64, 7, 1024]];
+    type Amounts = Vec<(LivingResourceV2, u32)>;
+    fn snapshot(output: LivingRecipeOutputV2) -> (Inventory, u64, Vec<u8>) {
+        (
+            output.inventory,
+            output.remaining_deposit,
+            serde_json::to_vec(&output.blocked_reasons).unwrap(),
+        )
+    }
+    fn complete(
+        mut job: LivingRecipeJobV2,
+        schedule: &[usize],
+    ) -> Result<(LivingRecipeOutputV2, u64), LivingLifecycleJobErrorV2> {
+        let mut i = 0;
+        loop {
+            let before = job.total_visits();
+            let result = job.poll(schedule[i % schedule.len()]);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            assert!(job.last_poll_visits() <= schedule[i % schedule.len()]);
+            i += 1;
+            match result? {
+                LivingLifecycleProgressV2::Ready => break,
+                LivingLifecycleProgressV2::Pending => assert!(i < 1000),
+            }
+        }
+        let total = job.total_visits();
+        let output = job.take_ready_result()?;
+        assert!(matches!(
+            job.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::NotReady)
+        ));
+        assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+        assert_eq!(job.last_poll_visits(), 0);
+        drain(job, schedule);
+        Ok((output, total))
+    }
+    fn legacy(
+        inventory: Inventory,
+        remaining: u64,
+        deposit: u32,
+        inputs: Amounts,
+        outputs: Amounts,
+    ) -> Result<(Inventory, u64, Vec<u8>), LivingLifecycleJobErrorV2> {
+        let mut job =
+            recipe_legacy_oracle::Recipe::begin(inventory, remaining, deposit, inputs, outputs);
+        while job.poll(1024)? != LivingLifecycleProgressV2::Ready {}
+        job.finish().map(snapshot)
+    }
+    fn drain(job: LivingRecipeJobV2, schedule: &[usize]) -> u64 {
+        let mut retired = job.into_phase_retirement(LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut i = 0;
+        loop {
+            let before = retired.total_visits();
+            let result = retired.poll(schedule[i % schedule.len()]).unwrap();
+            assert_eq!(
+                retired.total_visits() - before,
+                retired.last_poll_visits() as u64
+            );
+            assert!(retired.last_poll_visits() <= schedule[i % schedule.len()]);
+            assert!(retired.take_deferred_owner().is_none());
+            i += 1;
+            if result == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+            assert!(i < 10000);
+        }
+        retired.total_visits()
+    }
+    fn arc_cost(root: &PhaseArc<Vec<(LivingResourceV2, u32)>>) -> u64 {
+        let Some(source) = &root.0 else {
+            return 1;
+        };
+        // Present Option3, exact Arc disposition, unique Vec3N+1 and node1.
+        if Arc::strong_count(source) > 1 {
+            4
+        } else {
+            6 + 3 * source.len() as u64
+        }
+    }
+    fn remaining(job: &LivingRecipeJobV2, map_storage_released: bool) -> u64 {
+        15 + arc_cost(&job.inputs)
+            + arc_cost(&job.outputs)
+            + if job.pending_reason.is_some() { 4 } else { 1 }
+            + 1
+            + 3 * job.reasons.len() as u64
+            + 4
+            + 3 * job.reason_output.as_slice().len() as u64
+            + if job.reason_storage.is_some() { 25 } else { 1 }
+            + if map_storage_released { 6 } else { 7 }
+    }
+    #[test]
+    fn bounded_recipe_legacy_control_api_is_preserved() {
+        let mut old =
+            recipe_legacy_oracle::Recipe::begin(Inventory::default(), 0, 0, vec![], vec![]);
+        assert_eq!(old.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+        assert_eq!(old.last_poll_visits(), 0);
+        assert_eq!(old.total_visits(), 0);
+        old.cancel();
+        assert_eq!(old.poll(1), Err(LivingLifecycleJobErrorV2::Cancelled));
+    }
+    #[test]
+    fn bounded_recipe_original_policy_bytes_and_independent_forward_totals() {
+        use LivingResourceV2::*;
+        let limit = LIVING_RESOURCE_STORAGE_LIMIT_V2;
+        let fixtures = [
+            (Inventory::default(), 0, 0, vec![], vec![], 4),
+            (
+                Inventory {
+                    energy: 10,
+                    ore: 5,
+                    alloy: 20,
+                },
+                9,
+                2,
+                vec![(Energy, 4), (Ore, 4)],
+                vec![(Alloy, 1)],
+                12,
+            ),
+            (
+                Inventory {
+                    energy: 0,
+                    ore: 0,
+                    alloy: limit,
+                },
+                0,
+                2,
+                vec![(Energy, 2), (Ore, 3)],
+                vec![(Alloy, 1)],
+                20,
+            ),
+            (
+                Inventory::default(),
+                0,
+                0,
+                vec![(Energy, 2), (Energy, 3)],
+                vec![],
+                10,
+            ),
+            (
+                Inventory {
+                    energy: limit,
+                    ore: limit,
+                    alloy: limit,
+                },
+                0,
+                1,
+                vec![(Energy, limit + 1), (Ore, limit + 1), (Alloy, limit + 1)],
+                vec![(Energy, 1), (Ore, 1), (Alloy, 1)],
+                32,
+            ),
+        ];
+        for (inventory, remaining, deposit, inputs, outputs, expected_visits) in fixtures {
+            let expected = legacy(
+                inventory,
+                remaining,
+                deposit,
+                inputs.clone(),
+                outputs.clone(),
+            )
+            .unwrap();
+            for schedule in SCHEDULES {
+                let (output, visits) = complete(
+                    LivingRecipeJobV2::begin(
+                        inventory,
+                        remaining,
+                        deposit,
+                        inputs.clone(),
+                        outputs.clone(),
+                    ),
+                    schedule,
+                )
+                .unwrap();
+                assert_eq!(snapshot(output), expected);
+                assert_eq!(visits, expected_visits);
+            }
+        }
+    }
+    #[test]
+    fn bounded_recipe_all_scarcity_combinations_and_resource_keys_match_original() {
+        use LivingResourceV2::*;
+        for resource in [Energy, Ore, Alloy] {
+            for mask in 0_u32..8 {
+                let mut inventory = Inventory::default();
+                recipe_set_quantity(
+                    &mut inventory,
+                    resource,
+                    if mask & 4 != 0 {
+                        LIVING_RESOURCE_STORAGE_LIMIT_V2
+                    } else {
+                        0
+                    },
+                );
+                let inputs = if mask & 1 != 0 {
+                    vec![(resource, LIVING_RESOURCE_STORAGE_LIMIT_V2 + 1)]
+                } else {
+                    vec![]
+                };
+                let outputs = if mask & 4 != 0 {
+                    vec![(resource, 1)]
+                } else {
+                    vec![]
+                };
+                let deposit = u32::from(mask & 2 != 0);
+                let expected =
+                    legacy(inventory, 0, deposit, inputs.clone(), outputs.clone()).unwrap();
+                let c = inputs.len() + outputs.len() + deposit as usize;
+                let k = mask.count_ones() as usize;
+                let total = c + k + if k == 0 { c } else { 0 } + 2 * k + 4;
+                for schedule in SCHEDULES {
+                    let (out, n) = complete(
+                        LivingRecipeJobV2::begin(
+                            inventory,
+                            0,
+                            deposit,
+                            inputs.clone(),
+                            outputs.clone(),
+                        ),
+                        schedule,
+                    )
+                    .unwrap();
+                    assert_eq!(snapshot(out), expected);
+                    assert_eq!(n, total as u64);
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_recipe_every_cut_retains_original_arrays_and_exact_residuals() {
+        use LivingResourceV2::*;
+        // C4,M4,K4 =>20; C4,unblocked C4 =>12; empty =>4.
+        for (blocked, expected_total) in [(true, 20), (false, 12), (false, 4)] {
+            for cut in 0..=expected_total {
+                for schedule in SCHEDULES {
+                    let empty = expected_total == 4;
+                    let mut input_rows = Vec::with_capacity(8);
+                    let mut output_rows = Vec::with_capacity(8);
+                    if !empty {
+                        input_rows.extend([(Energy, 2), (Ore, 3)]);
+                        output_rows.push((Alloy, 1));
+                    }
+                    let inputs = Arc::new(input_rows);
+                    let outputs = Arc::new(output_rows);
+                    let input_ptr = inputs.as_ptr();
+                    let output_ptr = outputs.as_ptr();
+                    let ip = Arc::as_ptr(&inputs);
+                    let op = Arc::as_ptr(&outputs);
+                    let mut job = LivingRecipeJobV2::begin_shared(
+                        Inventory {
+                            energy: if blocked { 0 } else { 10 },
+                            ore: if blocked { 0 } else { 10 },
+                            alloy: if blocked {
+                                LIVING_RESOURCE_STORAGE_LIMIT_V2
+                            } else {
+                                0
+                            },
+                        },
+                        if blocked { 0 } else { 10 },
+                        u32::from(!empty),
+                        Arc::clone(&inputs),
+                        Arc::clone(&outputs),
+                    );
+                    let mut prepared_pointer = None;
+                    for _ in 0..cut {
+                        job.poll(1).unwrap();
+                        assert_eq!(job.last_poll_visits(), 1);
+                        assert_eq!(Arc::as_ptr(&job.inputs), ip);
+                        assert_eq!(Arc::as_ptr(&job.outputs), op);
+                        if job.stage >= 7 {
+                            let pointer = job.reason_output.as_slice().as_ptr();
+                            if let Some(expected) = prepared_pointer {
+                                assert_eq!(pointer, expected);
+                            }
+                            prepared_pointer = Some(pointer);
+                            assert!(job.reason_output.capacity() >= if blocked { 4 } else { 0 });
+                        }
+                    }
+                    assert_eq!(job.total_visits(), cut);
+                    assert_eq!(job.inputs.as_ptr(), input_ptr);
+                    assert_eq!(job.outputs.as_ptr(), output_ptr);
+                    // Map empty-storage visit is penultimate; its Box survives one visit.
+                    let expected = remaining(&job, cut == expected_total - 1);
+                    job.cancel();
+                    assert!(matches!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    ));
+                    for budget in [0, 1, 1025] {
+                        assert_eq!(job.poll(budget), Err(LivingLifecycleJobErrorV2::Cancelled));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                    assert_eq!(drain(job, schedule), expected);
+                    assert_eq!(Arc::strong_count(&inputs), 1);
+                    assert_eq!(Arc::strong_count(&outputs), 1);
+                    assert_eq!(inputs.capacity(), 8);
+                    assert_eq!(outputs.capacity(), 8);
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_recipe_malformed_payment_faults_match_original_and_remain_sticky() {
+        use LivingResourceV2::*;
+        for (
+            inventory,
+            remaining,
+            deposit,
+            inputs,
+            outputs,
+            expected_prefix,
+            after,
+            after_deposit,
+        ) in [
+            (
+                Inventory {
+                    energy: 3,
+                    ore: 0,
+                    alloy: 0,
+                },
+                0,
+                0,
+                vec![(Energy, 2), (Energy, 2)],
+                vec![(Ore, 1)],
+                5,
+                Inventory {
+                    energy: 1,
+                    ore: 0,
+                    alloy: 0,
+                },
+                0,
+            ),
+            (
+                Inventory {
+                    energy: 10,
+                    ore: 0,
+                    alloy: LIVING_RESOURCE_STORAGE_LIMIT_V2 - 1,
+                },
+                9,
+                2,
+                vec![(Energy, 4)],
+                vec![(Alloy, 1), (Alloy, 1)],
+                8,
+                Inventory {
+                    energy: 6,
+                    ore: 0,
+                    alloy: LIVING_RESOURCE_STORAGE_LIMIT_V2,
+                },
+                7,
+            ),
+        ] {
+            let expected = legacy(
+                inventory,
+                remaining,
+                deposit,
+                inputs.clone(),
+                outputs.clone(),
+            )
+            .unwrap_err();
+            for schedule in SCHEDULES {
+                let mut job = LivingRecipeJobV2::begin(
+                    inventory,
+                    remaining,
+                    deposit,
+                    inputs.clone(),
+                    outputs.clone(),
+                );
+                let mut i = 0;
+                loop {
+                    match job.poll(schedule[i % schedule.len()]) {
+                        Ok(LivingLifecycleProgressV2::Pending) => i += 1,
+                        Err(error) => {
+                            assert_eq!(error, expected);
+                            break;
+                        }
+                        _ => panic!("malformed payment must fail"),
+                    }
+                }
+                assert_eq!(job.total_visits(), expected_prefix);
+                assert_eq!(job.inventory, after);
+                assert_eq!(job.remaining_deposit, after_deposit);
+                assert_eq!(job.fault, Some(RecipeFailure::Invariant));
+                for bad in [0, 1025] {
+                    assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                job.cancel();
+                for b in [0, 1, 1025] {
+                    assert_eq!(job.poll(b), Err(expected.clone()));
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                assert!(matches!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                ));
+                let r = remaining_cost(&job);
+                assert_eq!(drain(job, schedule), r);
+            }
+        }
+    }
+    fn remaining_cost(job: &LivingRecipeJobV2) -> u64 {
+        remaining(job, false)
+    }
+    #[test]
+    fn bounded_recipe_authentic_capacity_and_retained_key_failure() {
+        use LivingResourceV2::*;
+        for capacity in [true, false] {
+            for retirement_schedule in SCHEDULES {
+                // Prelude poll1 captures the exact boundary; each selected
+                // forward position must debit the failed attempt, not sticky work.
+                for (forward_schedule, position) in [
+                    (&[1][..], 0),
+                    (&[64][..], 0),
+                    (&[1024][..], 0),
+                    (&[1, 64, 7, 1024][..], 0),
+                    (&[1, 64, 7, 1024][..], 1),
+                    (&[1, 64, 7, 1024][..], 2),
+                    (&[1, 64, 7, 1024][..], 3),
+                ] {
+                    let trigger_budget = forward_schedule[position];
+                    let mut job = LivingRecipeJobV2::begin(
+                        Inventory::default(),
+                        0,
+                        0,
+                        vec![(Energy, 1)],
+                        vec![],
+                    );
+                    let mut guard = 0;
+                    while if capacity {
+                        !job.inject_capacity_failure()
+                    } else {
+                        job.stage != 8
+                    } {
+                        job.poll(1).unwrap();
+                        guard += 1;
+                        assert!(guard < 32);
+                    }
+                    let selected = if capacity { None } else { job.pending_reason };
+                    if !capacity {
+                        job.reason_output =
+                            LivingSortedVecV2::new(vec![selected.unwrap()]).unwrap();
+                    }
+                    let before = job.total_visits();
+                    let error = if capacity {
+                        LivingLifecycleJobErrorV2::PreparationCapacity
+                    } else {
+                        RecipeFailure::KeyedOrder.public()
+                    };
+                    assert_eq!(job.poll(trigger_budget), Err(error.clone()));
+                    assert!(job.last_poll_visits() <= trigger_budget);
+                    if capacity {
+                        assert_eq!(job.reason_storage.as_ref().unwrap().last_poll_visits(), 1);
+                    }
+                    assert_eq!(job.last_poll_visits(), 1);
+                    assert_eq!(job.total_visits(), before + 1);
+                    assert_eq!(job.pending_reason, selected);
+                    assert!(job.reason_storage.is_some() == capacity);
+                    for bad in [0, 1025] {
+                        assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+                    }
+                    assert!(matches!(job.take_ready_result(),Err(e) if e==error));
+                    job.cancel();
+                    for budget in [0, 1, 1025] {
+                        assert_eq!(job.poll(budget), Err(error.clone()));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                    assert!(matches!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    ));
+                    let r = remaining_cost(&job);
+                    assert_eq!(drain(job, retirement_schedule), r);
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_recipe_unique_arrays_delivered_shell_and_exact_deferred_roots() {
+        use LivingResourceV2::*;
+        for schedule in SCHEDULES {
+            let mut job = LivingRecipeJobV2::begin(
+                Inventory {
+                    energy: 10,
+                    ore: 10,
+                    alloy: 0,
+                },
+                9,
+                1,
+                vec![(Energy, 1), (Ore, 1)],
+                vec![(Alloy, 1)],
+            );
+            let ip = Arc::as_ptr(&job.inputs);
+            let op = Arc::as_ptr(&job.outputs);
+            let iw = Arc::downgrade(&job.inputs);
+            let ow = Arc::downgrade(&job.outputs);
+            while job.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+            let output = job.take_ready_result().unwrap();
+            assert!(output.blocked_reasons.as_slice().is_empty());
+            assert_eq!(Arc::as_ptr(&job.inputs), ip);
+            assert_eq!(Arc::as_ptr(&job.outputs), op);
+            // Delivered unique shell41 + three original IO rows*3.
+            assert_eq!(drain(job, schedule), 50);
+            assert!(iw.upgrade().is_none());
+            assert!(ow.upgrade().is_none());
+            // Two roots alias one allocation: first releases a shared handle4;
+            // the last resolves unique Vec6+3N, with other fixed fields29.
+            let amounts = Arc::new(vec![(Energy, 1)]);
+            let weak = Arc::downgrade(&amounts);
+            let job = LivingRecipeJobV2::begin_shared(
+                Inventory::default(),
+                0,
+                0,
+                amounts.clone(),
+                amounts,
+            );
+            assert_eq!(drain(job, schedule), 42);
+            assert!(weak.upgrade().is_none());
+            let inputs = Arc::new(vec![(Energy, 1)]);
+            let outputs = Arc::new(Vec::with_capacity(8));
+            let ip = Arc::as_ptr(&inputs).cast();
+            let op = Arc::as_ptr(&outputs).cast();
+            let job = LivingRecipeJobV2::begin_shared(
+                Inventory::default(),
+                0,
+                0,
+                inputs.clone(),
+                outputs.clone(),
+            );
+            let mut retired =
+                job.into_phase_retirement(LivingStateRetirementPolicyV2::DeferUntilUnique);
+            let mut tickets = Vec::new();
+            while retired.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {
+                if let Some(ticket) = retired.take_deferred_owner() {
+                    tickets.push(ticket);
+                }
+            }
+            assert_eq!(tickets.len(), 2);
+            for (ticket, identity) in tickets.iter().zip([ip, op]) {
+                let LivingPhaseDeferredRetirementV2::Private(owner) = ticket else {
+                    panic!("exact array ticket")
+                };
+                assert_eq!(owner.node.shared_identity(), Some(identity));
+            }
+            drop(inputs);
+            drop(outputs);
+            for (ticket, expected) in tickets.into_iter().zip([9, 6]) {
+                let mut resumed = LivingPhaseRetirementJobV2::begin(
+                    ticket,
+                    LivingStateRetirementPolicyV2::DeferUntilUnique,
+                );
+                while resumed.poll(schedule[0]).unwrap() != LivingLifecycleProgressV2::Ready {
+                    assert!(resumed.take_deferred_owner().is_none());
+                }
+                // Enum root1 + edge2 + Arc(2+Vec(1+3N)) =6+3N.
+                assert_eq!(resumed.total_visits(), expected);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod corrected_repair_cursor_tests {
+    use super::*;
+    use crate::living::*;
+    const SCHEDULES: &[&[usize]] = &[
+        &[1],
+        &[64],
+        &[1024],
+        &[1, 64, 7, 1024],
+        &[64, 7, 1024, 1],
+        &[7, 1024, 1, 64],
+        &[1024, 1, 64, 7],
+    ];
+    fn fixture() -> (Arc<ValidatedLivingCatalogPackV2>, LivingGalaxyStateV2) {
+        let a = builtin_living_sandbox_v2().unwrap();
+        let mut s = a.state().clone();
+        let c = s.colonies.as_slice()[0].clone();
+        let mut f = s.fleets.as_slice()[0].clone();
+        f.owner = c.owner;
+        f.location = LivingFleetLocationV2::Docked { world: c.world };
+        f.order = None;
+        let mut h = f.hulls.as_slice()[0].clone();
+        h.definition = LivingSlugV2::new("escort").unwrap();
+        h.hit_points = 5;
+        h.next_repair = Some(LivingTickV2(0));
+        let mut hulls = Vec::with_capacity(17);
+        hulls.push(h);
+        f.hulls = LivingSortedVecV2::new(hulls).unwrap();
+        let mut fleets = Vec::with_capacity(23);
+        fleets.push(f);
+        s.fleets = LivingSortedVecV2::new(fleets).unwrap();
+        s.facilities = Default::default();
+        s.worlds.find_mut(&c.world).unwrap().inventory.energy = 1;
+        (a.catalog_snapshot(), s)
+    }
+    fn pointers(
+        s: &LivingGalaxyStateV2,
+    ) -> (
+        *const LivingFleetV2,
+        usize,
+        *const LivingHullV2,
+        usize,
+        *const LivingFacilityV2,
+        usize,
+    ) {
+        (
+            s.fleets.as_slice().as_ptr(),
+            s.fleets.capacity(),
+            s.fleets.as_slice()[0].hulls.as_slice().as_ptr(),
+            s.fleets.as_slice()[0].hulls.capacity(),
+            s.facilities.as_slice().as_ptr(),
+            s.facilities.capacity(),
+        )
+    }
+    fn drain<T: RetirementFields<'static>>(owner: T, schedule: &[usize]) -> u64 {
+        let mut r =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut i = 0;
+        loop {
+            let b = schedule[i % schedule.len()];
+            i += 1;
+            let before = r.total_visits();
+            let result = r.poll(b).unwrap();
+            assert_eq!(r.total_visits() - before, r.last_poll_visits() as u64);
+            assert!(r.last_poll_visits() <= b);
+            assert!(r.take_deferred_owner().is_none());
+            if result == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+            assert!(i < 100000);
+        }
+        let n = r.total_visits();
+        assert_eq!(r.poll(1024), Ok(LivingLifecycleProgressV2::Ready));
+        assert_eq!(r.last_poll_visits(), 0);
+        n
+    }
+    #[test]
+    fn corrected_repair_in_place_forward_count_and_every_cut_retirement() {
+        let (catalog, source) = fixture();
+        let w = source.worlds.as_slice().len();
+        let d = catalog.hulls().len();
+        let i = catalog.industries().len();
+        let defenses = catalog
+            .industries()
+            .iter()
+            .filter(|d| matches!(d.effect, LivingIndustryEffectV2::Defense { .. }))
+            .count();
+        // F=1,H=1,A=0,E=1,M=1. Original empty map handoff/storage/node=3 each.
+        let forward = (w + d + i + 1 + 1 + 3 + 1 + w + d + defenses + 15) as u64;
+        for schedule in SCHEDULES {
+            let mut job =
+                LivingRepairJobV2::begin_owned(catalog.clone(), source.clone(), LivingTickV2(1));
+            let identity = pointers(&job.state);
+            let mut n = 0;
+            assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.poll(1025), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.total_visits(), 0);
+            loop {
+                let b = schedule[n % schedule.len()];
+                n += 1;
+                let before = job.total_visits();
+                let p = job.poll(b).unwrap();
+                assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+                assert!(job.last_poll_visits() <= b);
+                assert_eq!(pointers(&job.state), identity);
+                if p == LivingLifecycleProgressV2::Ready {
+                    break;
+                }
+            }
+            assert_eq!(job.total_visits(), forward);
+            let state = job.take_ready_result().unwrap();
+            assert_eq!(pointers(&state), identity);
+            assert_eq!(state.fleets.as_slice()[0].hulls.as_slice()[0].hit_points, 6);
+            assert_eq!(
+                state.fleets.as_slice()[0].hulls.as_slice()[0].next_repair,
+                Some(LivingTickV2(10))
+            );
+            assert!(matches!(
+                job.take_ready_result(),
+                Err(LivingLifecycleJobErrorV2::NotReady)
+            ));
+            assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+            assert_eq!(job.last_poll_visits(), 0);
+            drain(job, schedule);
+        }
+        for cut in 0..=forward {
+            let mut count = None;
+            for schedule in SCHEDULES {
+                let mut job = LivingRepairJobV2::begin_owned(
+                    catalog.clone(),
+                    source.clone(),
+                    LivingTickV2(1),
+                );
+                let identity = pointers(&job.state);
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                    assert_eq!(pointers(&job.state), identity);
+                }
+                job.cancel();
+                assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Cancelled));
+                assert_eq!(job.last_poll_visits(), 0);
+                assert!(matches!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                ));
+                assert_eq!(pointers(&job.state), identity);
+                let n = drain(job, schedule);
+                if let Some(expected) = count {
+                    assert_eq!(n, expected);
+                } else {
+                    count = Some(n);
+                }
+            }
+        }
+    }
+    #[test]
+    fn corrected_repair_direct_high_tick_actual_first_failure_and_retained_payment() {
+        let (catalog, source) = fixture();
+        for energy in [0, 1] {
+            for trigger in [1, 64, 1024, 1, 64, 7, 1024] {
+                for retirement in SCHEDULES {
+                    let mut s = source.clone();
+                    let world = s.colonies.as_slice()[0].world;
+                    s.worlds.find_mut(&world).unwrap().inventory.energy = energy;
+                    s.fleets
+                        .record_at_mut(0)
+                        .unwrap()
+                        .hulls
+                        .record_at_mut(0)
+                        .unwrap()
+                        .next_repair = Some(LivingTickV2(u64::MAX));
+                    let mut job =
+                        LivingRepairJobV2::begin_owned(catalog.clone(), s, LivingTickV2(u64::MAX));
+                    let identity = pointers(&job.state);
+                    while job.cursor != RepairCursor::Update {
+                        job.poll(1).unwrap();
+                    }
+                    let before = job.total_visits();
+                    assert_eq!(
+                        job.poll(trigger),
+                        Err(LivingLifecycleJobErrorV2::Fault(
+                            LivingDeterministicFaultV2::Arithmetic
+                        ))
+                    );
+                    assert_eq!(job.last_poll_visits(), 1);
+                    assert_eq!(job.total_visits() - before, 1);
+                    assert_eq!(pointers(&job.state), identity);
+                    assert!(job.pending.is_some());
+                    assert_eq!(
+                        job.state.fleets.as_slice()[0].hulls.as_slice()[0].hit_points,
+                        5 + energy
+                    );
+                    assert_eq!(job.state.worlds.as_slice()[0].inventory.energy, 0);
+                    assert_eq!(job.poll(0), Err(LivingLifecycleJobErrorV2::Budget));
+                    job.cancel();
+                    assert_eq!(
+                        job.poll(0),
+                        Err(LivingLifecycleJobErrorV2::Fault(
+                            LivingDeterministicFaultV2::Arithmetic
+                        ))
+                    );
+                    assert_eq!(job.last_poll_visits(), 0);
+                    assert!(matches!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    ));
+                    drain(job, retirement);
+                }
+            }
+        }
+        // Direct-phase full completion avoids unused due+10 arithmetic; exclusion avoids all work on the asset.
+        for excluded in [false, true] {
+            let mut s = source.clone();
+            s.fleets
+                .record_at_mut(0)
+                .unwrap()
+                .hulls
+                .record_at_mut(0)
+                .unwrap()
+                .hit_points = 9;
+            s.fleets
+                .record_at_mut(0)
+                .unwrap()
+                .hulls
+                .record_at_mut(0)
+                .unwrap()
+                .next_repair = Some(LivingTickV2(u64::MAX));
+            let world = s.colonies.as_slice()[0].world;
+            let mut ex = BTreeSet::new();
+            if excluded {
+                ex.insert(world);
+            }
+            let mut job = LivingRepairJobV2::with_exclusions(
+                LivingPhaseCatalogV2::Owned(catalog.clone()),
+                s,
+                LivingTickV2(u64::MAX),
+                ex,
+            );
+            while job.poll(64).unwrap() != LivingLifecycleProgressV2::Ready {}
+            let state = job.take_ready_result().unwrap();
+            let h = &state.fleets.as_slice()[0].hulls.as_slice()[0];
+            assert_eq!(h.hit_points, if excluded { 9 } else { 10 });
+            assert_eq!(
+                h.next_repair,
+                if excluded {
+                    Some(LivingTickV2(u64::MAX))
+                } else {
+                    None
+                }
+            );
+            drain(job, &[1]);
+        }
+    }
+    #[test]
+    fn corrected_repair_projection_matches_actual_departures_and_cancel_retains_snapshot() {
+        let a = builtin_living_sandbox_v2().unwrap();
+        for credit in [false, true] {
+            for tick in [1, 10, 11] {
+                let mut s = a.state().clone();
+                let actors = s.civilizations.as_slice();
+                let (x, y) = (actors[0].id, actors[1].id);
+                s.wars = LivingSortedVecV2::new(vec![LivingWarV2 {
+                    participant_a: x.min(y),
+                    participant_b: x.max(y),
+                    declarer: x,
+                    start_tick: LivingTickV2(0),
+                    end_tick: LivingTickV2(100),
+                }])
+                .unwrap();
+                for f in s.fleets.as_slice().to_vec() {
+                    if matches!(f.location,LivingFleetLocationV2::Docked {world} if s.worlds.as_slice().iter().any(|w|w.id==world && w.owner!=Some(f.owner)))
+                    {
+                        for h in f.hulls.as_slice() {
+                            s.fleets
+                                .find_mut(&f.id)
+                                .unwrap()
+                                .hulls
+                                .find_mut(&h.id)
+                                .unwrap()
+                                .return_credit = credit;
+                        }
+                    }
+                }
+                let before = s.canonical_bytes().unwrap();
+                let mut actual = LivingConflictJobV2::begin(
+                    a.catalog(),
+                    s.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(tick),
+                    [0; 32],
+                    vec![],
+                );
+                while actual.poll(64).unwrap() != LivingLifecycleProgressV2::Ready {}
+                let (_, _, expected) = actual.take_ready_with_exclusions().unwrap();
+                let mut forward = 0;
+                for schedule in SCHEDULES {
+                    let mut job = RepairEligibilityProjection::begin(LivingTickV2(tick));
+                    let mut n = 0;
+                    loop {
+                        let b = schedule[n % schedule.len()];
+                        n += 1;
+                        let before = job.total_visits;
+                        let p = job.poll(&s, a.catalog(), b).unwrap();
+                        assert_eq!(job.total_visits - before, job.last_poll_visits() as u64);
+                        assert!(job.last_poll_visits() <= b);
+                        if p == LivingLifecycleProgressV2::Ready {
+                            break;
+                        }
+                    }
+                    if forward == 0 {
+                        forward = job.total_visits;
+                    } else {
+                        assert_eq!(job.total_visits, forward);
+                    }
+                    assert_eq!(job.take_ready_result().unwrap(), expected);
+                    drain(job, schedule);
+                }
+                for cut in 0..=forward {
+                    let mut job = RepairEligibilityProjection::begin(LivingTickV2(tick));
+                    let mut lane: Option<(u64, u64)> = None;
+                    for _ in 0..cut {
+                        let was_active = job.retirement.node.is_some();
+                        let map_rows = job.distances.len() as u64;
+                        job.poll(&s, a.catalog(), 1).unwrap();
+                        if job.retirement.node.is_none() {
+                            lane = None;
+                        } else if !was_active {
+                            lane = Some((3 * map_rows + 1, 0));
+                        } else {
+                            lane.as_mut().unwrap().1 += 1;
+                        }
+                    }
+                    // Seven owner edges/root15, empty lane7, six map/set roots6.
+                    // Each fixed map/set row3. Internal map-node residual replaces
+                    // the lane's empty Option: Rchild-1-q (including final -1).
+                    let rows = (job.worlds.len()
+                        + job.wars.len()
+                        + job.distances.len()
+                        + job.departed.len()
+                        + job.exclusions.len()
+                        + job.pieces.len()) as u64;
+                    let expected = lane.map_or(28 + 3 * rows, |(r, q)| 28 + 3 * rows + r - 1 - q);
+                    job.cancel();
+                    assert_eq!(
+                        job.poll(&s, a.catalog(), 0),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    );
+                    assert!(matches!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::Cancelled)
+                    ));
+                    assert_eq!(
+                        drain(job, &[1, 64, 7, 1024]),
+                        expected,
+                        "projection cut {cut}"
+                    );
+                }
+                assert_eq!(s.canonical_bytes().unwrap(), before);
+            }
+        }
+    }
+    #[test]
+    fn corrected_repair_projection_graph_ties_unreachable_and_deadline_match_live() {
+        let (a, original) = super::retreat_tests::fixture();
+        for no_path in [false, true] {
+            for tick in [1, u64::MAX - 21, u64::MAX - 20, u64::MAX - 19] {
+                let mut source = original.clone();
+                // Isolate the one controlled retreat fleet for the closed-form ledger.
+                source.fleets =
+                    LivingSortedVecV2::new(vec![source.fleets.as_slice()[0].clone()]).unwrap();
+                if no_path {
+                    source.lanes = Default::default();
+                }
+                for schedule in SCHEDULES {
+                    let mut live = LivingRetreatJobV2::begin(
+                        a.catalog(),
+                        source.clone(),
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(tick),
+                    );
+                    let mut n = 0;
+                    let live_result = loop {
+                        let b = schedule[n % schedule.len()];
+                        n += 1;
+                        match live.poll(b) {
+                            Ok(LivingLifecycleProgressV2::Pending) => {}
+                            Ok(LivingLifecycleProgressV2::Ready) => {
+                                break Ok(live.take_ready_with_exclusions().unwrap());
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    };
+                    let mut projection = RepairEligibilityProjection::begin(LivingTickV2(tick));
+                    let mut n = 0;
+                    let projected = loop {
+                        let b = schedule[n % schedule.len()];
+                        n += 1;
+                        match projection.poll(&source, a.catalog(), b) {
+                            Ok(LivingLifecycleProgressV2::Pending) => {}
+                            Ok(LivingLifecycleProgressV2::Ready) => {
+                                break Ok(projection.take_ready_result().unwrap());
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    };
+                    // Independently derived from the fixed diamond/no-lane graph.
+                    let systems = source.systems.as_slice().len() as u64;
+                    let settled = if no_path { 1 } else { systems };
+                    let pre_departure = source.worlds.as_slice().len() as u64
+                        + source.wars.as_slice().len() as u64
+                        + source.fleets.as_slice().len() as u64
+                        + source.fleets.as_slice()[0].hulls.as_slice().len() as u64
+                        + systems
+                        + (settled + 1) * systems
+                        + settled
+                        + settled * source.lanes.as_slice().len() as u64
+                        + source.colonies.as_slice().len() as u64;
+                    let expected = if projected.is_err() {
+                        pre_departure + 1
+                    } else {
+                        pre_departure + if no_path { 0 } else { 2 } + 1 + (3 * systems + 1) + 1
+                    };
+                    assert_eq!(projection.total_visits, expected);
+                    match (live_result, projected) {
+                        (Ok((state, _, expected)), Ok(actual)) => {
+                            assert_eq!(actual, expected);
+                            for f in source.fleets.as_slice() {
+                                let after = state
+                                    .fleets
+                                    .as_slice()
+                                    .iter()
+                                    .find(|r| r.id == f.id)
+                                    .unwrap();
+                                assert_eq!(
+                                    projection.departed.contains(&f.id),
+                                    matches!(
+                                        (f.location, after.location),
+                                        (
+                                            LivingFleetLocationV2::Docked { .. },
+                                            LivingFleetLocationV2::Travelling { .. }
+                                        )
+                                    )
+                                );
+                            }
+                        }
+                        (Err(expected), Err(actual)) => assert_eq!(actual, expected),
+                        (left, right) => panic!("projection/live discrepancy: {left:?} {right:?}"),
+                    }
+                    drain(projection, schedule);
+                }
+            }
+        }
+    }
+    #[test]
+    fn corrected_repair_malformed_pending_target_and_catalog_aliases_are_retained() {
+        let (catalog, source) = fixture();
+        for schedule in SCHEDULES {
+            let mut job =
+                LivingRepairJobV2::begin_owned(catalog.clone(), source.clone(), LivingTickV2(1));
+            while job.cursor != RepairCursor::Energy {
+                job.poll(1).unwrap();
+            }
+            let identity = pointers(&job.state);
+            let pending = job.pending.as_ref().unwrap().id;
+            job.pending.as_mut().unwrap().world = LivingEntityIdV2([255; 16]);
+            assert_eq!(
+                job.poll(schedule[0]),
+                Err(LivingLifecycleJobErrorV2::Fault(
+                    LivingDeterministicFaultV2::Invariant
+                ))
+            );
+            assert_eq!(job.last_poll_visits(), 1);
+            assert_eq!(job.pending.as_ref().unwrap().id, pending);
+            assert_eq!(pointers(&job.state), identity);
+            assert_eq!(job.state.worlds.as_slice()[0].inventory.energy, 1);
+            drain(job, schedule);
+        }
+        // Exact catalog owner is the only shared root introduced by repair.
+        // Both alias-release orders leave the last payload for counted cleanup.
+        for first_external in [false, true] {
+            let c = Arc::new(living_core_pack_v2().unwrap());
+            let weak = Arc::downgrade(&c);
+            let external = Arc::clone(&c);
+            let job = LivingRepairJobV2::begin_owned(c, source.clone(), LivingTickV2(1));
+            if first_external {
+                drop(external);
+                drain(job, &[1]);
+            } else {
+                drain(job, &[64]);
+                assert!(weak.upgrade().is_some());
+                let retained = LivingRepairJobV2::begin_owned(
+                    external,
+                    LivingGalaxyStateV2::default(),
+                    LivingTickV2(1),
+                );
+                drain(retained, &[1, 64, 7, 1024]);
+            }
+            assert!(weak.upgrade().is_none());
+        }
+        let c = Arc::new(living_core_pack_v2().unwrap());
+        let weak = Arc::downgrade(&c);
+        let job = LivingRepairJobV2::begin_owned(c.clone(), source, LivingTickV2(1));
+        let mut r = job.into_phase_retirement(LivingStateRetirementPolicyV2::DeferUntilUnique);
+        let mut ticket = None;
+        while r.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {
+            if let Some(t) = r.take_deferred_owner() {
+                assert!(ticket.is_none());
+                assert!(matches!(t, LivingPhaseDeferredRetirementV2::Catalog(_)));
+                ticket = Some(t);
+            }
+        }
+        assert_eq!(Arc::strong_count(&c), 2);
+        assert!(ticket.is_some());
+        drop(c);
+        drain(ticket.unwrap(), &[1, 64, 7, 1024]);
+        assert!(weak.upgrade().is_none());
+    }
+}
+
+// Frozen pre-correction executable Arrival oracle. This independently runs the
+// original route search, append, and fault order for unaffected parity cases.
+#[cfg(test)]
+#[allow(dead_code)]
+mod old_arrival_reference {
+    use super::*;
+    type Edge = (LivingEntityIdV2, u64);
+    pub(crate) type Graph = BTreeMap<LivingEntityIdV2, Vec<Edge>>;
+
+    #[derive(Debug)]
+    pub(crate) struct CostSearch {
+        destination: LivingEntityIdV2,
+        distance: BTreeMap<LivingEntityIdV2, u64>,
+        frontier: BTreeSet<(u64, LivingEntityIdV2)>,
+        current: Option<(u64, LivingEntityIdV2, usize)>,
+        pub(crate) result: Option<Option<u64>>,
+    }
+
+    impl CostSearch {
+        pub(crate) fn begin(
+            from: Option<LivingEntityIdV2>,
+            to: Option<LivingEntityIdV2>,
+            graph: &Graph,
+        ) -> Self {
+            let mut search = Self {
+                destination: to.unwrap_or(LivingEntityIdV2([0; 16])),
+                distance: BTreeMap::new(),
+                frontier: BTreeSet::new(),
+                current: None,
+                result: None,
+            };
+            match (from, to) {
+                (Some(from), Some(to)) if from == to => search.result = Some(Some(10)),
+                (Some(from), Some(to)) if graph.contains_key(&from) && graph.contains_key(&to) => {
+                    search.distance.insert(from, 0);
+                    search.frontier.insert((0, from));
+                }
+                _ => search.result = Some(None),
+            }
+            search
+        }
+
+        // One cached system or lane record is visited, never an entire adjacency list.
+        // Only total duration is authoritative for freight returns; equal-cost path
+        // tie breaking cannot change the returned arrival boundary.
+        pub(crate) fn visit(&mut self, graph: &Graph) -> bool {
+            if self.result.is_some() {
+                return false;
+            }
+            if let Some((cost, system, index)) = self.current {
+                if let Some(&(next, leg)) = graph.get(&system).and_then(|edges| edges.get(index)) {
+                    self.current = Some((cost, system, index + 1));
+                    let candidate = cost.saturating_add(leg);
+                    let old = self.distance.get(&next).copied().unwrap_or(u64::MAX);
+                    if candidate < old {
+                        self.frontier.remove(&(old, next));
+                        self.distance.insert(next, candidate);
+                        self.frontier.insert((candidate, next));
+                    }
+                    return true;
+                }
+                self.current = None;
+                return false;
+            }
+            if let Some((cost, system)) = self.frontier.pop_first() {
+                if system == self.destination {
+                    self.result = Some(Some(cost));
+                } else {
+                    self.current = Some((cost, system, 0));
+                }
+                true
+            } else {
+                self.result = Some(None);
+                false
+            }
+        }
+        /// Release one completed search index record under a caller's budget.
+        pub(crate) fn retire_record(&mut self) -> bool {
+            self.distance.pop_first().is_some() || self.frontier.pop_first().is_some()
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum ArrivalCursor {
+        Fleets,
+        Worlds,
+        Systems,
+        Lanes,
+        Wars,
+        Relations,
+        Shipments,
+        RelationOutput,
+        RetireIndices,
+        Ready,
+    }
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum CargoCursor {
+        Travel,
+        RetireSearch,
+        Return,
+        Credit,
+        Relation,
+        Output,
+    }
+
+    /// Resumable phase-3 fleet arrivals and freight resolution.
+    ///
+    /// Unchanged nested hulls are moved, not cloned. Indexed world metadata, active
+    /// wars and relation records are built incrementally. Return route search visits
+    /// one cached system or lane per work unit. Inventory and relation changes stay
+    /// in the owned private candidate until a complete boundary can be published.
+    #[derive(Debug)]
+    pub struct OldArrivalJob {
+        retirement: PhaseRetirementLane<'static>,
+        active_fleet: Option<LivingFleetV2>,
+        delivered: bool,
+        state: LivingGalaxyStateV2,
+        events: LivingPendingEventsV2,
+        tick: LivingTickV2,
+        fleets: IntoIter<LivingFleetV2>,
+        shipments: IntoIter<LivingShipmentV2>,
+        relations: IntoIter<LivingRelationV2>,
+        world_meta: BTreeMap<LivingEntityIdV2, (usize, Option<LivingEntityIdV2>, LivingEntityIdV2)>,
+        graph: Graph,
+        active_wars: BTreeSet<Pair>,
+        relation_rows: BTreeMap<Pair, LivingRelationV2>,
+        relation_output: Option<std::collections::btree_map::IntoIter<Pair, LivingRelationV2>>,
+        arrivals: Vec<LivingEntityIdV2>,
+        cursor: ArrivalCursor,
+        index: usize,
+        cargo: Option<(LivingShipmentV2, CargoCursor)>,
+        search: Option<CostSearch>,
+        cancelled: bool,
+        fault: Option<LivingDeterministicFaultV2>,
+        last_poll_visits: usize,
+        total_visits: u64,
+    }
+
+    impl OldArrivalJob {
+        /// Move an unpublished candidate into phase 3 without scanning it.
+        pub fn begin(
+            mut state: LivingGalaxyStateV2,
+            events: LivingPendingEventsV2,
+            tick: LivingTickV2,
+        ) -> Self {
+            let fleets = std::mem::take(&mut state.fleets).into_vec().into_iter();
+            let shipments = std::mem::take(&mut state.shipments).into_vec().into_iter();
+            let relations = std::mem::take(&mut state.relations).into_vec().into_iter();
+            Self {
+                retirement: PhaseRetirementLane::default(),
+                active_fleet: None,
+                delivered: false,
+                state,
+                events,
+                tick,
+                fleets,
+                shipments,
+                relations,
+                world_meta: BTreeMap::new(),
+                graph: BTreeMap::new(),
+                active_wars: BTreeSet::new(),
+                relation_rows: BTreeMap::new(),
+                relation_output: None,
+                arrivals: Vec::new(),
+                cursor: ArrivalCursor::Fleets,
+                index: 0,
+                cargo: None,
+                search: None,
+                cancelled: false,
+                fault: None,
+                last_poll_visits: 0,
+                total_visits: 0,
+            }
+        }
+
+        /// Cancel without publishing or scanning the candidate.
+        pub fn cancel(&mut self) {
+            self.cancelled = true;
+        }
+        /// Source/output entity and cached route-record visits made by the last poll.
+        pub const fn last_poll_visits(&self) -> usize {
+            self.last_poll_visits
+        }
+        /// Entity/record visits made since beginning this phase.
+        pub const fn total_visits(&self) -> u64 {
+            self.total_visits
+        }
+
+        /// Advance at most 1024 actual entity/record visits; invalid budgets are retryable.
+        pub fn poll(
+            &mut self,
+            budget: usize,
+        ) -> Result<LivingLifecycleProgressV2, LivingLifecycleJobErrorV2> {
+            self.last_poll_visits = 0;
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if budget == 0 || budget > LIVING_MAX_PHASE_POLL_VISITS_V2 {
+                return Err(LivingLifecycleJobErrorV2::Budget);
+            }
+            if let Some(fault) = &self.fault {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault.clone()));
+            }
+            while self.last_poll_visits < budget && self.cursor != ArrivalCursor::Ready {
+                if self.retirement.visit() {
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    continue;
+                }
+
+                match self.visit_next() {
+                    Ok(true) => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                    }
+                    Ok(false) => {}
+                    Err(fault) => {
+                        self.last_poll_visits += 1;
+                        self.total_visits += 1;
+                        self.fault = Some(fault.clone());
+                        return Err(LivingLifecycleJobErrorV2::Fault(fault));
+                    }
+                }
+            }
+            Ok(if self.cursor == ArrivalCursor::Ready {
+                LivingLifecycleProgressV2::Ready
+            } else {
+                LivingLifecycleProgressV2::Pending
+            })
+        }
+
+        /// Consume a ready phase and its exact list of arrived fleet identities.
+        pub fn finish(
+            mut self,
+        ) -> Result<
+            (
+                LivingGalaxyStateV2,
+                LivingPendingEventsV2,
+                Vec<LivingEntityIdV2>,
+            ),
+            LivingLifecycleJobErrorV2,
+        > {
+            self.take_ready_result()
+        }
+        /// Borrowed one-time extraction; rejected calls preserve every owner.
+        pub fn take_ready_result(
+            &mut self,
+        ) -> Result<
+            (
+                LivingGalaxyStateV2,
+                LivingPendingEventsV2,
+                Vec<LivingEntityIdV2>,
+            ),
+            LivingLifecycleJobErrorV2,
+        > {
+            if self.cancelled {
+                return Err(LivingLifecycleJobErrorV2::Cancelled);
+            }
+            if let Some(fault) = self.fault.clone() {
+                return Err(LivingLifecycleJobErrorV2::Fault(fault));
+            }
+            if self.cursor != ArrivalCursor::Ready {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            if self.delivered {
+                return Err(LivingLifecycleJobErrorV2::NotReady);
+            }
+            self.delivered = true;
+            Ok((
+                std::mem::take(&mut self.state),
+                std::mem::take(&mut self.events),
+                std::mem::take(&mut self.arrivals),
+            ))
+        }
+
+        fn emit(&mut self, kind: LivingEventKindV2) -> Result<(), LivingDeterministicFaultV2> {
+            self.events.record(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ResolveArrivals,
+                },
+                kind,
+            )?;
+            Ok(())
+        }
+
+        fn visit_next(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+            match self.cursor {
+                ArrivalCursor::Fleets => {
+                    if let Some(fleet) = self.fleets.as_slice().first() {
+                        ensure_retained_sorted(&self.state.fleets, fleet)?;
+                    }
+                    self.active_fleet = self.fleets.next();
+                    if let Some(fleet) = self.active_fleet.as_mut() {
+                        if let LivingFleetLocationV2::Travelling {
+                            destination_world,
+                            arrival_tick,
+                            ..
+                        } = fleet.location
+                            && arrival_tick.0 <= self.tick.0
+                        {
+                            let kind = fleet.order.as_ref().map(|order| order.kind);
+                            let target = fleet.order.as_ref().and_then(|order| order.target_world);
+                            fleet.location = LivingFleetLocationV2::Docked {
+                                world: destination_world,
+                            };
+                            let clear = match kind {
+                                Some(
+                                    LivingFleetOrderKindV2::Move | LivingFleetOrderKindV2::Return,
+                                ) => true,
+                                Some(
+                                    LivingFleetOrderKindV2::Attack | LivingFleetOrderKindV2::Settle,
+                                ) => target != Some(destination_world),
+                                Some(
+                                    LivingFleetOrderKindV2::Explore
+                                    | LivingFleetOrderKindV2::Defend,
+                                ) => target.is_none() || target == Some(destination_world),
+                                None => false,
+                            };
+                            if clear {
+                                self.retirement.start(fleet.order.take());
+                            }
+                            self.arrivals.push(fleet.id);
+                            self.emit(LivingEventKindV2::FleetArrived)?;
+                        }
+                        self.state.fleets.push_sorted(
+                            self.active_fleet.take().expect("retained arriving fleet"),
+                        )?;
+                        return Ok(true);
+                    }
+                    self.cursor = ArrivalCursor::Worlds;
+                }
+                ArrivalCursor::Worlds => {
+                    if let Some(world) = self.state.worlds.as_slice().get(self.index) {
+                        self.world_meta
+                            .insert(world.id, (self.index, world.owner, world.system));
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                    self.index = 0;
+                    self.cursor = ArrivalCursor::Systems;
+                }
+                ArrivalCursor::Systems => {
+                    if let Some(system) = self.state.systems.as_slice().get(self.index) {
+                        self.graph.insert(system.id, Vec::new());
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                    self.index = 0;
+                    self.cursor = ArrivalCursor::Lanes;
+                }
+                ArrivalCursor::Lanes => {
+                    if let Some(lane) = self.state.lanes.as_slice().get(self.index) {
+                        if self.graph.contains_key(&lane.system_a)
+                            && self.graph.contains_key(&lane.system_b)
+                        {
+                            let cost = lane.distance_units.div_ceil(10).max(10);
+                            self.graph
+                                .get_mut(&lane.system_a)
+                                .unwrap()
+                                .push((lane.system_b, cost));
+                            self.graph
+                                .get_mut(&lane.system_b)
+                                .unwrap()
+                                .push((lane.system_a, cost));
+                        }
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                    self.index = 0;
+                    self.cursor = ArrivalCursor::Wars;
+                }
+                ArrivalCursor::Wars => {
+                    if let Some(war) = self.state.wars.as_slice().get(self.index) {
+                        if war.start_tick.0 <= self.tick.0 && self.tick.0 < war.end_tick.0 {
+                            self.active_wars.insert(war.living_key());
+                        }
+                        self.index += 1;
+                        return Ok(true);
+                    }
+                    self.cursor = ArrivalCursor::Relations;
+                }
+                ArrivalCursor::Relations => {
+                    if let Some(row) = self.relations.next() {
+                        self.relation_rows.insert(row.living_key(), row);
+                        return Ok(true);
+                    }
+                    self.cursor = ArrivalCursor::Shipments;
+                }
+                ArrivalCursor::Shipments => return self.visit_cargo(),
+                ArrivalCursor::RelationOutput => {
+                    if let Some((_, row)) = self.relation_output.as_mut().and_then(Iterator::next) {
+                        self.state.relations.push_sorted(row)?;
+                        return Ok(true);
+                    }
+                    self.cursor = ArrivalCursor::RetireIndices;
+                }
+                ArrivalCursor::RetireIndices => {
+                    if self.world_meta.pop_first().is_some()
+                        || self.active_wars.pop_first().is_some()
+                    {
+                        return Ok(true);
+                    }
+                    if let Some(mut entry) = self.graph.first_entry() {
+                        if entry.get_mut().pop().is_none() {
+                            entry.remove();
+                        }
+                        return Ok(true);
+                    }
+                    self.cursor = ArrivalCursor::Ready;
+                }
+                ArrivalCursor::Ready => {}
+            }
+            Ok(false)
+        }
+
+        fn visit_cargo(&mut self) -> Result<bool, LivingDeterministicFaultV2> {
+            let Some((mut cargo, cursor)) = self.cargo.take() else {
+                let Some(cargo) = self.shipments.next() else {
+                    self.relation_output =
+                        Some(std::mem::take(&mut self.relation_rows).into_iter());
+                    self.cursor = ArrivalCursor::RelationOutput;
+                    return Ok(false);
+                };
+                let due = cargo.disposition == LivingShipmentDispositionV2::WaitingForStorage
+                    || cargo.arrival_tick.0 <= self.tick.0;
+                let returning = cargo.disposition == LivingShipmentDispositionV2::Returning
+                    || cargo.returning_to_source;
+                let owner = self
+                    .world_meta
+                    .get(&cargo.destination_world)
+                    .and_then(|row| row.1);
+                let pair = if cargo.dispatch_owner < cargo.intended_receiver {
+                    (cargo.dispatch_owner, cargo.intended_receiver)
+                } else {
+                    (cargo.intended_receiver, cargo.dispatch_owner)
+                };
+                let cursor = if !due {
+                    CargoCursor::Output
+                } else if !returning
+                    && owner == Some(cargo.intended_receiver)
+                    && self.active_wars.contains(&pair)
+                {
+                    let from = self
+                        .world_meta
+                        .get(&cargo.destination_world)
+                        .map(|row| row.2);
+                    let to = self.world_meta.get(&cargo.source_world).map(|row| row.2);
+                    self.search = Some(CostSearch::begin(from, to, &self.graph));
+                    CargoCursor::Travel
+                } else {
+                    CargoCursor::Credit
+                };
+                self.cargo = Some((cargo, cursor));
+                return Ok(true);
+            };
+            match cursor {
+                CargoCursor::Travel => {
+                    let search = self
+                        .search
+                        .as_mut()
+                        .ok_or(LivingDeterministicFaultV2::Invariant)?;
+                    if search.result.is_some() {
+                        self.cargo = Some((cargo, CargoCursor::RetireSearch));
+                        return Ok(false);
+                    }
+                    let visited = search.visit(&self.graph);
+                    self.cargo = Some((cargo, CargoCursor::Travel));
+                    return Ok(visited);
+                }
+                CargoCursor::RetireSearch => {
+                    let search = self
+                        .search
+                        .as_mut()
+                        .ok_or(LivingDeterministicFaultV2::Invariant)?;
+                    if search.distance.pop_first().is_some()
+                        || search.frontier.pop_first().is_some()
+                    {
+                        self.cargo = Some((cargo, CargoCursor::RetireSearch));
+                        return Ok(true);
+                    }
+                    self.cargo = Some((cargo, CargoCursor::Return));
+                    return Ok(false);
+                }
+                CargoCursor::Return => {
+                    let cost = self
+                        .search
+                        .take()
+                        .and_then(|search| search.result)
+                        .flatten()
+                        .unwrap_or(10);
+                    cargo.disposition = LivingShipmentDispositionV2::Returning;
+                    cargo.returning_to_source = false;
+                    cargo.departure_tick = self.tick;
+                    cargo.arrival_tick = LivingTickV2(
+                        self.tick
+                            .0
+                            .checked_add(cost)
+                            .ok_or(LivingDeterministicFaultV2::Arithmetic)?,
+                    );
+                    self.cargo = Some((cargo, CargoCursor::Output));
+                }
+                CargoCursor::Credit => {
+                    let returning = cargo.disposition == LivingShipmentDispositionV2::Returning
+                        || cargo.returning_to_source;
+                    let destination = if returning {
+                        cargo.source_world
+                    } else {
+                        cargo.destination_world
+                    };
+                    let meta = self.world_meta.get(&destination).copied();
+                    let mut credited = false;
+                    if let Some((index, _, _)) = meta {
+                        let world = self
+                            .state
+                            .worlds
+                            .record_at_mut(index)
+                            .ok_or(LivingDeterministicFaultV2::Invariant)?;
+                        if let Some(next) = world
+                            .inventory
+                            .quantity(cargo.resource)
+                            .checked_add(cargo.units)
+                            && next <= LIVING_RESOURCE_STORAGE_LIMIT_V2
+                        {
+                            match cargo.resource {
+                                LivingResourceV2::Energy => world.inventory.energy = next,
+                                LivingResourceV2::Ore => world.inventory.ore = next,
+                                LivingResourceV2::Alloy => world.inventory.alloy = next,
+                            }
+                            credited = true;
+                        }
+                    }
+                    if !credited {
+                        cargo.disposition = LivingShipmentDispositionV2::WaitingForStorage;
+                        cargo.returning_to_source = returning;
+                        self.emit(LivingEventKindV2::ShipmentWaiting)?;
+                        self.cargo = Some((cargo, CargoCursor::Output));
+                    } else {
+                        let captured = !returning
+                            && meta.and_then(|row| row.1) != Some(cargo.intended_receiver);
+                        if captured {
+                            self.emit(LivingEventKindV2::ShipmentCaptured)?;
+                        } else if returning {
+                            self.emit(LivingEventKindV2::ShipmentReturned)?;
+                        } else {
+                            self.events.record_explained(
+                                LivingEventProvenanceV2::Autonomous {
+                                    phase: LivingPhaseV2::ResolveArrivals,
+                                },
+                                LivingEventKindV2::ShipmentDelivered,
+                                crate::living::event_facts::LivingEventFactsV2 {
+                                    delivery: Some(
+                                        crate::living::event_facts::LivingDeliveryFactV2 {
+                                            source_world: cargo.source_world,
+                                            destination_world: cargo.destination_world,
+                                            dispatch_owner: cargo.dispatch_owner,
+                                            intended_receiver: cargo.intended_receiver,
+                                            recipient: cargo.intended_receiver,
+                                            resource: cargo.resource,
+                                            units: cargo.units,
+                                            dispatch_kind: cargo.dispatch_kind,
+                                            source_system: self
+                                                .world_meta
+                                                .get(&cargo.source_world)
+                                                .map(|row| row.2),
+                                            destination_system: meta.map(|row| row.2),
+                                        },
+                                    ),
+                                    ..Default::default()
+                                },
+                            )?;
+                        }
+                        if !captured
+                            && !returning
+                            && cargo.dispatch_owner != cargo.intended_receiver
+                            && matches!(
+                                cargo.dispatch_kind,
+                                Some(LivingRouteKindV2::Aid | LivingRouteKindV2::Trade)
+                            )
+                        {
+                            self.cargo = Some((cargo, CargoCursor::Relation));
+                        }
+                    }
+                }
+                CargoCursor::Relation => {
+                    let from = cargo.intended_receiver;
+                    let to = cargo.dispatch_owner;
+                    let relation =
+                        self.relation_rows
+                            .entry((from, to))
+                            .or_insert(LivingRelationV2 {
+                                from,
+                                to,
+                                base_disposition: 0,
+                                reasons: LivingRelationReasonsV2::default(),
+                            });
+                    crate::living::rules::apply_delivery_credit(
+                        relation,
+                        cargo
+                            .dispatch_kind
+                            .ok_or(LivingDeterministicFaultV2::Invariant)?,
+                        cargo.units,
+                    )?;
+                }
+                CargoCursor::Output => {
+                    self.state.shipments.push_sorted(cargo)?;
+                }
+            }
+            Ok(true)
+        }
+    }
+
+    pub(super) fn run(
+        state: LivingGalaxyStateV2,
+        events: LivingPendingEventsV2,
+        tick: LivingTickV2,
+        budget: usize,
+    ) -> Result<LivingScheduledPhaseOutputV2, LivingLifecycleJobErrorV2> {
+        let mut job = OldArrivalJob::begin(state, events, tick);
+        while job.poll(budget)? != LivingLifecycleProgressV2::Ready {}
+        job.finish()
+    }
+}
+
+#[cfg(test)]
+mod bounded_path_tests {
+    use super::*;
+    const SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 7, 1024, 3]];
+    fn id(n: u8) -> LivingEntityIdV2 {
+        LivingEntityIdV2([n; 16])
+    }
+    fn graph() -> Arc<RetreatGraph> {
+        Arc::new(RetreatGraph {
+            systems: vec![id(1), id(2)],
+            lanes: vec![(id(7), id(1), id(2), 100)],
+        })
+    }
+    fn finish(job: &mut RetreatPathJob, budgets: &[usize]) {
+        let mut index = 0;
+        while !job.ready() {
+            let budget = budgets[index % budgets.len()];
+            job.poll(budget).unwrap();
+            assert!(job.last_poll_visits() <= budget);
+            index += 1;
+            assert!(index < 100_000);
+        }
+    }
+    fn drain<'a, T: RetirementFields<'a>>(owner: T, budgets: &[usize]) -> u64 {
+        let mut job =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut index = 0;
+        while job.poll(budgets[index % budgets.len()]).unwrap() != LivingLifecycleProgressV2::Ready
+        {
+            assert!(job.last_poll_visits() <= budgets[index % budgets.len()]);
+            index += 1;
+            assert!(index < 100_000);
+        }
+        job.total_visits()
+    }
+    #[test]
+    fn bounded_path_literal_forward_equations_and_terminal_contract() {
+        for schedule in SCHEDULES {
+            for (systems, lanes, origin, destination, expected, total) in [
+                (
+                    vec![id(1), id(2)],
+                    vec![(id(7), id(1), id(2), 100)],
+                    id(1),
+                    id(2),
+                    Some((10, vec![id(7)])),
+                    77,
+                ),
+                (vec![id(1)], vec![], id(1), id(1), Some((0, vec![])), 37),
+                (vec![], vec![], id(1), id(2), None, 28),
+                (vec![id(1), id(2)], vec![], id(9), id(2), None, 44),
+                (vec![id(1), id(2)], vec![], id(1), id(2), None, 46),
+            ] {
+                // Empty/missing system fixtures characterize the private graph API.
+                let graph = Arc::new(RetreatGraph { systems, lanes });
+                let pointer = Arc::as_ptr(&graph);
+                let mut job = RetreatPathJob::begin(graph.clone(), origin, destination);
+                for invalid in [0, 1025] {
+                    assert_eq!(job.poll(invalid), Err(LivingLifecycleJobErrorV2::Budget));
+                    assert_eq!(job.total_visits(), 0);
+                }
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                finish(&mut job, schedule);
+                assert_eq!(
+                    job.total_visits(),
+                    total,
+                    "origin {origin:?}, destination {destination:?}"
+                );
+                assert_eq!(job.poll(1024), Ok(LivingLifecycleProgressV2::Ready));
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(Arc::as_ptr(&job.graph), pointer);
+                assert_eq!(job.take_ready_result(), Ok(expected));
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                assert_eq!(job.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+                assert_eq!(job.last_poll_visits(), 0);
+                drain(job, schedule);
+                assert_eq!(Arc::strong_count(&graph), 1);
+            }
+        }
+    }
+    #[test]
+    fn bounded_path_cancel_every_visit_retains_original_outer_box_and_graph() {
+        for cutoff in 0..=77 {
+            for schedule in SCHEDULES {
+                let graph = graph();
+                let mut job = Box::new(RetreatPathJob::begin(graph.clone(), id(1), id(2)));
+                for _ in 0..cutoff {
+                    job.poll(1).unwrap();
+                }
+                let outer = &*job as *const RetreatPathJob;
+                let best = job.best.as_ptr();
+                let copied = job.copied.as_ptr();
+                let graph_pointer = Arc::as_ptr(&job.graph);
+                let visits = job.total_visits();
+                job.cancel();
+                assert_eq!(job.poll(64), Err(LivingLifecycleJobErrorV2::Cancelled));
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                );
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(job.total_visits(), visits);
+                assert_eq!(job.best.as_ptr(), best);
+                assert_eq!(job.copied.as_ptr(), copied);
+                assert_eq!(Arc::as_ptr(&job.graph), graph_pointer);
+                let mut retired = LivingPhaseRetirementJobV2::begin(
+                    job,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                let mut index = 0;
+                loop {
+                    if let Some(owner) = retired.root.owner.as_ref() {
+                        assert_eq!(&**owner as *const RetreatPathJob, outer);
+                    }
+                    let budget = schedule[index % schedule.len()];
+                    if retired.poll(budget).unwrap() == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(retired.last_poll_visits() <= budget);
+                    index += 1;
+                    assert!(index < 10000);
+                }
+                let expected = match cutoff {
+                    0 => 58,
+                    1 => 61,
+                    2..=24 => 57 - cutoff,
+                    25 => 34,
+                    26 => 40,
+                    27..=29 => 46,
+                    30 => 70,
+                    31 => 73,
+                    32..=54 => 99 - cutoff,
+                    55 => 46,
+                    56 => 49,
+                    57 => 48,
+                    58..=61 => 49,
+                    62 => 64,
+                    63..=76 => 127 - cutoff,
+                    77 => 52,
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    retired.total_visits(),
+                    expected,
+                    "cut {cutoff}, schedule {schedule:?}"
+                );
+                assert_eq!(Arc::strong_count(&graph), 1);
+            }
+        }
+    }
+    fn replacement_graph() -> Arc<RetreatGraph> {
+        Arc::new(RetreatGraph {
+            systems: vec![id(1), id(2), id(3), id(4)],
+            lanes: vec![
+                (id(7), id(1), id(2), 100),
+                (id(8), id(1), id(3), 400),
+                (id(9), id(2), id(3), 100),
+                (id(10), id(2), id(4), 100),
+            ],
+        })
+    }
+
+    // Metadata only: never a second allocation owner or a substitute cursor.
+    struct PathAllocation {
+        pointer: *const (),
+        capacity: usize,
+        last_len: usize,
+        empty: bool,
+        released: bool,
+        in_forward_lane: bool,
+    }
+    impl PathAllocation {
+        fn capture(path: &Vec<LivingEntityIdV2>, expected: &[LivingEntityIdV2]) -> Self {
+            assert_eq!(path, expected);
+            assert!(!path.is_empty());
+            Self {
+                pointer: path.as_ptr().cast(),
+                capacity: path.capacity(),
+                last_len: path.len(),
+                empty: false,
+                released: false,
+                in_forward_lane: false,
+            }
+        }
+        fn observe(&mut self, len: Option<usize>, single_visit: bool) {
+            if self.released {
+                return;
+            }
+            if let Some(len) = len {
+                assert!(len <= self.last_len);
+                self.last_len = len;
+                self.empty |= len == 0;
+            } else {
+                if single_visit {
+                    assert!(
+                        self.empty,
+                        "original allocated shell must survive exhaustion"
+                    );
+                }
+                self.released = true;
+            }
+        }
+    }
+    fn capture_path_allocations(job: &RetreatPathJob, paths: &mut Vec<PathAllocation>) {
+        match job.total_visits() {
+            63 => paths.push(PathAllocation::capture(&job.best[1].path, &[id(7)])),
+            93 => paths.push(PathAllocation::capture(&job.best[2].path, &[id(8)])),
+            135 => paths.push(PathAllocation::capture(&job.best[2].path, &[id(7), id(9)])),
+            _ => {}
+        }
+    }
+    fn observe_path_allocations(job: &RetreatPathJob, paths: &mut [PathAllocation]) {
+        for path in paths.iter_mut().filter(|path| !path.released) {
+            let in_lane = job.retirement.path_allocation(path.pointer, path.capacity);
+            path.in_forward_lane |= in_lane.is_some();
+            path.observe(job.path_allocation(path.pointer, path.capacity), true);
+        }
+    }
+
+    #[test]
+    fn bounded_path_replacement_forward_literal_and_original_allocations() {
+        for schedule in SCHEDULES {
+            let graph = replacement_graph();
+            let mut job = RetreatPathJob::begin(graph.clone(), id(1), id(4));
+            finish(&mut job, schedule);
+            assert_eq!(job.total_visits(), 217);
+            assert_eq!(job.take_ready_result(), Ok(Some((20, vec![id(7), id(10)]))));
+            drain(job, schedule);
+            assert_eq!(Arc::strong_count(&graph), 1);
+        }
+        let graph = replacement_graph();
+        let mut job = RetreatPathJob::begin(graph.clone(), id(1), id(4));
+        let mut paths = Vec::new();
+        while !job.ready() {
+            capture_path_allocations(&job, &mut paths);
+            observe_path_allocations(&job, &mut paths);
+            // Every loss of an observed source Vec is exactly one counted Work.
+            let live_before = paths.iter().filter(|path| !path.released).count();
+            job.poll(1).unwrap();
+            observe_path_allocations(&job, &mut paths);
+            if paths.iter().filter(|path| !path.released).count() < live_before {
+                assert_eq!(job.last_poll_visits(), 1);
+            }
+        }
+        assert_eq!(paths.len(), 3);
+        assert!(
+            paths
+                .iter()
+                .all(|path| path.in_forward_lane && path.empty && path.released)
+        );
+        assert_eq!(job.total_visits(), 217);
+        assert_eq!(job.take_ready_result(), Ok(Some((20, vec![id(7), id(10)]))));
+        drain(job, &[1]);
+    }
+
+    #[test]
+    fn bounded_path_replacement_every_cut_analytical_retirement_and_original_buffers() {
+        // Immutable source-derived ledger saved before measurement in FIX1 evidence.
+        const EXPECTED: [u64; 218] = [
+            58, 61, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36,
+            35, 34, 33, 34, 40, 46, 52, 58, 58, 58, 58, 58, 82, 85, 79, 78, 77, 76, 75, 74, 73, 72,
+            71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, 60, 59, 58, 57, 58, 61, 60, 61, 61, 85, 88,
+            82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61,
+            60, 61, 64, 63, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 88, 91, 85, 84, 83, 82, 81, 80,
+            79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 64, 67, 70, 69, 68,
+            67, 66, 67, 67, 91, 94, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73,
+            72, 71, 70, 69, 68, 67, 66, 67, 70, 73, 72, 73, 73, 73, 73, 73, 73, 73, 73, 73, 73, 73,
+            73, 73, 73, 73, 73, 88, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73,
+            72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 55,
+        ];
+        for (cutoff, expected) in EXPECTED.into_iter().enumerate() {
+            for schedule in SCHEDULES {
+                let graph = replacement_graph();
+                let graph_pointer = Arc::as_ptr(&graph);
+                let mut job = Box::new(RetreatPathJob::begin(graph.clone(), id(1), id(4)));
+                let outer = &*job as *const RetreatPathJob;
+                let mut paths = Vec::new();
+                for _ in 0..cutoff {
+                    capture_path_allocations(&job, &mut paths);
+                    observe_path_allocations(&job, &mut paths);
+                    job.poll(1).unwrap();
+                    assert_eq!(job.last_poll_visits(), 1);
+                }
+                capture_path_allocations(&job, &mut paths);
+                observe_path_allocations(&job, &mut paths);
+                assert_eq!(job.total_visits(), cutoff as u64);
+                job.cancel();
+                for budget in [1, 64, 1024] {
+                    assert_eq!(job.poll(budget), Err(LivingLifecycleJobErrorV2::Cancelled));
+                    assert_eq!(job.last_poll_visits(), 0);
+                    assert_eq!(job.total_visits(), cutoff as u64);
+                }
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::Cancelled)
+                );
+                assert_eq!(Arc::as_ptr(&job.graph), graph_pointer);
+                let mut retired = LivingPhaseRetirementJobV2::begin(
+                    job,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                for invalid in [0, 1025] {
+                    assert_eq!(
+                        retired.poll(invalid),
+                        Err(LivingLifecycleJobErrorV2::Budget)
+                    );
+                    assert_eq!(retired.last_poll_visits(), 0);
+                }
+                let mut calls = 0;
+                loop {
+                    if let Some(owner) = retired.root.owner.as_ref() {
+                        assert_eq!(&**owner as *const RetreatPathJob, outer);
+                        if let Some(anchor) = owner.graph.0.as_ref() {
+                            assert_eq!(Arc::as_ptr(anchor), graph_pointer);
+                        }
+                    }
+                    for path in paths.iter_mut().filter(|path| !path.released) {
+                        path.observe(
+                            retired.root.path_allocation(path.pointer, path.capacity),
+                            *schedule == [1],
+                        );
+                    }
+                    let budget = schedule[calls % schedule.len()];
+                    let result = retired.poll(budget).unwrap();
+                    assert!(retired.last_poll_visits() <= budget);
+                    assert!(retired.take_deferred_owner().is_none());
+                    calls += 1;
+                    assert!(calls < 1000);
+                    if result == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                }
+                for path in &mut paths {
+                    path.observe(
+                        retired.root.path_allocation(path.pointer, path.capacity),
+                        *schedule == [1],
+                    );
+                    assert!(path.released);
+                }
+                assert_eq!(
+                    retired.total_visits(),
+                    expected,
+                    "cut {cutoff}, schedule {schedule:?}"
+                );
+                assert_eq!(retired.poll(1), Ok(LivingLifecycleProgressV2::Ready));
+                assert_eq!(retired.last_poll_visits(), 0);
+                assert_eq!(retired.total_visits(), expected);
+                assert_eq!(Arc::strong_count(&graph), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn bounded_path_nested_source_allocations_survive_exhaustion() {
+        // Exercise the same typed owner representation used for replaced paths
+        // and final best rows, checking the actual source allocations.
+        let mut path = Vec::with_capacity(40);
+        path.extend([id(1), id(2), id(3)]);
+        let pointer = path.as_ptr();
+        let mut retired =
+            LivingPhaseRetirementJobV2::begin(path, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut saw_empty = false;
+        while let Some(source) = retired.root.owner.as_ref() {
+            assert_eq!(source.as_ptr(), pointer);
+            assert_eq!(source.capacity(), 40);
+            saw_empty |= source.is_empty();
+            retired.poll(1).unwrap();
+        }
+        while retired.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+        assert!(saw_empty);
+        assert_eq!(retired.total_visits(), 10); // V(3)=1+3*3.
+        let mut rows = Vec::with_capacity(9);
+        rows.push(RetreatDistance {
+            cost: 10,
+            path: vec![id(1), id(2)],
+            used: false,
+        });
+        rows.push(RetreatDistance {
+            cost: 20,
+            path: vec![id(3)],
+            used: false,
+        });
+        let pointer = rows.as_ptr();
+        let mut retired =
+            LivingPhaseRetirementJobV2::begin(rows, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut saw_empty = false;
+        while let Some(source) = retired.root.owner.as_ref() {
+            assert_eq!(source.as_ptr(), pointer);
+            assert_eq!(source.capacity(), 9);
+            saw_empty |= source.is_empty();
+            retired.poll(1).unwrap();
+        }
+        while retired.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+        assert!(saw_empty);
+        assert_eq!(retired.total_visits(), 22); // B(2,3)=1+6*2+3*3.
+    }
+    #[test]
+    fn bounded_path_storage_failures_are_real_counted_sticky_and_retained() {
+        for copied in [false, true] {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in SCHEDULES {
+                    let graph = graph();
+                    let mut job = RetreatPathJob::begin(graph.clone(), id(1), id(2));
+                    if copied {
+                        while job.stage != RetreatPathStage::PrepareCopy {
+                            job.poll(1).unwrap();
+                        }
+                    }
+                    let before = job.total_visits();
+                    let best_pointer = job.best.as_ptr();
+                    let capacity = job.best.capacity();
+                    let child = if copied {
+                        job.copy_storage.as_mut().unwrap().selected_capacity = usize::MAX;
+                        &mut job.copy_storage.as_mut().unwrap().fault
+                    } else {
+                        job.best_storage.as_mut().unwrap().selected_capacity = usize::MAX;
+                        &mut job.best_storage.as_mut().unwrap().fault
+                    };
+                    assert!(child.is_none());
+                    assert_eq!(
+                        job.poll(trigger),
+                        Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                    );
+                    assert_eq!(job.last_poll_visits(), 1);
+                    assert_eq!(job.total_visits(), before + 1);
+                    assert_eq!(job.best.as_ptr(), best_pointer);
+                    assert_eq!(job.best.capacity(), capacity);
+                    assert!(if copied {
+                        job.copy_storage.is_some()
+                    } else {
+                        job.best_storage.is_some()
+                    });
+                    assert_eq!(
+                        job.poll(1024),
+                        Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                    );
+                    assert_eq!(job.last_poll_visits(), 0);
+                    assert_eq!(
+                        job.take_ready_result(),
+                        Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                    );
+                    job.cancel();
+                    assert_eq!(
+                        job.poll(1),
+                        Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                    );
+                    assert_eq!(drain(job, cleanup), if copied { 70 } else { 58 });
+                    assert_eq!(Arc::strong_count(&graph), 1);
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_path_step_parents_defer_extraction_and_charge_failed_remaining_work() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for dispatching in [false, true] {
+            let graph = graph();
+            let mut path = RetreatPathJob::begin(graph.clone(), id(1), id(2));
+            path.poll(76).unwrap();
+            assert!(!path.ready());
+            if dispatching {
+                let mut parent = LivingDispatchJobV2::begin(
+                    authority.catalog(),
+                    authority.state().clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                    [0; 32],
+                    authority.branch(),
+                );
+                parent.graph = graph.clone().into();
+                parent.search = Some(path);
+                parent.stage = DispatchStage::FleetTravel;
+                parent.path = Vec::with_capacity(31);
+                parent.poll(1).unwrap();
+                assert_eq!(parent.last_poll_visits(), 1);
+                assert!(parent.search.as_ref().unwrap().ready());
+                assert!(parent.duration.is_none());
+                assert_eq!(parent.path.capacity(), 31);
+                parent.poll(1).unwrap();
+                assert!(parent.search.is_none());
+                assert_eq!(parent.duration, Some(10));
+                assert!(!parent.retirement.is_empty());
+                assert_eq!(Arc::strong_count(&graph), 3);
+                while !parent.retirement.is_empty() {
+                    parent.poll(1).unwrap();
+                }
+                assert_eq!(Arc::strong_count(&graph), 2);
+                drain(parent, &[1]);
+            } else {
+                let mut parent = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    authority.state().clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                parent.graph = graph.clone().into();
+                parent.search = Some(path);
+                parent.stage = RetreatStage::Search;
+                parent.poll(1).unwrap();
+                assert_eq!(parent.last_poll_visits(), 1);
+                assert!(parent.search.as_ref().unwrap().ready());
+                assert!(parent.winner.is_none());
+                parent.poll(1).unwrap();
+                assert!(parent.search.is_none());
+                assert_eq!(parent.winner.as_ref().unwrap().0, 10);
+                assert!(!parent.retirement.is_empty());
+                assert_eq!(Arc::strong_count(&graph), 3);
+                while !parent.retirement.is_empty() {
+                    parent.poll(1).unwrap();
+                }
+                assert_eq!(Arc::strong_count(&graph), 2);
+                drain(parent, &[1]);
+            }
+            assert_eq!(Arc::strong_count(&graph), 1);
+        }
+        for trigger in [1, 64, 7, 1024] {
+            let graph = graph();
+            let mut path = RetreatPathJob::begin(graph.clone(), id(1), id(2));
+            path.inject_capacity_failure();
+            let mut parent = LivingDispatchJobV2::begin(
+                authority.catalog(),
+                authority.state().clone(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(1),
+                [0; 32],
+                authority.branch(),
+            );
+            parent.graph = graph.clone().into();
+            parent.search = Some(path);
+            parent.stage = DispatchStage::RouteTravel;
+            parent.retirement.start(vec![id(8)]); // V(1)+Done=5 prior visits.
+            let mut total = 0;
+            loop {
+                let result = parent.poll(trigger);
+                total += parent.last_poll_visits();
+                assert!(parent.last_poll_visits() <= trigger);
+                if result == Err(LivingLifecycleJobErrorV2::PreparationCapacity) {
+                    break;
+                }
+                result.unwrap();
+            }
+            assert_eq!(total, 6);
+            assert_eq!(parent.search.as_ref().unwrap().total_visits(), 1);
+            drain(parent, &[1]);
+        }
+    }
+
+    #[test]
+    fn bounded_path_retreat_dispatch_parent_failures_keep_candidate_and_box() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for extract in [false, true] {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in SCHEDULES {
+                    let graph = graph();
+                    let make_path = || {
+                        let mut path = RetreatPathJob::begin(graph.clone(), id(1), id(2));
+                        if extract {
+                            finish(&mut path, &[1024]);
+                            path.delivered = true;
+                        } else {
+                            path.best_storage.as_mut().unwrap().selected_capacity = usize::MAX;
+                        }
+                        path
+                    };
+                    let error = if extract {
+                        LivingLifecycleJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+                    } else {
+                        LivingLifecycleJobErrorV2::PreparationCapacity
+                    };
+                    let mut retreat = Box::new(LivingRetreatJobV2::begin(
+                        authority.catalog(),
+                        authority.state().clone(),
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(1),
+                    ));
+                    retreat.graph = graph.clone().into();
+                    retreat.search = Some(make_path());
+                    retreat.stage = RetreatStage::Search;
+                    let pointer = &*retreat as *const _;
+                    let systems = retreat.state.systems.as_slice().as_ptr();
+                    assert_eq!(retreat.poll(trigger), Err(error.clone()));
+                    assert_eq!(retreat.last_poll_visits(), 1);
+                    assert!(retreat.search.is_some());
+                    assert_eq!(retreat.state.systems.as_slice().as_ptr(), systems);
+                    assert_eq!(&*retreat as *const _, pointer);
+                    assert_eq!(retreat.take_ready_result().err(), Some(error.clone()));
+                    assert_eq!(retreat.poll(64), Err(error.clone()));
+                    assert_eq!(retreat.last_poll_visits(), 0);
+                    retreat.cancel();
+                    assert_eq!(retreat.poll(1), Err(error.clone()));
+                    drain(retreat, cleanup);
+                    let mut dispatch = Box::new(LivingDispatchJobV2::begin(
+                        authority.catalog(),
+                        authority.state().clone(),
+                        LivingPendingEventsV2::new(),
+                        LivingTickV2(1),
+                        [0; 32],
+                        authority.branch(),
+                    ));
+                    dispatch.graph = graph.clone().into();
+                    dispatch.search = Some(make_path());
+                    dispatch.stage = DispatchStage::FleetTravel;
+                    let pointer = &*dispatch as *const _;
+                    let systems = dispatch.state.systems.as_slice().as_ptr();
+                    assert_eq!(dispatch.poll(trigger), Err(error.clone()));
+                    assert_eq!(dispatch.last_poll_visits(), 1);
+                    assert!(dispatch.search.is_some());
+                    assert_eq!(dispatch.state.systems.as_slice().as_ptr(), systems);
+                    assert_eq!(&*dispatch as *const _, pointer);
+                    assert_eq!(dispatch.take_ready_result().err(), Some(error.clone()));
+                    assert_eq!(dispatch.poll(64), Err(error.clone()));
+                    assert_eq!(dispatch.last_poll_visits(), 0);
+                    dispatch.cancel();
+                    assert_eq!(dispatch.poll(1), Err(error));
+                    drain(dispatch, cleanup);
+                    assert_eq!(Arc::strong_count(&graph), 1);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod bounded_retreat_tests {
+    use super::super::model::*;
+    use super::super::simulation::LivingStepContextV2;
+    use super::super::wire::LivingSortedVecV2;
+    use super::*;
+    const SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 7, 64, 1024]];
+
+    fn drain<'a, T: RetirementFields<'a>>(owner: T, schedule: &[usize]) -> u64 {
+        let mut job =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut i = 0;
+        loop {
+            let budget = schedule[i % schedule.len()];
+            i += 1;
+            let before = job.total_visits();
+            let progress = job.poll(budget).unwrap();
+            assert!(job.last_poll_visits() <= budget);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            if progress == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+        }
+        let total = job.total_visits();
+        assert_eq!(job.poll(1024).unwrap(), LivingLifecycleProgressV2::Ready);
+        assert_eq!(job.last_poll_visits(), 0);
+        for bad in [0, 1025] {
+            assert_eq!(job.poll(bad), Err(LivingLifecycleJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+        }
+        total
+    }
+    fn run(
+        job: &mut LivingRetreatJobV2<'_>,
+        schedule: &[usize],
+    ) -> Result<(), LivingLifecycleJobErrorV2> {
+        for i in 0..100_000 {
+            let budget = schedule[i % schedule.len()];
+            let before = job.total_visits();
+            let result = job.poll(budget);
+            assert!(job.last_poll_visits() <= budget);
+            assert_eq!(job.total_visits() - before, job.last_poll_visits() as u64);
+            if result? == LivingLifecycleProgressV2::Ready {
+                return Ok(());
+            }
+        }
+        panic!("bounded Retreat did not finish");
+    }
+    fn advance(job: &mut LivingRetreatJobV2<'_>, stage: RetreatStage) {
+        for _ in 0..100_000 {
+            if job.stage == stage && job.retirement.is_empty() {
+                return;
+            }
+            job.poll(1).unwrap();
+        }
+        panic!("stage not reached");
+    }
+    fn prior_events() -> LivingPendingEventsV2 {
+        let mut events = LivingPendingEventsV2::new();
+        events
+            .record(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::ResolveArrivals,
+                },
+                LivingEventKindV2::FleetDeparted,
+            )
+            .unwrap();
+        events
+    }
+    #[test]
+    fn bounded_retreat_predicted_empty_and_single_system_work() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for systems in [0, 1] {
+            for schedule in SCHEDULES {
+                let mut state = LivingGalaxyStateV2::default();
+                if systems == 1 {
+                    state.systems = LivingSortedVecV2::new(vec![LivingSystemV2 {
+                        id: LivingEntityIdV2([1; 16]),
+                        name: crate::living::LivingNameV2::new("A").unwrap(),
+                    }])
+                    .unwrap();
+                }
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                run(&mut job, schedule).unwrap();
+                assert_eq!(job.total_visits(), 101 + 4 * systems);
+                assert!(job.catalog.0.is_none());
+                assert!(job.graph.0.is_none());
+                assert_eq!(job.colonies.capacity(), 0);
+                assert!(job.retirement.is_empty());
+                let (actual, events, excluded) = job.take_ready_with_exclusions().unwrap();
+                assert_eq!(actual, state);
+                assert_eq!(events, LivingPendingEventsV2::new());
+                assert!(excluded.is_empty());
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::NotReady)
+                );
+                assert_eq!(job.poll(1).unwrap(), LivingLifecycleProgressV2::Ready);
+                assert_eq!(job.last_poll_visits(), 0);
+                drain(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_full_reference_collector_exclusions_and_overflow_prefix() {
+        // Direct-state controls, including deliberately high ticks, are not
+        // represented as public admitted transitions.
+        for tick in [
+            LivingTickV2(1),
+            LivingTickV2(10),
+            LivingTickV2(u64::MAX - 1),
+        ] {
+            let (authority, mut state) = retreat_tests::fixture();
+            let origin = match state.fleets.as_slice()[0].location {
+                LivingFleetLocationV2::Docked { world } => world,
+                _ => unreachable!(),
+            };
+            state.fleets.record_at_mut(0).unwrap().order = Some(LivingFleetOrderV2 {
+                kind: LivingFleetOrderKindV2::Explore,
+                target_world: None,
+                not_before_tick: LivingTickV2(0),
+                lane_path: vec![LivingEntityIdV2([201; 16]); 7],
+            });
+            let mut expected = state.clone();
+            let mut expected_events = prior_events();
+            let mut context = LivingStepContextV2 {
+                catalog: authority.catalog(),
+                genesis_seed: [0; 32],
+                branch: authority.branch(),
+                tick,
+                state: &mut expected,
+                events: &mut expected_events,
+                arrivals: Vec::new(),
+                repair_exclusions: BTreeSet::new(),
+            };
+            let reference = super::super::rules::reference_retreat_for_cursor_test(&mut context);
+            let expected_exclusions = context.repair_exclusions;
+            for schedule in SCHEDULES {
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    prior_events(),
+                    tick,
+                );
+                let result = run(&mut job, schedule);
+                assert_eq!(
+                    result,
+                    reference.clone().map_err(LivingLifecycleJobErrorV2::Fault)
+                );
+                assert_eq!(job.state, expected);
+                assert_eq!(job.events, expected_events);
+                assert_eq!(job.repair_exclusions, expected_exclusions);
+                let fleet = &job.state.fleets.as_slice()[0];
+                let order = fleet.order.as_ref().unwrap();
+                assert_eq!(order.kind, LivingFleetOrderKindV2::Return);
+                assert_eq!(
+                    order.lane_path,
+                    [LivingEntityIdV2([10; 16]), LivingEntityIdV2([40; 16])]
+                );
+                assert!(fleet.hulls.as_slice().iter().all(|h| !h.return_credit));
+                if reference.is_err() {
+                    assert_eq!(
+                        fleet.location,
+                        LivingFleetLocationV2::Docked { world: origin }
+                    );
+                    assert_eq!(job.events.len(), 1);
+                    assert!(job.repair_exclusions.is_empty());
+                    assert!(job.winner.is_none());
+                    let error = RetreatFailure::Arithmetic.public();
+                    assert_eq!(job.take_ready_result(), Err(error.clone()));
+                    job.cancel();
+                    for b in [0, 1, 64, 1025] {
+                        assert_eq!(job.poll(b), Err(error.clone()));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                } else {
+                    assert!(job.repair_exclusions.contains(&origin));
+                    assert_eq!(job.events.payloads()[1].ordinal, 1);
+                    assert_eq!(
+                        job.events.payloads()[1].provenance,
+                        LivingEventProvenanceV2::Autonomous {
+                            phase: LivingPhaseV2::ResolveConflict
+                        }
+                    );
+                    assert_eq!(
+                        job.events.payloads()[1].kind,
+                        LivingEventKindV2::FleetDeparted
+                    );
+                }
+                drain(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_storage_poll_and_extraction_failures_preserve_originals() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for which in 0..3 {
+            for extracted in [false, true] {
+                for trigger in [1, 64, 7, 1024] {
+                    let mut totals = Vec::new();
+                    for cleanup in SCHEDULES {
+                        let mut job = LivingRetreatJobV2::begin(
+                            authority.catalog(),
+                            authority.state().clone(),
+                            prior_events(),
+                            LivingTickV2(1),
+                        );
+                        // Private injection at actual child setup/extraction, without replacing
+                        // an allocated original: failed EmptySetup retains its destination.
+                        job.stage = [
+                            RetreatStage::PrepareColonies,
+                            RetreatStage::PrepareSystems,
+                            RetreatStage::PrepareLanes,
+                        ][which];
+                        macro_rules! inject {
+                            ($field:ident) => {{
+                                let mut storage =
+                                    LivingVecStorageJobV2::begin_empty(if extracted {
+                                        13
+                                    } else {
+                                        usize::MAX
+                                    });
+                                if extracted {
+                                    storage.poll(1).unwrap();
+                                    storage.delivered = true;
+                                }
+                                job.$field = Some(storage);
+                            }};
+                        }
+                        match which {
+                            0 => inject!(colony_storage),
+                            1 => inject!(system_storage),
+                            _ => inject!(lane_storage),
+                        }
+                        let state_pointer = job.state.worlds.as_slice().as_ptr();
+                        let graph_pointer = Arc::as_ptr(&job.graph);
+                        let error = if extracted {
+                            RetreatFailure::ProtocolInvariant.public()
+                        } else {
+                            RetreatFailure::PreparationCapacity.public()
+                        };
+                        let before = job.total_visits();
+                        assert_eq!(job.poll(trigger), Err(error.clone()));
+                        assert_eq!(job.last_poll_visits(), 1);
+                        assert_eq!(job.total_visits(), before + 1);
+                        assert_eq!(job.state.worlds.as_slice().as_ptr(), state_pointer);
+                        assert_eq!(Arc::as_ptr(&job.graph), graph_pointer);
+                        macro_rules! retained {
+                            ($field:ident) => {{
+                                let child = job.$field.as_ref().unwrap();
+                                if extracted {
+                                    assert_eq!(child.destination.as_ref().unwrap().capacity(), 13);
+                                } else {
+                                    assert_eq!(
+                                        child.fault,
+                                        Some(LivingStorageJobErrorV2::CapacityOverflow)
+                                    );
+                                }
+                            }};
+                        }
+                        match which {
+                            0 => retained!(colony_storage),
+                            1 => retained!(system_storage),
+                            _ => retained!(lane_storage),
+                        }
+                        assert_eq!(job.take_ready_result(), Err(error.clone()));
+                        job.cancel();
+                        for b in [0, 1, 64, 1025] {
+                            assert_eq!(job.poll(b), Err(error.clone()));
+                            assert_eq!(job.last_poll_visits(), 0);
+                        }
+                        totals.push(drain(job, cleanup));
+                    }
+                    assert!(totals.iter().all(|n| *n == totals[0]));
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_ordinary_append_capacity_retains_original_collector() {
+        for trigger in [1, 64, 7, 1024] {
+            for cleanup in SCHEDULES {
+                let (authority, state) = retreat_tests::fixture();
+                let events = prior_events();
+                let entry_pointer = events.payloads().as_ptr();
+                let expected_events = events.clone();
+                let mut job =
+                    LivingRetreatJobV2::begin(authority.catalog(), state, events, LivingTickV2(1));
+                advance(&mut job, RetreatStage::Append);
+                let child = job.append.as_mut().unwrap();
+                assert_eq!(child.poll(2).unwrap(), LivingLifecycleProgressV2::Pending);
+                assert!(child.inject_entry_capacity_failure());
+                let before = job.total_visits();
+                assert_eq!(
+                    job.poll(trigger),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(job.last_poll_visits(), 1);
+                assert_eq!(job.total_visits(), before + 1);
+                let (collector, storage) = job.append.as_ref().unwrap().retained_for_test();
+                let collector = collector.unwrap();
+                let original = storage.unwrap().original.as_ref().unwrap();
+                assert_eq!(original.as_ptr(), entry_pointer);
+                assert_eq!(original.as_slice(), expected_events.payloads());
+                assert_eq!(collector.explained, expected_events.explained);
+                assert_eq!(collector.decisions, expected_events.decisions);
+                assert!(collector.payloads().is_empty());
+                assert!(matches!(
+                    job.state.fleets.as_slice()[0].location,
+                    LivingFleetLocationV2::Travelling { .. }
+                ));
+                assert!(!job.repair_exclusions.is_empty());
+                assert_eq!(job.fleet_index, 0);
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                job.cancel();
+                assert_eq!(
+                    job.poll(1),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(job.last_poll_visits(), 0);
+                drain(job, cleanup);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_ordinary_append_ordinal_fault_matches_reference_partial_candidate() {
+        let (authority, state) = retreat_tests::fixture();
+        let mut events = LivingPendingEventsV2::new();
+        for _ in 0..=u16::MAX {
+            events
+                .record(
+                    LivingEventProvenanceV2::Autonomous {
+                        phase: LivingPhaseV2::ResolveArrivals,
+                    },
+                    LivingEventKindV2::FleetDeparted,
+                )
+                .unwrap();
+        }
+        let mut expected = state.clone();
+        let mut expected_events = events.clone();
+        let mut context = LivingStepContextV2 {
+            catalog: authority.catalog(),
+            genesis_seed: [0; 32],
+            branch: authority.branch(),
+            tick: LivingTickV2(1),
+            state: &mut expected,
+            events: &mut expected_events,
+            arrivals: Vec::new(),
+            repair_exclusions: BTreeSet::new(),
+        };
+        let reference =
+            super::super::rules::reference_retreat_for_cursor_test(&mut context).unwrap_err();
+        let exclusions = context.repair_exclusions;
+        for schedule in SCHEDULES {
+            let input = events.clone();
+            let pointer = input.payloads().as_ptr();
+            let mut job = LivingRetreatJobV2::begin(
+                authority.catalog(),
+                state.clone(),
+                input,
+                LivingTickV2(1),
+            );
+            assert_eq!(
+                run(&mut job, schedule),
+                Err(LivingLifecycleJobErrorV2::Fault(reference.clone()))
+            );
+            assert_eq!(job.state, expected);
+            assert_eq!(job.repair_exclusions, exclusions);
+            let retained = job.append.as_ref().unwrap().retained_for_test().0.unwrap();
+            assert_eq!(retained, &expected_events);
+            assert_eq!(retained.payloads().as_ptr(), pointer);
+            assert_eq!(job.poll(1), Err(RetreatFailure::TooManyEvents.public()));
+            assert_eq!(job.last_poll_visits(), 0);
+            drain(job, schedule);
+        }
+    }
+    #[test]
+    fn bounded_retreat_conflict_poll_and_borrowed_failure_preserve_original_boxes() {
+        for extraction in [false, true] {
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in SCHEDULES {
+                    let (authority, state) = retreat_tests::fixture();
+                    let mut parent = LivingConflictJobV2::begin(
+                        authority.catalog(),
+                        state,
+                        prior_events(),
+                        LivingTickV2(1),
+                        [0; 32],
+                        Vec::new(),
+                    );
+                    let Some(ConflictComponent::Retreat(child)) = parent.component.as_mut() else {
+                        unreachable!()
+                    };
+                    let original = std::ptr::from_ref(&**child);
+                    if extraction {
+                        run(child, &[64]).unwrap();
+                        child.delivered = true;
+                    } else {
+                        child.stage = RetreatStage::PrepareColonies;
+                        child.colony_storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+                    }
+                    let error = if extraction {
+                        RetreatFailure::ProtocolInvariant.public()
+                    } else {
+                        RetreatFailure::PreparationCapacity.public()
+                    };
+                    let before = parent.total_visits();
+                    assert_eq!(parent.poll(trigger), Err(error.clone()));
+                    assert_eq!(parent.last_poll_visits(), 1);
+                    assert_eq!(parent.total_visits(), before + 1);
+                    let Some(ConflictComponent::Retreat(child)) = parent.component.as_ref() else {
+                        panic!("retained Retreat required")
+                    };
+                    assert_eq!(std::ptr::from_ref(&**child), original);
+                    assert!(parent.retirement.is_empty());
+                    assert_eq!(parent.take_ready_result(), Err(error.clone()));
+                    parent.cancel();
+                    for b in [0, 1, 1025] {
+                        assert_eq!(parent.poll(b), Err(error.clone()));
+                        assert_eq!(parent.last_poll_visits(), 0);
+                    }
+                    drain(parent, cleanup);
+                }
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_every_forward_cut_retains_original_box_and_cancels() {
+        let (authority, mut state) = retreat_tests::fixture();
+        state.fleets.record_at_mut(0).unwrap().order = Some(LivingFleetOrderV2 {
+            kind: LivingFleetOrderKindV2::Explore,
+            target_world: None,
+            not_before_tick: LivingTickV2(0),
+            lane_path: vec![LivingEntityIdV2([202; 16]); 32],
+        });
+        let mut total_job = LivingRetreatJobV2::begin(
+            authority.catalog(),
+            state.clone(),
+            prior_events(),
+            LivingTickV2(1),
+        );
+        run(&mut total_job, &[1]).unwrap();
+        let total = total_job.total_visits() as usize;
+        drain(total_job, &[64]);
+        for cutoff in 0..=total {
+            let mut totals = Vec::new();
+            for cleanup in SCHEDULES {
+                let mut job = Box::new(LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state.clone(),
+                    prior_events(),
+                    LivingTickV2(1),
+                ));
+                let original = std::ptr::from_ref(&*job);
+                for _ in 0..cutoff {
+                    job.poll(1).unwrap();
+                }
+                let pointer = job.state.worlds.as_slice().as_ptr();
+                if job.stage != RetreatStage::Ready {
+                    assert_eq!(
+                        job.take_ready_with_exclusions(),
+                        Err(LivingLifecycleJobErrorV2::NotReady)
+                    );
+                }
+                assert_eq!(job.state.worlds.as_slice().as_ptr(), pointer);
+                job.cancel();
+                assert_eq!(job.poll(1), Err(LivingLifecycleJobErrorV2::Cancelled));
+                assert_eq!(job.last_poll_visits(), 0);
+                let mut retirement = LivingPhaseRetirementJobV2::begin(
+                    job,
+                    LivingStateRetirementPolicyV2::ReleaseHandle,
+                );
+                let mut i = 0;
+                loop {
+                    if let Some(owner) = retirement.root.owner.as_ref() {
+                        assert_eq!(std::ptr::from_ref(&**owner), original);
+                    }
+                    let b = cleanup[i % cleanup.len()];
+                    i += 1;
+                    if retirement.poll(b).unwrap() == LivingLifecycleProgressV2::Ready {
+                        break;
+                    }
+                    assert!(retirement.last_poll_visits() <= b);
+                }
+                totals.push(retirement.total_visits());
+            }
+            assert!(totals.iter().all(|n| *n == totals[0]), "cut {cutoff}");
+        }
+    }
+
+    #[test]
+    fn bounded_retreat_predicted_stopped_retirement_counts() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for (cut, expected) in [
+            (0, 136),
+            (1, 163),
+            (2, 157),
+            (25, 136),
+            (26, 163),
+            (27, 157),
+            (50, 136),
+            (51, 163),
+            (52, 157),
+            (75, 136),
+            (101, 122),
+        ] {
+            for schedule in SCHEDULES {
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    LivingGalaxyStateV2::default(),
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                }
+                job.cancel();
+                assert_eq!(
+                    drain(job, schedule),
+                    expected,
+                    "cut {cut}, schedule {schedule:?}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_prepared_and_exhausted_original_source_allocations() {
+        let (authority, state) = retreat_tests::fixture();
+        let mut job = LivingRetreatJobV2::begin(
+            authority.catalog(),
+            state,
+            LivingPendingEventsV2::new(),
+            LivingTickV2(1),
+        );
+        let graph = Arc::as_ptr(&job.graph);
+        advance(&mut job, RetreatStage::PrepareColonies);
+        let colonies = job
+            .colony_storage
+            .as_ref()
+            .unwrap()
+            .destination
+            .as_ref()
+            .unwrap()
+            .as_ptr();
+        job.poll(1).unwrap();
+        assert_eq!(job.colonies.as_ptr(), colonies);
+        advance(&mut job, RetreatStage::PrepareSystems);
+        let systems = job
+            .system_storage
+            .as_ref()
+            .unwrap()
+            .destination
+            .as_ref()
+            .unwrap()
+            .as_ptr();
+        job.poll(1).unwrap();
+        assert_eq!(job.graph.systems.as_ptr(), systems);
+        advance(&mut job, RetreatStage::PrepareLanes);
+        let lanes = job
+            .lane_storage
+            .as_ref()
+            .unwrap()
+            .destination
+            .as_ref()
+            .unwrap()
+            .as_ptr();
+        job.poll(1).unwrap();
+        assert_eq!(job.graph.lanes.as_ptr(), lanes);
+        advance(&mut job, RetreatStage::Fleet);
+        assert_eq!(Arc::as_ptr(&job.graph), graph);
+        assert_eq!(job.graph.systems.as_ptr(), systems);
+        assert_eq!(job.graph.lanes.as_ptr(), lanes);
+        // These are the original prepared graph/colony buffers, moved into
+        // the same typed Vec adapters used by source/graph retirement.
+        fn shell<'a, T: RetirementFields<'a>>(source: Vec<T>, pointer: *const T) {
+            let n = source.len();
+            let cap = source.capacity();
+            let mut retirement = LivingPhaseRetirementJobV2::begin(
+                source,
+                LivingStateRetirementPolicyV2::ReleaseHandle,
+            );
+            let mut empty = false;
+            while let Some(source) = retirement.root.owner.as_ref() {
+                assert_eq!(source.as_ptr(), pointer);
+                assert_eq!(source.capacity(), cap);
+                empty |= source.is_empty();
+                retirement.poll(1).unwrap();
+            }
+            assert!(empty);
+            while retirement.poll(1).unwrap() != LivingLifecycleProgressV2::Ready {}
+            assert_eq!(retirement.total_visits(), 1 + 3 * n as u64);
+        }
+        shell(std::mem::take(&mut job.colonies), colonies);
+        let original_graph = Arc::get_mut(&mut job.graph).unwrap();
+        shell(std::mem::take(&mut original_graph.systems), systems);
+        shell(std::mem::take(&mut original_graph.lanes), lanes);
+        let weak = Arc::downgrade(&job.graph);
+        job.cancel();
+        drain(job, &[1]);
+        assert!(weak.upgrade().is_none());
+    }
+    #[test]
+    fn bounded_retreat_append_work_and_borrowed_extraction_failure() {
+        for trigger in [1, 64, 7, 1024] {
+            for cleanup in SCHEDULES {
+                let (authority, state) = retreat_tests::fixture();
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                advance(&mut job, RetreatStage::DepartureEvent);
+                let before = job.total_visits();
+                job.poll(1).unwrap();
+                assert!(job.append.is_some());
+                advance(&mut job, RetreatStage::Fleet);
+                assert_eq!(job.total_visits() - before, 64);
+                drain(job, cleanup);
+                let (authority, state) = retreat_tests::fixture();
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    prior_events(),
+                    LivingTickV2(1),
+                );
+                advance(&mut job, RetreatStage::Append);
+                let child = job.append.as_mut().unwrap();
+                while child.poll(64).unwrap() != LivingLifecycleProgressV2::Ready {}
+                // A private once-only violation exercises the real borrowed
+                // extraction NotReady route after a child Ready poll.
+                let output = child.take_ready_result().unwrap();
+                let before = job.total_visits();
+                assert_eq!(
+                    job.poll(trigger),
+                    Err(RetreatFailure::ProtocolInvariant.public())
+                );
+                assert_eq!(job.last_poll_visits(), 1);
+                assert_eq!(job.total_visits(), before + 1);
+                assert!(job.append.is_some());
+                assert_eq!(job.fleet_index, 0);
+                assert_eq!(
+                    job.take_ready_result(),
+                    Err(RetreatFailure::ProtocolInvariant.public())
+                );
+                drain(job, cleanup);
+                drain(output.0, cleanup);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_strict_winner_replacement_keeps_equal_original_buffer() {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        for schedule in SCHEDULES {
+            let mut job = LivingRetreatJobV2::begin(
+                authority.catalog(),
+                LivingGalaxyStateV2::default(),
+                LivingPendingEventsV2::new(),
+                LivingTickV2(1),
+            );
+            let original = vec![LivingEntityIdV2([10; 16]); 4];
+            let pointer = original.as_ptr();
+            job.destination_world = LivingEntityIdV2([2; 16]);
+            job.winner = Some((20, job.destination_world, original));
+            let rejected = vec![LivingEntityIdV2([11; 16]); 5];
+            let rejected_pointer = rejected.as_ptr();
+            job.accept_path(20, rejected);
+            assert_eq!(job.winner.as_ref().unwrap().2.as_ptr(), pointer);
+            assert_eq!(job.retired_path.as_ptr(), rejected_pointer);
+            job.poll(1).unwrap();
+            while !job.retirement.is_empty() {
+                job.poll(1).unwrap();
+            }
+            assert_eq!(job.winner.as_ref().unwrap().2.as_ptr(), pointer);
+            job.destination_world = LivingEntityIdV2([1; 16]);
+            let replacement = vec![LivingEntityIdV2([12; 16]); 3];
+            let replacement_pointer = replacement.as_ptr();
+            job.accept_path(20, replacement);
+            assert_eq!(job.retired_path.as_ptr(), pointer);
+            assert_eq!(job.winner.as_ref().unwrap().2.as_ptr(), replacement_pointer);
+            job.cancel();
+            drain(job, schedule);
+        }
+    }
+
+    #[test]
+    fn bounded_retreat_ineligible_single_fleet_predicted_102_and_literal_no_departure_axes() {
+        let (authority, fixture) = retreat_tests::fixture();
+        for schedule in SCHEDULES {
+            let state = LivingGalaxyStateV2 {
+                fleets: LivingSortedVecV2::new(vec![fixture.fleets.as_slice()[0].clone()]).unwrap(),
+                ..Default::default()
+            };
+            // This fixture has one fleet; absent world metadata rejects it.
+            assert_eq!(state.fleets.as_slice().len(), 1);
+            let mut job = LivingRetreatJobV2::begin(
+                authority.catalog(),
+                state,
+                LivingPendingEventsV2::new(),
+                LivingTickV2(1),
+            );
+            run(&mut job, schedule).unwrap();
+            assert_eq!(job.total_visits(), 102);
+            drain(job, schedule);
+            for axis in 0..5 {
+                let mut state = fixture.clone();
+                state.fleets =
+                    LivingSortedVecV2::new(vec![state.fleets.as_slice()[0].clone()]).unwrap();
+                match axis {
+                    0 => state.colonies = Default::default(),
+                    1 => state.fleets.record_at_mut(0).unwrap().hulls = Default::default(),
+                    2 => {
+                        state
+                            .fleets
+                            .record_at_mut(0)
+                            .unwrap()
+                            .hulls
+                            .record_at_mut(0)
+                            .unwrap()
+                            .return_credit = false
+                    }
+                    3 => {
+                        state
+                            .fleets
+                            .record_at_mut(0)
+                            .unwrap()
+                            .hulls
+                            .record_at_mut(0)
+                            .unwrap()
+                            .definition = crate::living::LivingSlugV2::new("escort").unwrap()
+                    }
+                    _ => state.lanes = Default::default(),
+                }
+                let mut expected = state.clone();
+                let mut events = LivingPendingEventsV2::new();
+                let mut context = LivingStepContextV2 {
+                    catalog: authority.catalog(),
+                    genesis_seed: [0; 32],
+                    branch: authority.branch(),
+                    tick: LivingTickV2(1),
+                    state: &mut expected,
+                    events: &mut events,
+                    arrivals: Vec::new(),
+                    repair_exclusions: BTreeSet::new(),
+                };
+                super::super::rules::reference_retreat_for_cursor_test(&mut context).unwrap();
+                assert!(context.repair_exclusions.is_empty());
+                assert_eq!(expected, state);
+                assert!(events.payloads().is_empty());
+                let mut job = LivingRetreatJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    LivingPendingEventsV2::new(),
+                    LivingTickV2(1),
+                );
+                run(&mut job, schedule).unwrap();
+                assert_eq!(job.state, expected);
+                assert_eq!(job.events, events);
+                assert!(job.repair_exclusions.is_empty());
+                drain(job, schedule);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_real_append_fault_reaches_conflict_without_successor() {
+        for trigger in [1, 64, 7, 1024] {
+            for cleanup in SCHEDULES {
+                let (authority, state) = retreat_tests::fixture();
+                let events = prior_events();
+                let pointer = events.payloads().as_ptr();
+                let mut parent = LivingConflictJobV2::begin(
+                    authority.catalog(),
+                    state,
+                    events,
+                    LivingTickV2(1),
+                    [0; 32],
+                    Vec::new(),
+                );
+                let Some(ConflictComponent::Retreat(child)) = parent.component.as_mut() else {
+                    unreachable!()
+                };
+                let original = std::ptr::from_ref(&**child);
+                advance(child, RetreatStage::Append);
+                child.append.as_mut().unwrap().poll(2).unwrap();
+                assert!(
+                    child
+                        .append
+                        .as_mut()
+                        .unwrap()
+                        .inject_entry_capacity_failure()
+                );
+                let state = child.state.clone();
+                let exclusions = child.repair_exclusions.clone();
+                assert_eq!(
+                    parent.poll(trigger),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                assert_eq!(parent.last_poll_visits(), 1);
+                let Some(ConflictComponent::Retreat(child)) = parent.component.as_ref() else {
+                    panic!("no successor")
+                };
+                assert_eq!(std::ptr::from_ref(&**child), original);
+                assert_eq!(child.state, state);
+                assert_eq!(child.repair_exclusions, exclusions);
+                assert_eq!(
+                    child
+                        .append
+                        .as_ref()
+                        .unwrap()
+                        .retained_for_test()
+                        .1
+                        .unwrap()
+                        .original
+                        .as_ref()
+                        .unwrap()
+                        .as_ptr(),
+                    pointer
+                );
+                assert_eq!(
+                    parent.take_ready_with_exclusions(),
+                    Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+                );
+                drain(parent, cleanup);
+            }
+        }
+    }
+    #[test]
+    fn bounded_retreat_consuming_convenience_reclaims_original_catalog_and_graph() {
+        let (authority, mut state) = retreat_tests::fixture();
+        state.fleets = LivingSortedVecV2::new(vec![state.fleets.as_slice()[0].clone()]).unwrap();
+        let catalog = authority.catalog_snapshot();
+        let original_count = Arc::strong_count(&catalog);
+        let job = LivingRetreatJobV2::begin_owned(
+            Arc::clone(&catalog),
+            state.clone(),
+            prior_events(),
+            LivingTickV2(1),
+        );
+        let weak = Arc::downgrade(&job.graph);
+        assert_eq!(Arc::strong_count(&catalog), original_count + 1);
+        assert_eq!(job.finish(), Err(LivingLifecycleJobErrorV2::NotReady));
+        assert!(weak.upgrade().is_none());
+        assert_eq!(Arc::strong_count(&catalog), original_count);
+        let mut job = LivingRetreatJobV2::begin_owned(
+            Arc::clone(&catalog),
+            state,
+            prior_events(),
+            LivingTickV2(1),
+        );
+        run(&mut job, &[1, 7, 64, 1024]).unwrap();
+        assert!(!job.repair_exclusions.is_empty());
+        assert!(job.graph.0.is_none());
+        assert!(job.catalog.0.is_none());
+        let (_, events) = job.finish().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(Arc::strong_count(&catalog), original_count);
+    }
+    #[test]
+    fn bounded_retreat_canonical_failure_trigger_cleanup_matrix_through_conflict() {
+        for receipt in [false, true] {
+            let (authority, mut state) = retreat_tests::fixture();
+            state.fleets.record_at_mut(0).unwrap().order = Some(LivingFleetOrderV2 {
+                kind: LivingFleetOrderKindV2::Explore,
+                target_world: None,
+                not_before_tick: LivingTickV2(0),
+                lane_path: vec![LivingEntityIdV2([200; 16]); 9],
+            });
+            let tick = if receipt {
+                LivingTickV2(1)
+            } else {
+                LivingTickV2(u64::MAX - 1)
+            };
+            let mut events = prior_events();
+            if receipt {
+                while events.len() <= u16::MAX as usize {
+                    events
+                        .record(
+                            LivingEventProvenanceV2::Autonomous {
+                                phase: LivingPhaseV2::ResolveArrivals,
+                            },
+                            LivingEventKindV2::FleetDeparted,
+                        )
+                        .unwrap();
+                }
+            }
+            let mut expected = state.clone();
+            let mut expected_events = events.clone();
+            let mut context = LivingStepContextV2 {
+                catalog: authority.catalog(),
+                genesis_seed: [0; 32],
+                branch: authority.branch(),
+                tick,
+                state: &mut expected,
+                events: &mut expected_events,
+                arrivals: Vec::new(),
+                repair_exclusions: BTreeSet::new(),
+            };
+            let error = LivingLifecycleJobErrorV2::Fault(
+                super::super::rules::reference_retreat_for_cursor_test(&mut context).unwrap_err(),
+            );
+            let exclusions = context.repair_exclusions;
+            for trigger in [1, 64, 7, 1024] {
+                for cleanup in SCHEDULES {
+                    let input = events.clone();
+                    let entries = input.payloads().as_ptr();
+                    let mut parent = Box::new(LivingConflictJobV2::begin(
+                        authority.catalog(),
+                        state.clone(),
+                        input,
+                        tick,
+                        [0; 32],
+                        Vec::new(),
+                    ));
+                    let parent_pointer = std::ptr::from_ref(&*parent);
+                    let Some(ConflictComponent::Retreat(child)) = parent.component.as_mut() else {
+                        unreachable!()
+                    };
+                    let child_pointer = std::ptr::from_ref(&**child);
+                    advance(
+                        child,
+                        if receipt {
+                            RetreatStage::Append
+                        } else {
+                            RetreatStage::Depart
+                        },
+                    );
+                    if receipt {
+                        child.append.as_mut().unwrap().poll(1).unwrap();
+                    }
+                    let before = parent.total_visits();
+                    assert_eq!(parent.poll(trigger), Err(error.clone()));
+                    assert_eq!(parent.last_poll_visits(), 1);
+                    assert_eq!(parent.total_visits(), before + 1);
+                    let Some(ConflictComponent::Retreat(child)) = parent.component.as_ref() else {
+                        panic!("failed original remains")
+                    };
+                    assert_eq!(std::ptr::from_ref(&**child), child_pointer);
+                    assert_eq!(std::ptr::from_ref(&*parent), parent_pointer);
+                    assert_eq!(child.state, expected);
+                    assert_eq!(child.repair_exclusions, exclusions);
+                    let retained = if receipt {
+                        child
+                            .append
+                            .as_ref()
+                            .unwrap()
+                            .retained_for_test()
+                            .0
+                            .unwrap()
+                    } else {
+                        &child.events
+                    };
+                    assert_eq!(retained, &expected_events);
+                    assert_eq!(retained.payloads().as_ptr(), entries);
+                    assert_eq!(parent.take_ready_with_exclusions(), Err(error.clone()));
+                    parent.cancel();
+                    for budget in [0, 1, 64, 1025] {
+                        assert_eq!(parent.poll(budget), Err(error.clone()));
+                        assert_eq!(parent.last_poll_visits(), 0);
+                    }
+                    drain(parent, cleanup);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ProductionStoragePartitions<'a, T> {
+    pub original: Option<&'a Vec<T>>,
+    pub source: Option<&'a IntoIter<T>>,
+    pub destination: Option<&'a Vec<T>>,
+    pub pending: Option<&'a T>,
+}
+#[cfg(test)]
+impl<T: RetirementFields<'static>> LivingVecStorageJobV2<'static, T> {
+    pub(crate) fn inject_creator_empty_capacity_failure(&mut self) -> bool {
+        if self.stage != StorageStage::EmptySetup {
+            return false;
+        }
+        self.selected_capacity = usize::MAX;
+        true
+    }
+
+    pub(crate) fn inject_creator_capacity_failure(&mut self) -> bool {
+        if self.stage != StorageStage::Inspect {
+            return false;
+        }
+        self.additional = usize::MAX;
+        true
+    }
+    pub(crate) fn production_partitions(&self) -> ProductionStoragePartitions<'_, T> {
+        ProductionStoragePartitions {
+            original: self.original.as_ref(),
+            source: self.source.as_ref(),
+            destination: self.destination.as_ref(),
+            pending: self.pending_transfer.as_ref(),
+        }
+    }
+    pub(crate) fn production_empty_source(&self, pointer: *const ()) -> Option<usize> {
+        self.retirement.production_source_tail(pointer)
+    }
+}
+
+#[cfg(test)]
+mod creator_replacement_tests {
+    use super::*;
+    use crate::living::{LivingNameV2, LivingSystemV2};
+    const SCHEDULES: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 7, 64, 2, 1024]];
+    fn id(n: u8) -> LivingEntityIdV2 {
+        LivingEntityIdV2([n; 16])
+    }
+    fn row(n: u8) -> LivingSystemV2 {
+        LivingSystemV2 {
+            id: id(n),
+            name: LivingNameV2::new("original").unwrap(),
+        }
+    }
+    fn drain<T: RetirementFields<'static>>(owner: T, schedule: &[usize]) -> u64 {
+        let mut job =
+            LivingPhaseRetirementJobV2::begin(owner, LivingStateRetirementPolicyV2::ReleaseHandle);
+        for attempt in 0..1024 {
+            let budget = schedule[attempt % schedule.len()];
+            let result = job.poll(budget).unwrap();
+            assert!(job.last_poll_visits() <= budget);
+            if result == LivingLifecycleProgressV2::Ready {
+                return job.total_visits();
+            }
+            assert!(
+                job.last_poll_visits() > 0,
+                "retirement Pending without work"
+            );
+        }
+        panic!("replacement fixture retirement exceeded attempt bound")
+    }
+    #[test]
+    fn creator_replacement_absent_equal_positions_and_retained_key_fault() {
+        for key in 1..=7 {
+            for capacity in [3, 19] {
+                let mut source = Vec::with_capacity(capacity);
+                source.extend([row(2), row(4), row(6)]);
+                let mut expected = source.clone();
+                let new = LivingSystemV2 {
+                    id: id(key),
+                    name: LivingNameV2::new("new").unwrap(),
+                };
+                if let Some(old) = expected.iter_mut().find(|row| row.id == new.id) {
+                    *old = new.clone();
+                } else {
+                    expected.push(new.clone());
+                    expected.sort_by_key(|row| row.id);
+                }
+                let source = LivingSortedVecV2::new(source).unwrap();
+                let original = source.as_slice().as_ptr();
+                let mut job = LivingSortedInsertionJobV2::begin_replacement(source, new);
+                let mut count = 0;
+                for _attempt in 0..1024 {
+                    if job.ready() {
+                        break;
+                    }
+                    count += usize::from(job.visit().unwrap());
+                    if !job.source_retired {
+                        assert_eq!(
+                            job.source.as_slice().as_ptr(),
+                            original.wrapping_add(3 - job.source.len())
+                        );
+                    }
+                }
+                assert!(job.ready(), "replacement insertion exceeded attempt bound");
+                //29 setup/preparer visits;6 source/output absent adds1; source cleanup3.
+                assert_eq!(count, if key % 2 == 0 { 44 } else { 39 });
+                assert_eq!(job.take_ready_result().unwrap().as_slice(), expected);
+                assert!(job.take_ready_result().is_err());
+                assert!(!job.visit().unwrap());
+                drain(job, SCHEDULES[3]);
+            }
+        }
+        let mut job = LivingSortedInsertionJobV2::begin_replacement(
+            LivingSortedVecV2::new(vec![row(2), row(4), row(6)]).unwrap(),
+            row(1),
+        );
+        for _attempt in 0..1024 {
+            if job.setup && job.retirement.is_empty() {
+                break;
+            }
+            job.visit().unwrap();
+        }
+        assert!(
+            job.setup && job.retirement.is_empty(),
+            "replacement preparation exceeded attempt bound"
+        );
+        // Private malformed-output injection, not an admitted replay.
+        job.output.push_sorted_retained(&mut Some(row(9))).unwrap();
+        job.visit().unwrap();
+        let held = job.held.as_ref().unwrap().name.as_str().as_ptr();
+        let pending = job.inserted.as_ref().unwrap().name.as_str().as_ptr();
+        assert_eq!(job.visit(), Err(InsertionFault::KeyedOrder.domain()));
+        assert_eq!(job.held.as_ref().unwrap().name.as_str().as_ptr(), held);
+        assert_eq!(
+            job.inserted.as_ref().unwrap().name.as_str().as_ptr(),
+            pending
+        );
+        assert!(job.take_ready_result().is_err());
+        drain(job, SCHEDULES[3]);
+    }
+    #[test]
+    fn creator_replacement_capacity_refusal_preserves_original_backing_and_pending() {
+        let mut job = LivingSortedInsertionJobV2::begin_replacement(
+            LivingSortedVecV2::new(vec![row(2)]).unwrap(),
+            row(1),
+        );
+        let original = job.source.as_slice().as_ptr();
+        let pending = job.inserted.as_ref().unwrap().name.as_str().as_ptr();
+        job.visit().unwrap();
+        job.preparation.as_mut().unwrap().selected_capacity = usize::MAX;
+        assert_eq!(
+            job.visit(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(job.source.as_slice().as_ptr(), original);
+        assert_eq!(
+            job.inserted.as_ref().unwrap().name.as_str().as_ptr(),
+            pending
+        );
+        assert_eq!(
+            job.take_ready_result(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(
+            job.visit(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        drain(job, SCHEDULES[3]);
     }
 }

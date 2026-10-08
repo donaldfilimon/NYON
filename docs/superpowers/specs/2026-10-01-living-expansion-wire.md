@@ -1,6 +1,6 @@
 # Living V3 wire and identity design
 
-Date: 2026-10-01; schema supplement 2026-10-02. Status: **PROPOSED complete written schema package; independent review and full vectors pending**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `2026-10-01-living-expansion-architecture.md`.
 Existing Living V2 bytes, domains, identities, vectors and archive readers remain
 unchanged. This document defines a new contract; it does not migrate any document.
@@ -39,6 +39,58 @@ Check raw UTF-8 byte length limits before decoding/parsing/allocation. Coordinat
 resident without fallback; complete-schema correction I6 derives the exact bound. Capacity/byte overflow is
 an explicit fault or rejected submission, never truncated canonical state.
 
+## Authenticated operation contexts and reporting
+
+Complete-schema owns exact closed FleetDispatchBlock/MovementPermissionFailure,
+DispatchReservation/holders, ID-free Defense attempt/consideration, realized combat
+Action/Defense credit and full Hazard carrier declarations. Required nulls and
+field positions affect V3 canonical State/command/Actor32/candidate/receipt bytes;
+no historical V1/V2 or old pinned-helper interpretation is changed. Capture.phase7
+is retained while actual producer8/9 remains separate. No omitted binding/duration/
+origin defaults, identity conversion or read-time migration exists.
+
+Stage7's single creator-empty-Fleet cardinality deferral applies only genuine
+initialized operation-indexed Records and registered unfinished prefix sources;
+stage10 derives same-batch E, exact capture/effects and final E empty. Standalone
+Genesis/completed State/selected HistoryView still rejects empty Fleet. Every
+temporary source is authenticated at its original operation context, never a future
+Receipt or eventual root. Terminal objective historical target/endpoint references
+and retained SupplySuccess/Attempt World positions likewise use their exact owning
+original producers; no general dangling-reference waiver exists.
+
+Logical mixed mutation order is P/R/B/O/H/K/M/F/A, not receipt phase sort.
+Authenticated replay reconstructs real W/ledger/guards/issuance at each operation,
+then stable8/9 buffers and final global ordinals/Receipt/Event IDs. Successful AUTO
+counters are actual producer-phase success subsequences, not Event ordinals; denied
+attempts allocate no IDs. Existing scanner first live/batch comparisons and retained
+branch chronology remain; source/derivation fault stops incomplete collision scan.
+No outer source includes current Receipt/Revision self hash. Complete original
+paid/creator ancestry must remain verifiable after cache retirement/save/fork;
+a schema field retains duration/count origin, not a fabricated payment proof.
+
+Canonical private-carrier access is whole-record authority/replay or explicitly
+own actor; presentation can derive bounded safe notices but never export altered
+canonical Events/Receipts. Holder lists and declaration-candidate identity in
+Defense consideration must not reach requester/opponent views. Known public target
+with hidden current owner can show entry unavailable without leaking owner or
+creating an Observation. Needs guards follow complete-schema §Exhaustive Needs
+guard subject, producer and privacy mapping: all five operation variants resolve
+typed subjects at authenticated producer prefixes. Stage8 checks only supplied
+typed graph/history-locator evidence available without producer replay, preserving
+preliminary missing_reference/wrong_reference_kind; opaque IDs have no kind bits.
+Stage9 integrity precedes historical reconstruction. Stage10 verifies original
+membership/kinds/local-account/ownership links/selected Hull/amounts/cardinality:
+missing prerequisite replay references use missing_reference, reproduced fact
+mismatches use replay_mismatch, and Arithmetic faults retain invalid_range under
+the existing replay order. No causal fault is backdated to8 and no current State
+lookup substitutes for the original prefix. Own actor access requires
+historical reason.world ownership plus verified owned Facility/Fleet links.
+Missing historical proof removes the whole guard; present ownership, sight and
+cargo receipt do not authorize private stock/hold quantities. No canonical Event
+redaction or Actor32 quantity addition is permitted. Exact event/byte/depth/retirement limits fault atomically,
+never truncate witnesses. Fresh independent vectors for the amended source freeze
+precede complete human-package approval; no old helper pin bump is proof.
+
 ## Canonical state layout
 
 State field order is:
@@ -61,8 +113,10 @@ The new/extended surfaces are:
 | Colony | Society after hub: population, specialization, next_needs_tick, last_needs, workforce assignments; Food remains solely in the world inventory |
 | Civilization | Research after policy: target, per-technology progress, completed technologies |
 | Facility | Workforce availability and effective recipe facts remain canonical, with exact scheduled clocks |
-| Fleet | Supply deadline/state, readiness explanation, optional blockade order |
-| War | Exact objective kind/target, deadline, consecutive objective witness count, peace proposal state |
+| Hull | passengers after next_repair, full Passengers{count,voyage_origin}; creator CreateHull submits count-only PassengerCountInput |
+| Fleet | supply then blockade after hulls; complete order appends objective then defense_request |
+| Shipment | original_travel_ticks after arrival_tick before disposition; full original provenance and creator override after returning_to_source |
+| War | exact objectives and Peace; WarObjective inserts required secure_endpoints after target before count; SecureEndpoints{world_a,world_b} is directional Lane endpoint pair |
 | Offer | id, proposer, recipient, kind, typed terms, created_tick, expires_tick |
 | Commitment | id, parties, kind, typed terms, created_tick, expires_tick, obligation status |
 | Defense request | id, commitment, requester, defender, exact target world, created_tick, expires_tick, disposition |

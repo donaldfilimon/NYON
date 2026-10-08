@@ -58,7 +58,11 @@ impl LivingCameraTouches {
         }
         let zoom = old_distance.and_then(|distance| {
             let next_distance = next[0].1.distance(next[1].1);
-            if distance > 1.0 && distance.is_finite() && next_distance.is_finite() {
+            if distance > 1.0
+                && next_distance > 1.0
+                && distance.is_finite()
+                && next_distance.is_finite()
+            {
                 Some(((next_distance / distance).clamp(0.25, 4.0), new_center))
             } else {
                 None
@@ -104,6 +108,26 @@ mod tests {
         );
         touches.clear();
         assert_eq!(touches.update(1, Vec2::ZERO), None);
+    }
+
+    #[test]
+    fn collapsing_pinch_preserves_pan_without_a_zoom_jump() {
+        let mut touches = LivingCameraTouches::default();
+        touches.begin(1, Vec2::ZERO);
+        touches.begin(2, Vec2::new(20.0, 0.0));
+        let gesture = touches.update(2, Vec2::ZERO).unwrap();
+        assert_eq!(gesture.pan, Vec2::new(-10.0, 0.0));
+        assert_eq!(gesture.zoom, None);
+        assert_eq!(touches.update(2, Vec2::new(20.0, 0.0)).unwrap().zoom, None);
+        assert_eq!(
+            touches
+                .update(2, Vec2::new(40.0, 0.0))
+                .unwrap()
+                .zoom
+                .unwrap()
+                .0,
+            2.0
+        );
     }
 
     #[test]

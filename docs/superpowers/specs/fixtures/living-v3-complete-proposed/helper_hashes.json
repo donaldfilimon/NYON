@@ -1,0 +1,42 @@
+{
+  "catalog.py": {
+    "bytes": 51339,
+    "sha256": "2cb8a44ef25bfb40d873e1831977b4efc81a973d0333255d9169cddfe32ffaf5"
+  },
+  "derive.py": {
+    "bytes": 29806,
+    "sha256": "dab1826562a276e7f3e13d776c5fcfd31f9cf23a8455d9342cfe86e3570593af"
+  },
+  "fix1_cases.py": {
+    "bytes": 6084,
+    "sha256": "7e4440632a17d9560806e81300a2fac9d1220e00adbdef1e57adea6c2ce35327"
+  },
+  "genesis.py": {
+    "bytes": 36062,
+    "sha256": "84a8fdc606a647a680b3b0a02e7444c1c0f4080be2de61fc660c2d73e32d107e"
+  },
+  "predicate_matrix.py": {
+    "bytes": 7965,
+    "sha256": "92daca4909ca09635fe097435e7dcd7497b0e2245bfc7df569cc026f43c6dd83"
+  },
+  "profiles.py": {
+    "bytes": 4009,
+    "sha256": "d3ef44fea80488e2eff6869c4e93047babed08ce7fa8c5ae221a6f56185bfae6"
+  },
+  "provenance.py": {
+    "bytes": 1516,
+    "sha256": "524375a468bd14878ab78d82717c86e46e35b975b08b1eca552aa2145daae277"
+  },
+  "richer_references.py": {
+    "bytes": 5500,
+    "sha256": "3c9b533e3d30c9dd05f04f4b3a9157deb0f5db08a6d577d2b5146fe4e3e5c1bf"
+  },
+  "richer_schema.py": {
+    "bytes": 8310,
+    "sha256": "3f975311acbdfd0d60bb141caaf4dc2f15479070a0fef29497eeaadea92d372e"
+  },
+  "visibility_cases.py": {
+    "bytes": 2164,
+    "sha256": "93c801908df678cfd5d0fa240065c1b0aba655a3694d4de4159ad0bef8196cae"
+  }
+}

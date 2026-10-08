@@ -1,0 +1,1789 @@
+{
+  "status": "Proposed construction audit only, not runtime queue proof or portable authority",
+  "root_frame": "4e594f4e5f4c4956494e475f56335f524f4f545f4252414e4348009720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da800000000000000000000000000000000000000000000000000000000000000003b9f7a8cbf268159cb87335a71dec6bb35e2f4def39a58bcecac8af6c3b452930f000000666978747572655f6d696e696d616c01000000",
+  "genesis_frame": "4e594f4e5f4c4956494e475f56335f47454e45534953007b226b696e64223a224e594f4e5f4c4956494e475f47454e455349535f5633222c22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c2273656564223a2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030222c2267656e657261746f72223a7b2267656e657261746f725f6964223a22666978747572655f6d696e696d616c222c2267656e657261746f725f76657273696f6e223a317d2c22616c6c6f636174696f6e73223a5b5d2c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+  "fork_frame": "4e594f4e5f4c4956494e475f56335f464f524b5f4252414e4348004108c47943c15900dc896dc7661af6254108c47943c15900dc896dc7661af62501781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde906912500000000000000000bdc104397aff67312a7c49584acd282d18b80abf67e8befa93e861b04449c0a0100000000000000",
+  "fork_initial_state": {
+    "tick": "0",
+    "branch_sequence": "1",
+    "next_sequence": "1",
+    "systems": [
+      {
+        "id": "a3247be8687b819f40bc4f251178dcba",
+        "name": "Alpha"
+      }
+    ],
+    "stars": [],
+    "worlds": [],
+    "lanes": [],
+    "civilizations": [],
+    "deposits": [],
+    "colonies": [],
+    "facilities": [],
+    "construction_jobs": [],
+    "hull_jobs": [],
+    "fleets": [],
+    "routes": [],
+    "shipments": [],
+    "relations": [],
+    "agreements": [],
+    "wars": [],
+    "observations": [],
+    "hazards": [],
+    "settlement_claims": [],
+    "occupations": [],
+    "offers": [],
+    "demand_requests": [],
+    "commitments": [],
+    "defense_requests": [],
+    "shared_intelligence": [],
+    "stellar_events": [],
+    "counters": {}
+  },
+  "operations": [
+    {
+      "revision": {
+        "id": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+        "branch": "4108c47943c15900dc896dc7661af625",
+        "parent": null,
+        "tick": "0",
+        "ordinal": "1",
+        "mode": "paused",
+        "capture": {
+          "domain": 3,
+          "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+          "branch": "4108c47943c15900dc896dc7661af625",
+          "revision": null,
+          "tick": "0",
+          "state_digest": "1ceb6d0b9359e8b743af53c2672de51e839de8163fc4ff996f318aec70f9bf23",
+          "phase": 1,
+          "permitted_snapshot_digest": "1ceb6d0b9359e8b743af53c2672de51e839de8163fc4ff996f318aec70f9bf23"
+        },
+        "command": {
+          "type": "creator_batch",
+          "operations": [
+            {
+              "type": "create_system",
+              "local": 1,
+              "name": "Alpha"
+            }
+          ],
+          "reviewed_effects": [
+            {
+              "operation_index": 0,
+              "collection": "systems",
+              "key": {
+                "type": "systems",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "before": null,
+              "after": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Alpha"
+                }
+              },
+              "resources": [],
+              "passenger_delta": "0"
+            }
+          ]
+        }
+      },
+      "source_state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "0",
+        "systems": [],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "source_state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2230222c2273797374656d73223a5b5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "revision_preimage_hex": "4e594f4e5f4c4956494e475f56335f5245564953494f4e004108c47943c15900dc896dc7661af6254108c47943c15900dc896dc7661af625000000000000000000010000000000000000600100007b22646f6d61696e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c226272616e6368223a223431303863343739343363313539303064633839366463373636316166363235222c227265766973696f6e223a6e756c6c2c227469636b223a2230222c2273746174655f646967657374223a2231636562366430623933353965386237343361663533633236373264653531653833396465383136336663346666393936663331386165633730663962663233222c227068617365223a312c227065726d69747465645f736e617073686f745f646967657374223a2231636562366430623933353965386237343361663533633236373264653531653833396465383136336663346666393936663331386165633730663962663233227d6b0100007b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b7b2274797065223a226372656174655f73797374656d222c226c6f63616c223a312c226e616d65223a22416c706861227d5d2c2272657669657765645f65666665637473223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a6e756c6c2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d",
+      "change": {
+        "operation_index": 0,
+        "collection": "systems",
+        "key": {
+          "type": "systems",
+          "id": "a3247be8687b819f40bc4f251178dcba"
+        },
+        "before": null,
+        "after": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        },
+        "resources": [],
+        "passenger_delta": "0"
+      },
+      "result_state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "1",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "issuance": {
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f43524541544f525f454e54495459004108c47943c15900dc896dc7661af6254108c47943c15900dc896dc7661af6250201000000000000000000000001000100",
+        "full_digest": "a3247be8687b819f40bc4f251178dcba7e81052e21e088a7e6f516aea6fc35fa",
+        "origin": {
+          "branch": "4108c47943c15900dc896dc7661af625",
+          "accepted_sequence": "1",
+          "operation_index": 0,
+          "kind": 1,
+          "local": 1
+        }
+      }
+    },
+    {
+      "revision": {
+        "id": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903",
+        "branch": "4108c47943c15900dc896dc7661af625",
+        "parent": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+        "tick": "0",
+        "ordinal": "2",
+        "mode": "paused",
+        "capture": {
+          "domain": 3,
+          "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+          "branch": "4108c47943c15900dc896dc7661af625",
+          "revision": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+          "tick": "0",
+          "state_digest": "0bdc104397aff67312a7c49584acd282d18b80abf67e8befa93e861b04449c0a",
+          "phase": 1,
+          "permitted_snapshot_digest": "0bdc104397aff67312a7c49584acd282d18b80abf67e8befa93e861b04449c0a"
+        },
+        "command": {
+          "type": "creator_batch",
+          "operations": [
+            {
+              "type": "edit_system",
+              "target": {
+                "type": "existing",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "name": "Beta"
+            }
+          ],
+          "reviewed_effects": [
+            {
+              "operation_index": 0,
+              "collection": "systems",
+              "key": {
+                "type": "systems",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "before": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Alpha"
+                }
+              },
+              "after": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Beta"
+                }
+              },
+              "resources": [],
+              "passenger_delta": "0"
+            }
+          ]
+        }
+      },
+      "source_state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "1",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "source_state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2231222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "revision_preimage_hex": "4e594f4e5f4c4956494e475f56335f5245564953494f4e004108c47943c15900dc896dc7661af6254108c47943c15900dc896dc7661af62501781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde906912500000000000000000200000000000000009e0100007b22646f6d61696e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c226272616e6368223a223431303863343739343363313539303064633839366463373636316166363235222c227265766973696f6e223a2237383165366337356531313135363665393035363832623635383064643366313334386332346238316138366564653861373736323262646539303639313235222c227469636b223a2230222c2273746174655f646967657374223a2230626463313034333937616666363733313261376334393538346163643238326431386238306162663637653862656661393365383631623034343439633061222c227068617365223a312c227065726d69747465645f736e617073686f745f646967657374223a2230626463313034333937616666363733313261376334393538346163643238326431386238306162663637653862656661393365383631623034343439633061227df10100007b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b7b2274797065223a22656469745f73797374656d222c22746172676574223a7b2274797065223a226578697374696e67222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226e616d65223a2242657461227d5d2c2272657669657765645f65666665637473223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2242657461227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d",
+      "change": {
+        "operation_index": 0,
+        "collection": "systems",
+        "key": {
+          "type": "systems",
+          "id": "a3247be8687b819f40bc4f251178dcba"
+        },
+        "before": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        },
+        "after": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Beta"
+          }
+        },
+        "resources": [],
+        "passenger_delta": "0"
+      },
+      "result_state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "2",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Beta"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      }
+    },
+    {
+      "revision": {
+        "id": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+        "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+        "parent": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+        "tick": "0",
+        "ordinal": "3",
+        "mode": "paused",
+        "capture": {
+          "domain": 3,
+          "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+          "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+          "revision": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+          "tick": "0",
+          "state_digest": "6433299e6111d22b8d7d989094f06a17137ca5a9766d3e4b74670463030a4ee0",
+          "phase": 1,
+          "permitted_snapshot_digest": "6433299e6111d22b8d7d989094f06a17137ca5a9766d3e4b74670463030a4ee0"
+        },
+        "command": {
+          "type": "creator_batch",
+          "operations": [
+            {
+              "type": "edit_system",
+              "target": {
+                "type": "existing",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "name": "Gamma"
+            }
+          ],
+          "reviewed_effects": [
+            {
+              "operation_index": 0,
+              "collection": "systems",
+              "key": {
+                "type": "systems",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "before": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Alpha"
+                }
+              },
+              "after": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Gamma"
+                }
+              },
+              "resources": [],
+              "passenger_delta": "0"
+            }
+          ]
+        }
+      },
+      "source_state": {
+        "tick": "0",
+        "branch_sequence": "1",
+        "next_sequence": "1",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "source_state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2231222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "revision_preimage_hex": "4e594f4e5f4c4956494e475f56335f5245564953494f4e004108c47943c15900dc896dc7661af6258a0d15991ea6fdf630109a6603b6aa4a01781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde906912500000000000000000300000000000000009e0100007b22646f6d61696e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c226272616e6368223a223861306431353939316561366664663633303130396136363033623661613461222c227265766973696f6e223a2237383165366337356531313135363665393035363832623635383064643366313334386332346238316138366564653861373736323262646539303639313235222c227469636b223a2230222c2273746174655f646967657374223a2236343333323939653631313164323262386437643938393039346630366131373133376361356139373636643365346237343637303436333033306134656530222c227068617365223a312c227065726d69747465645f736e617073686f745f646967657374223a2236343333323939653631313164323262386437643938393039346630366131373133376361356139373636643365346237343637303436333033306134656530227df30100007b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b7b2274797065223a22656469745f73797374656d222c22746172676574223a7b2274797065223a226578697374696e67222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226e616d65223a2247616d6d61227d5d2c2272657669657765645f65666665637473223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d",
+      "change": {
+        "operation_index": 0,
+        "collection": "systems",
+        "key": {
+          "type": "systems",
+          "id": "a3247be8687b819f40bc4f251178dcba"
+        },
+        "before": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        },
+        "after": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        },
+        "resources": [],
+        "passenger_delta": "0"
+      },
+      "result_state": {
+        "tick": "0",
+        "branch_sequence": "1",
+        "next_sequence": "3",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      }
+    },
+    {
+      "revision": {
+        "id": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a",
+        "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+        "parent": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+        "tick": "2",
+        "ordinal": "4",
+        "mode": "running",
+        "capture": {
+          "domain": 3,
+          "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+          "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+          "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+          "tick": "2",
+          "state_digest": "38aa42c322df4d6c9c657be430e6df1a5af92b0f311524c8c92ea56003baedc7",
+          "phase": 1,
+          "permitted_snapshot_digest": "38aa42c322df4d6c9c657be430e6df1a5af92b0f311524c8c92ea56003baedc7"
+        },
+        "command": {
+          "type": "creator_batch",
+          "operations": [
+            {
+              "type": "edit_system",
+              "target": {
+                "type": "existing",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "name": "Delta"
+            }
+          ],
+          "reviewed_effects": [
+            {
+              "operation_index": 0,
+              "collection": "systems",
+              "key": {
+                "type": "systems",
+                "id": "a3247be8687b819f40bc4f251178dcba"
+              },
+              "before": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Gamma"
+                }
+              },
+              "after": {
+                "type": "systems",
+                "value": {
+                  "id": "a3247be8687b819f40bc4f251178dcba",
+                  "name": "Delta"
+                }
+              },
+              "resources": [],
+              "passenger_delta": "0"
+            }
+          ]
+        }
+      },
+      "source_state": {
+        "tick": "2",
+        "branch_sequence": "1",
+        "next_sequence": "3",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "source_state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2232222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2233222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "revision_preimage_hex": "4e594f4e5f4c4956494e475f56335f5245564953494f4e004108c47943c15900dc896dc7661af6258a0d15991ea6fdf630109a6603b6aa4a017fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa9180502000000000000000400000000000000019e0100007b22646f6d61696e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c226272616e6368223a223861306431353939316561366664663633303130396136363033623661613461222c227265766973696f6e223a2237666364313264613534656635326464366531306339346162613134613530326166626231363936303536646230373662623465333362613561613931383035222c227469636b223a2232222c2273746174655f646967657374223a2233386161343263333232646634643663396336353762653433306536646631613561663932623066333131353234633863393265613536303033626165646337222c227068617365223a312c227065726d69747465645f736e617073686f745f646967657374223a2233386161343263333232646634643663396336353762653433306536646631613561663932623066333131353234633863393265613536303033626165646337227df30100007b2274797065223a2263726561746f725f6261746368222c226f7065726174696f6e73223a5b7b2274797065223a22656469745f73797374656d222c22746172676574223a7b2274797065223a226578697374696e67222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226e616d65223a2244656c7461227d5d2c2272657669657765645f65666665637473223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2244656c7461227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d",
+      "change": {
+        "operation_index": 0,
+        "collection": "systems",
+        "key": {
+          "type": "systems",
+          "id": "a3247be8687b819f40bc4f251178dcba"
+        },
+        "before": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        },
+        "after": {
+          "type": "systems",
+          "value": {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Delta"
+          }
+        },
+        "resources": [],
+        "passenger_delta": "0"
+      },
+      "result_state": {
+        "tick": "2",
+        "branch_sequence": "1",
+        "next_sequence": "4",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Delta"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      }
+    }
+  ],
+  "publications": [
+    {
+      "view": {
+        "branch": "4108c47943c15900dc896dc7661af625",
+        "revision": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125",
+        "tick": "0"
+      },
+      "state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "1",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Alpha"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2231222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "0",
+        "applied_revisions": [
+          "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125"
+        ],
+        "events": [
+          {
+            "id": "d224a2531d9e0bc9b2ff4f53df5af9e3",
+            "phase": 1,
+            "ordinal": 0,
+            "provenance": {
+              "type": "creator",
+              "revision": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125"
+            },
+            "kind": "creator_intervention",
+            "facts": {
+              "type": "change",
+              "changes": [
+                {
+                  "operation_index": 0,
+                  "collection": "systems",
+                  "key": {
+                    "type": "systems",
+                    "id": "a3247be8687b819f40bc4f251178dcba"
+                  },
+                  "before": null,
+                  "after": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Alpha"
+                    }
+                  },
+                  "resources": [],
+                  "passenger_delta": "0"
+                }
+              ]
+            }
+          }
+        ],
+        "state_digest": "0bdc104397aff67312a7c49584acd282d18b80abf67e8befa93e861b04449c0a",
+        "digest": "a831e971ddcabcc7f76851aeeb9d00162c16fb593dabc343c8f5f76b56661cbf"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "0",
+          "applied_revisions": [
+            "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125"
+          ],
+          "events": [
+            {
+              "phase": 1,
+              "ordinal": 0,
+              "provenance": {
+                "type": "creator",
+                "revision": "781e6c75e111566e905682b6580dd3f1348c24b81a86ede8a77622bde9069125"
+              },
+              "kind": "creator_intervention",
+              "facts": {
+                "type": "change",
+                "changes": [
+                  {
+                    "operation_index": 0,
+                    "collection": "systems",
+                    "key": {
+                      "type": "systems",
+                      "id": "a3247be8687b819f40bc4f251178dcba"
+                    },
+                    "before": null,
+                    "after": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Alpha"
+                      }
+                    },
+                    "resources": [],
+                    "passenger_delta": "0"
+                  }
+                ]
+              }
+            }
+          ],
+          "state_digest": "0bdc104397aff67312a7c49584acd282d18b80abf67e8befa93e861b04449c0a"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2230222c226170706c6965645f7265766973696f6e73223a5b2237383165366337356531313135363665393035363832623635383064643366313334386332346238316138366564653861373736323262646539303639313235225d2c226576656e7473223a5b7b227068617365223a312c226f7264696e616c223a302c2270726f76656e616e6365223a7b2274797065223a2263726561746f72222c227265766973696f6e223a2237383165366337356531313135363665393035363832623635383064643366313334386332346238316138366564653861373736323262646539303639313235227d2c226b696e64223a2263726561746f725f696e74657276656e74696f6e222c226661637473223a7b2274797065223a226368616e6765222c226368616e676573223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a6e756c6c2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d7d5d2c2273746174655f646967657374223a2230626463313034333937616666363733313261376334393538346163643238326431386238306162663637653862656661393365383631623034343439633061227d",
+        "event_frames": [
+          {
+            "preimage_hex": "4e594f4e5f4c4956494e475f56335f4556454e5400a831e971ddcabcc7f76851aeeb9d00162c16fb593dabc343c8f5f76b56661cbf0000000000000000010000000000",
+            "full_digest": "d224a2531d9e0bc9b2ff4f53df5af9e3d4bc248f7552c30af96478312ab6d071"
+          }
+        ]
+      }
+    },
+    {
+      "view": {
+        "branch": "4108c47943c15900dc896dc7661af625",
+        "revision": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903",
+        "tick": "0"
+      },
+      "state": {
+        "tick": "0",
+        "branch_sequence": "0",
+        "next_sequence": "2",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Beta"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2232222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2242657461227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "0",
+        "applied_revisions": [
+          "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903"
+        ],
+        "events": [
+          {
+            "id": "b93806ae607153a50899765bc7dee355",
+            "phase": 1,
+            "ordinal": 0,
+            "provenance": {
+              "type": "creator",
+              "revision": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903"
+            },
+            "kind": "creator_intervention",
+            "facts": {
+              "type": "change",
+              "changes": [
+                {
+                  "operation_index": 0,
+                  "collection": "systems",
+                  "key": {
+                    "type": "systems",
+                    "id": "a3247be8687b819f40bc4f251178dcba"
+                  },
+                  "before": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Alpha"
+                    }
+                  },
+                  "after": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Beta"
+                    }
+                  },
+                  "resources": [],
+                  "passenger_delta": "0"
+                }
+              ]
+            }
+          }
+        ],
+        "state_digest": "f3e00beb7a7465387924b5f538fb879ef0c6b3e0201b65e7c05def91fcd6be81",
+        "digest": "f4f8f24431bdec785870e10e2df8aa8de8480705e4953471f4a157e12829ce68"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "0",
+          "applied_revisions": [
+            "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903"
+          ],
+          "events": [
+            {
+              "phase": 1,
+              "ordinal": 0,
+              "provenance": {
+                "type": "creator",
+                "revision": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903"
+              },
+              "kind": "creator_intervention",
+              "facts": {
+                "type": "change",
+                "changes": [
+                  {
+                    "operation_index": 0,
+                    "collection": "systems",
+                    "key": {
+                      "type": "systems",
+                      "id": "a3247be8687b819f40bc4f251178dcba"
+                    },
+                    "before": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Alpha"
+                      }
+                    },
+                    "after": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Beta"
+                      }
+                    },
+                    "resources": [],
+                    "passenger_delta": "0"
+                  }
+                ]
+              }
+            }
+          ],
+          "state_digest": "f3e00beb7a7465387924b5f538fb879ef0c6b3e0201b65e7c05def91fcd6be81"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2230222c226170706c6965645f7265766973696f6e73223a5b2235303964633062396663326438306437613431623233313164346664663131393438636663356466373865373462313865323566316438663364653331393033225d2c226576656e7473223a5b7b227068617365223a312c226f7264696e616c223a302c2270726f76656e616e6365223a7b2274797065223a2263726561746f72222c227265766973696f6e223a2235303964633062396663326438306437613431623233313164346664663131393438636663356466373865373462313865323566316438663364653331393033227d2c226b696e64223a2263726561746f725f696e74657276656e74696f6e222c226661637473223a7b2274797065223a226368616e6765222c226368616e676573223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2242657461227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d7d5d2c2273746174655f646967657374223a2266336530306265623761373436353338373932346235663533386662383739656630633662336530323031623635653763303564656639316663643662653831227d",
+        "event_frames": [
+          {
+            "preimage_hex": "4e594f4e5f4c4956494e475f56335f4556454e5400f4f8f24431bdec785870e10e2df8aa8de8480705e4953471f4a157e12829ce680000000000000000010000000000",
+            "full_digest": "b93806ae607153a50899765bc7dee3550a7c72bef93a3b4586664cc62df2624e"
+          }
+        ]
+      }
+    },
+    {
+      "view": {
+        "branch": "4108c47943c15900dc896dc7661af625",
+        "revision": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903",
+        "tick": "1"
+      },
+      "state": {
+        "tick": "1",
+        "branch_sequence": "0",
+        "next_sequence": "2",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Beta"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2231222c226272616e63685f73657175656e6365223a2230222c226e6578745f73657175656e6365223a2232222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2242657461227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "1",
+        "applied_revisions": [],
+        "events": [],
+        "state_digest": "c700bdffa60c41966c2aa441145245cf393468c06eea51cc896d650f96a6912e",
+        "digest": "87d6a930c71e1c6ffffa79706348437ed47c5e27f1136dfb8e2b555e91354dbb"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "1",
+          "applied_revisions": [],
+          "events": [],
+          "state_digest": "c700bdffa60c41966c2aa441145245cf393468c06eea51cc896d650f96a6912e"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2231222c226170706c6965645f7265766973696f6e73223a5b5d2c226576656e7473223a5b5d2c2273746174655f646967657374223a2263373030626466666136306334313936366332616134343131343532343563663339333436386330366565613531636338393664363530663936613639313265227d",
+        "event_frames": []
+      }
+    },
+    {
+      "view": {
+        "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+        "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+        "tick": "0"
+      },
+      "state": {
+        "tick": "0",
+        "branch_sequence": "1",
+        "next_sequence": "3",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2230222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2233222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "0",
+        "applied_revisions": [
+          "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805"
+        ],
+        "events": [
+          {
+            "id": "7adc528eecece00bc36f0511f7653848",
+            "phase": 1,
+            "ordinal": 0,
+            "provenance": {
+              "type": "creator",
+              "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805"
+            },
+            "kind": "creator_intervention",
+            "facts": {
+              "type": "change",
+              "changes": [
+                {
+                  "operation_index": 0,
+                  "collection": "systems",
+                  "key": {
+                    "type": "systems",
+                    "id": "a3247be8687b819f40bc4f251178dcba"
+                  },
+                  "before": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Alpha"
+                    }
+                  },
+                  "after": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Gamma"
+                    }
+                  },
+                  "resources": [],
+                  "passenger_delta": "0"
+                }
+              ]
+            }
+          }
+        ],
+        "state_digest": "6c718de3a578a813915c2ef0821adc4f7ab545aeb894b86f96f76476dd595151",
+        "digest": "3d021f51c3aee43bb6aaa30181ca5bbea6b3e0c32877ab01816dd051ee214f03"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "0",
+          "applied_revisions": [
+            "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805"
+          ],
+          "events": [
+            {
+              "phase": 1,
+              "ordinal": 0,
+              "provenance": {
+                "type": "creator",
+                "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805"
+              },
+              "kind": "creator_intervention",
+              "facts": {
+                "type": "change",
+                "changes": [
+                  {
+                    "operation_index": 0,
+                    "collection": "systems",
+                    "key": {
+                      "type": "systems",
+                      "id": "a3247be8687b819f40bc4f251178dcba"
+                    },
+                    "before": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Alpha"
+                      }
+                    },
+                    "after": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Gamma"
+                      }
+                    },
+                    "resources": [],
+                    "passenger_delta": "0"
+                  }
+                ]
+              }
+            }
+          ],
+          "state_digest": "6c718de3a578a813915c2ef0821adc4f7ab545aeb894b86f96f76476dd595151"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2230222c226170706c6965645f7265766973696f6e73223a5b2237666364313264613534656635326464366531306339346162613134613530326166626231363936303536646230373662623465333362613561613931383035225d2c226576656e7473223a5b7b227068617365223a312c226f7264696e616c223a302c2270726f76656e616e6365223a7b2274797065223a2263726561746f72222c227265766973696f6e223a2237666364313264613534656635326464366531306339346162613134613530326166626231363936303536646230373662623465333362613561613931383035227d2c226b696e64223a2263726561746f725f696e74657276656e74696f6e222c226661637473223a7b2274797065223a226368616e6765222c226368616e676573223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a22416c706861227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d7d5d2c2273746174655f646967657374223a2236633731386465336135373861383133393135633265663038323161646334663761623534356165623839346238366639366637363437366464353935313531227d",
+        "event_frames": [
+          {
+            "preimage_hex": "4e594f4e5f4c4956494e475f56335f4556454e54003d021f51c3aee43bb6aaa30181ca5bbea6b3e0c32877ab01816dd051ee214f030000000000000000010000000000",
+            "full_digest": "7adc528eecece00bc36f0511f76538483ac2be60d028a6568bfa627b585b1e2f"
+          }
+        ]
+      }
+    },
+    {
+      "view": {
+        "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+        "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+        "tick": "1"
+      },
+      "state": {
+        "tick": "1",
+        "branch_sequence": "1",
+        "next_sequence": "3",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Gamma"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2231222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2233222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "1",
+        "applied_revisions": [],
+        "events": [],
+        "state_digest": "450c20f75e4bd75ef2ff11fba9a5460c5272e041923ecb926877b251cefef75e",
+        "digest": "6570d56fadf2a96c32e48d5f283cfecb95d742b5c130d78d832322071d964ecc"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "1",
+          "applied_revisions": [],
+          "events": [],
+          "state_digest": "450c20f75e4bd75ef2ff11fba9a5460c5272e041923ecb926877b251cefef75e"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2231222c226170706c6965645f7265766973696f6e73223a5b5d2c226576656e7473223a5b5d2c2273746174655f646967657374223a2234353063323066373565346264373565663266663131666261396135343630633532373265303431393233656362393236383737623235316365666566373565227d",
+        "event_frames": []
+      }
+    },
+    {
+      "view": {
+        "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+        "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a",
+        "tick": "2"
+      },
+      "state": {
+        "tick": "2",
+        "branch_sequence": "1",
+        "next_sequence": "4",
+        "systems": [
+          {
+            "id": "a3247be8687b819f40bc4f251178dcba",
+            "name": "Delta"
+          }
+        ],
+        "stars": [],
+        "worlds": [],
+        "lanes": [],
+        "civilizations": [],
+        "deposits": [],
+        "colonies": [],
+        "facilities": [],
+        "construction_jobs": [],
+        "hull_jobs": [],
+        "fleets": [],
+        "routes": [],
+        "shipments": [],
+        "relations": [],
+        "agreements": [],
+        "wars": [],
+        "observations": [],
+        "hazards": [],
+        "settlement_claims": [],
+        "occupations": [],
+        "offers": [],
+        "demand_requests": [],
+        "commitments": [],
+        "defense_requests": [],
+        "shared_intelligence": [],
+        "stellar_events": [],
+        "counters": {}
+      },
+      "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2232222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2234222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2244656c7461227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+      "receipt": {
+        "tick": "2",
+        "applied_revisions": [
+          "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+        ],
+        "events": [
+          {
+            "id": "58e8124f7dcee2230b52344ae4330cd6",
+            "phase": 1,
+            "ordinal": 0,
+            "provenance": {
+              "type": "creator",
+              "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+            },
+            "kind": "creator_intervention",
+            "facts": {
+              "type": "change",
+              "changes": [
+                {
+                  "operation_index": 0,
+                  "collection": "systems",
+                  "key": {
+                    "type": "systems",
+                    "id": "a3247be8687b819f40bc4f251178dcba"
+                  },
+                  "before": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Gamma"
+                    }
+                  },
+                  "after": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Delta"
+                    }
+                  },
+                  "resources": [],
+                  "passenger_delta": "0"
+                }
+              ]
+            }
+          }
+        ],
+        "state_digest": "c187be46f14b575c083713a99f5e8127dc009e10d2ae6204cb367fd7f02bf0e1",
+        "digest": "ae37bc5cd3e2761bc650e06a472d32de76c72560429f0a6da9b2eb67ae44523b"
+      },
+      "receipt_frame": {
+        "payload": {
+          "tick": "2",
+          "applied_revisions": [
+            "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+          ],
+          "events": [
+            {
+              "phase": 1,
+              "ordinal": 0,
+              "provenance": {
+                "type": "creator",
+                "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+              },
+              "kind": "creator_intervention",
+              "facts": {
+                "type": "change",
+                "changes": [
+                  {
+                    "operation_index": 0,
+                    "collection": "systems",
+                    "key": {
+                      "type": "systems",
+                      "id": "a3247be8687b819f40bc4f251178dcba"
+                    },
+                    "before": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Gamma"
+                      }
+                    },
+                    "after": {
+                      "type": "systems",
+                      "value": {
+                        "id": "a3247be8687b819f40bc4f251178dcba",
+                        "name": "Delta"
+                      }
+                    },
+                    "resources": [],
+                    "passenger_delta": "0"
+                  }
+                ]
+              }
+            }
+          ],
+          "state_digest": "c187be46f14b575c083713a99f5e8127dc009e10d2ae6204cb367fd7f02bf0e1"
+        },
+        "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2232222c226170706c6965645f7265766973696f6e73223a5b2263336135366164366638353239313936363735313235643965333035633464313566623764393833393839643666353234623165623134653432386336313561225d2c226576656e7473223a5b7b227068617365223a312c226f7264696e616c223a302c2270726f76656e616e6365223a7b2274797065223a2263726561746f72222c227265766973696f6e223a2263336135366164366638353239313936363735313235643965333035633464313566623764393833393839643666353234623165623134653432386336313561227d2c226b696e64223a2263726561746f725f696e74657276656e74696f6e222c226661637473223a7b2274797065223a226368616e6765222c226368616e676573223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2244656c7461227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d7d5d2c2273746174655f646967657374223a2263313837626534366631346235373563303833373133613939663565383132376463303039653130643261653632303463623336376664376630326266306531227d",
+        "event_frames": [
+          {
+            "preimage_hex": "4e594f4e5f4c4956494e475f56335f4556454e5400ae37bc5cd3e2761bc650e06a472d32de76c72560429f0a6da9b2eb67ae44523b0200000000000000010000000000",
+            "full_digest": "58e8124f7dcee2230b52344ae4330cd62bca672cad8e1200bda90d3c640c3807"
+          }
+        ]
+      }
+    }
+  ],
+  "ordinary_child_publication": {
+    "view": {
+      "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+      "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+      "tick": "1"
+    },
+    "state": {
+      "tick": "1",
+      "branch_sequence": "1",
+      "next_sequence": "3",
+      "systems": [
+        {
+          "id": "a3247be8687b819f40bc4f251178dcba",
+          "name": "Gamma"
+        }
+      ],
+      "stars": [],
+      "worlds": [],
+      "lanes": [],
+      "civilizations": [],
+      "deposits": [],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2231222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2233222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+    "receipt": {
+      "tick": "1",
+      "applied_revisions": [],
+      "events": [],
+      "state_digest": "450c20f75e4bd75ef2ff11fba9a5460c5272e041923ecb926877b251cefef75e",
+      "digest": "6570d56fadf2a96c32e48d5f283cfecb95d742b5c130d78d832322071d964ecc"
+    },
+    "receipt_frame": {
+      "payload": {
+        "tick": "1",
+        "applied_revisions": [],
+        "events": [],
+        "state_digest": "450c20f75e4bd75ef2ff11fba9a5460c5272e041923ecb926877b251cefef75e"
+      },
+      "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2231222c226170706c6965645f7265766973696f6e73223a5b5d2c226576656e7473223a5b5d2c2273746174655f646967657374223a2234353063323066373565346264373565663266663131666261396135343630633532373265303431393233656362393236383737623235316365666566373565227d",
+      "event_frames": []
+    }
+  },
+  "published_before_submission": {
+    "view": {
+      "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+      "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+      "tick": "1"
+    },
+    "state": {
+      "tick": "1",
+      "branch_sequence": "1",
+      "next_sequence": "3",
+      "systems": [
+        {
+          "id": "a3247be8687b819f40bc4f251178dcba",
+          "name": "Gamma"
+        }
+      ],
+      "stars": [],
+      "worlds": [],
+      "lanes": [],
+      "civilizations": [],
+      "deposits": [],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2231222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2233222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d"
+  },
+  "accepted_command": {
+    "accepted_sequence": "4",
+    "application_tick": "2",
+    "envelope": {
+      "domain": 3,
+      "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+      "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+      "expected_committed_revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+      "expected_tick": "1",
+      "expected_state_digest": "450c20f75e4bd75ef2ff11fba9a5460c5272e041923ecb926877b251cefef75e",
+      "expected_pending_sequence": "0",
+      "mode": "running",
+      "command": {
+        "type": "creator_batch",
+        "operations": [
+          {
+            "type": "edit_system",
+            "target": {
+              "type": "existing",
+              "id": "a3247be8687b819f40bc4f251178dcba"
+            },
+            "name": "Delta"
+          }
+        ],
+        "reviewed_effects": [
+          {
+            "operation_index": 0,
+            "collection": "systems",
+            "key": {
+              "type": "systems",
+              "id": "a3247be8687b819f40bc4f251178dcba"
+            },
+            "before": {
+              "type": "systems",
+              "value": {
+                "id": "a3247be8687b819f40bc4f251178dcba",
+                "name": "Gamma"
+              }
+            },
+            "after": {
+              "type": "systems",
+              "value": {
+                "id": "a3247be8687b819f40bc4f251178dcba",
+                "name": "Delta"
+              }
+            },
+            "resources": [],
+            "passenger_delta": "0"
+          }
+        ]
+      }
+    }
+  },
+  "staged_revision": {
+    "id": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a",
+    "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+    "parent": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+    "tick": "2",
+    "ordinal": "4",
+    "mode": "running",
+    "capture": {
+      "domain": 3,
+      "catalog_hash": "9720f69feae4b1b04cc3459b4a156153c284eae8658197d922a142e634191da8",
+      "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+      "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+      "tick": "2",
+      "state_digest": "38aa42c322df4d6c9c657be430e6df1a5af92b0f311524c8c92ea56003baedc7",
+      "phase": 1,
+      "permitted_snapshot_digest": "38aa42c322df4d6c9c657be430e6df1a5af92b0f311524c8c92ea56003baedc7"
+    },
+    "command": {
+      "type": "creator_batch",
+      "operations": [
+        {
+          "type": "edit_system",
+          "target": {
+            "type": "existing",
+            "id": "a3247be8687b819f40bc4f251178dcba"
+          },
+          "name": "Delta"
+        }
+      ],
+      "reviewed_effects": [
+        {
+          "operation_index": 0,
+          "collection": "systems",
+          "key": {
+            "type": "systems",
+            "id": "a3247be8687b819f40bc4f251178dcba"
+          },
+          "before": {
+            "type": "systems",
+            "value": {
+              "id": "a3247be8687b819f40bc4f251178dcba",
+              "name": "Gamma"
+            }
+          },
+          "after": {
+            "type": "systems",
+            "value": {
+              "id": "a3247be8687b819f40bc4f251178dcba",
+              "name": "Delta"
+            }
+          },
+          "resources": [],
+          "passenger_delta": "0"
+        }
+      ]
+    }
+  },
+  "accepted_high_water": "4",
+  "pending_tail": "4",
+  "queued_boundary_receipt": null,
+  "published_cursor_while_queued": {
+    "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+    "revision": "7fcd12da54ef52dd6e10c94aba14a502afbb1696056db076bb4e33ba5aa91805",
+    "tick": "1"
+  },
+  "final_publication": {
+    "view": {
+      "branch": "8a0d15991ea6fdf630109a6603b6aa4a",
+      "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a",
+      "tick": "2"
+    },
+    "state": {
+      "tick": "2",
+      "branch_sequence": "1",
+      "next_sequence": "4",
+      "systems": [
+        {
+          "id": "a3247be8687b819f40bc4f251178dcba",
+          "name": "Delta"
+        }
+      ],
+      "stars": [],
+      "worlds": [],
+      "lanes": [],
+      "civilizations": [],
+      "deposits": [],
+      "colonies": [],
+      "facilities": [],
+      "construction_jobs": [],
+      "hull_jobs": [],
+      "fleets": [],
+      "routes": [],
+      "shipments": [],
+      "relations": [],
+      "agreements": [],
+      "wars": [],
+      "observations": [],
+      "hazards": [],
+      "settlement_claims": [],
+      "occupations": [],
+      "offers": [],
+      "demand_requests": [],
+      "commitments": [],
+      "defense_requests": [],
+      "shared_intelligence": [],
+      "stellar_events": [],
+      "counters": {}
+    },
+    "state_preimage_hex": "4e594f4e5f4c4956494e475f56335f5354415445007b22666f726d61745f76657273696f6e223a332c2272756c65735f76657273696f6e223a332c22636174616c6f675f68617368223a2239373230663639666561653462316230346363333435396234613135363135336332383465616538363538313937643932326131343265363334313931646138222c227374617465223a7b227469636b223a2232222c226272616e63685f73657175656e6365223a2231222c226e6578745f73657175656e6365223a2234222c2273797374656d73223a5b7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2244656c7461227d5d2c227374617273223a5b5d2c22776f726c6473223a5b5d2c226c616e6573223a5b5d2c22636976696c697a6174696f6e73223a5b5d2c226465706f73697473223a5b5d2c22636f6c6f6e696573223a5b5d2c22666163696c6974696573223a5b5d2c22636f6e737472756374696f6e5f6a6f6273223a5b5d2c2268756c6c5f6a6f6273223a5b5d2c22666c65657473223a5b5d2c22726f75746573223a5b5d2c22736869706d656e7473223a5b5d2c2272656c6174696f6e73223a5b5d2c2261677265656d656e7473223a5b5d2c2277617273223a5b5d2c226f62736572766174696f6e73223a5b5d2c2268617a61726473223a5b5d2c22736574746c656d656e745f636c61696d73223a5b5d2c226f636375706174696f6e73223a5b5d2c226f6666657273223a5b5d2c2264656d616e645f7265717565737473223a5b5d2c22636f6d6d69746d656e7473223a5b5d2c22646566656e73655f7265717565737473223a5b5d2c227368617265645f696e74656c6c6967656e6365223a5b5d2c227374656c6c61725f6576656e7473223a5b5d2c22636f756e74657273223a7b7d7d7d",
+    "receipt": {
+      "tick": "2",
+      "applied_revisions": [
+        "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+      ],
+      "events": [
+        {
+          "id": "58e8124f7dcee2230b52344ae4330cd6",
+          "phase": 1,
+          "ordinal": 0,
+          "provenance": {
+            "type": "creator",
+            "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+          },
+          "kind": "creator_intervention",
+          "facts": {
+            "type": "change",
+            "changes": [
+              {
+                "operation_index": 0,
+                "collection": "systems",
+                "key": {
+                  "type": "systems",
+                  "id": "a3247be8687b819f40bc4f251178dcba"
+                },
+                "before": {
+                  "type": "systems",
+                  "value": {
+                    "id": "a3247be8687b819f40bc4f251178dcba",
+                    "name": "Gamma"
+                  }
+                },
+                "after": {
+                  "type": "systems",
+                  "value": {
+                    "id": "a3247be8687b819f40bc4f251178dcba",
+                    "name": "Delta"
+                  }
+                },
+                "resources": [],
+                "passenger_delta": "0"
+              }
+            ]
+          }
+        }
+      ],
+      "state_digest": "c187be46f14b575c083713a99f5e8127dc009e10d2ae6204cb367fd7f02bf0e1",
+      "digest": "ae37bc5cd3e2761bc650e06a472d32de76c72560429f0a6da9b2eb67ae44523b"
+    },
+    "receipt_frame": {
+      "payload": {
+        "tick": "2",
+        "applied_revisions": [
+          "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+        ],
+        "events": [
+          {
+            "phase": 1,
+            "ordinal": 0,
+            "provenance": {
+              "type": "creator",
+              "revision": "c3a56ad6f8529196675125d9e305c4d15fb7d983989d6f524b1eb14e428c615a"
+            },
+            "kind": "creator_intervention",
+            "facts": {
+              "type": "change",
+              "changes": [
+                {
+                  "operation_index": 0,
+                  "collection": "systems",
+                  "key": {
+                    "type": "systems",
+                    "id": "a3247be8687b819f40bc4f251178dcba"
+                  },
+                  "before": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Gamma"
+                    }
+                  },
+                  "after": {
+                    "type": "systems",
+                    "value": {
+                      "id": "a3247be8687b819f40bc4f251178dcba",
+                      "name": "Delta"
+                    }
+                  },
+                  "resources": [],
+                  "passenger_delta": "0"
+                }
+              ]
+            }
+          }
+        ],
+        "state_digest": "c187be46f14b575c083713a99f5e8127dc009e10d2ae6204cb367fd7f02bf0e1"
+      },
+      "preimage_hex": "4e594f4e5f4c4956494e475f56335f52454345495054007b227469636b223a2232222c226170706c6965645f7265766973696f6e73223a5b2263336135366164366638353239313936363735313235643965333035633464313566623764393833393839643666353234623165623134653432386336313561225d2c226576656e7473223a5b7b227068617365223a312c226f7264696e616c223a302c2270726f76656e616e6365223a7b2274797065223a2263726561746f72222c227265766973696f6e223a2263336135366164366638353239313936363735313235643965333035633464313566623764393833393839643666353234623165623134653432386336313561227d2c226b696e64223a2263726561746f725f696e74657276656e74696f6e222c226661637473223a7b2274797065223a226368616e6765222c226368616e676573223a5b7b226f7065726174696f6e5f696e646578223a302c22636f6c6c656374696f6e223a2273797374656d73222c226b6579223a7b2274797065223a2273797374656d73222c226964223a226133323437626538363837623831396634306263346632353131373864636261227d2c226265666f7265223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2247616d6d61227d7d2c226166746572223a7b2274797065223a2273797374656d73222c2276616c7565223a7b226964223a226133323437626538363837623831396634306263346632353131373864636261222c226e616d65223a2244656c7461227d7d2c227265736f7572636573223a5b5d2c2270617373656e6765725f64656c7461223a2230227d5d7d7d5d2c2273746174655f646967657374223a2263313837626534366631346235373563303833373133613939663565383132376463303039653130643261653632303463623336376664376630326266306531227d",
+      "event_frames": [
+        {
+          "preimage_hex": "4e594f4e5f4c4956494e475f56335f4556454e5400ae37bc5cd3e2761bc650e06a472d32de76c72560429f0a6da9b2eb67ae44523b0200000000000000010000000000",
+          "full_digest": "58e8124f7dcee2230b52344ae4330cd62bca672cad8e1200bda90d3c640c3807"
+        }
+      ]
+    }
+  },
+  "final_pending_tail": "0",
+  "root_branch_before": {
+    "id": "4108c47943c15900dc896dc7661af625",
+    "parent": null,
+    "fork_revision": null,
+    "fork_tick": "0",
+    "fork_state_digest": "1ceb6d0b9359e8b743af53c2672de51e839de8163fc4ff996f318aec70f9bf23",
+    "ordinal": "0",
+    "head": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903",
+    "tip_tick": "1"
+  },
+  "root_branch_after": {
+    "id": "4108c47943c15900dc896dc7661af625",
+    "parent": null,
+    "fork_revision": null,
+    "fork_tick": "0",
+    "fork_state_digest": "1ceb6d0b9359e8b743af53c2672de51e839de8163fc4ff996f318aec70f9bf23",
+    "ordinal": "0",
+    "head": "509dc0b9fc2d80d7a41b2311d4fdf11948cfc5df78e74b18e25f1d8f3de31903",
+    "tip_tick": "1"
+  },
+  "inherited_issuer": {
+    "branch": "4108c47943c15900dc896dc7661af625",
+    "accepted_sequence": "1",
+    "operation_index": 0,
+    "kind": 1,
+    "local": 1
+  }
+}

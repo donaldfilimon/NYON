@@ -1,6 +1,6 @@
 # Living Galaxy expansion architecture
 
-Date: 2026-10-01. Status: **Proposed written specification for review**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `docs/superpowers/plans/2026-10-01-sandbox-completion-and-expansion.md`.
 
 ## Product contract
@@ -54,9 +54,10 @@ work, forecasts, validation, encoding and journal preparation share a bounded
 record-visit budget. V3 also uses 1..=1024 visits per poll; returning Pending is
 not permission to do an uncounted full-state traversal first.
 
-Ecology §Boundary order is the exact11-step authority order, including guarded
-phase5 costs before phase6 needs. Phase7 captures every actor's permitted planning
-records once. Phase8/9 share that immutable input and one central ledger; protected
+Ecology §Boundary order defines twelve registered phases, its twelve phase2
+subpasses and exact mixed P/R/B/O/H/K/M/F/A region. Phase11 validates/prepares;
+phase12 seals/finalizes/publishes. Guarded phase5 costs precede phase6 needs. Phase7 captures each Active actor's permitted planning records once in actor-ID
+order; Dormant receives no invented capture/audit. Phase8/9 share that immutable input and one central ledger; protected
 category0 plans precede other material admissions and older pending offers.
 Scoring §§1–8 fixes the200-boundary forecast, imminent<=100 gate, four categories,
 policy weights, complete identity, force selection and stable merge/ties. Neither
@@ -67,6 +68,35 @@ provenance is authenticated separately through CandidateAudit/Receipt. The trace
 contains eligible complete identities only; central attempted denial reasons have
 a fixed separate first-failure order. Tagged economy/offer/war components preserve
 exact explanations without inventing a generic utility bucket.
+
+Original actor SnapshotReferences remain phase7 byte-for-byte on Decisions,
+CandidateAudit and actor-owned fact/RecordProvenance snapshots. Execution8/9 and
+AUTO producer phase are separate; no phase rewrap or recapture enriches intent.
+One W/ledger executes actual category0 transactions before old pending Request
+consideration/Offers/handshake/Peace. Final producer8/9 event buffers preserve each
+logical subsequence and phase-monotone presentation; independent replay reconstructs
+actual schedule/guards/issuance/holds first and compares those buffers, never applies
+sorted Change witnesses as instructions. Late phase9 declaration release reports
+its finalization but structurally owns the Fleet through actual phase10.
+
+Physical account P is always real current inventory. Private cargo/payment H sums,
+linked source floors B MAX-coalesce, H+B<=P. Stage8 physical checks precede stage9
+actual competition; self entitlement never bypasses a structural asset lock. Actual
+Fleet/Route dispatch consumes/releases self and preserves others with exact closed
+carriers, no double debit, false stock shortage or persisted future escrow. All
+nested owner/index/path/forecast/source/replay/hash/byte/output/cleanup visits share
+the remaining public1–1024 budget; constructors/finish never hide full scans.
+
+History authenticates semantic objective/C instances through real installation/
+replacement operations, including equal-byte replacement. Terminal historical target
+exceptions are position-specific and never license live paid endpoints. Next ordinary
+Objective/Defense witness installation is pointer-only phase2; Supply is phase3.
+Paused creator/save/fork preserves prior pointer and never consumes its own current
+receipt. Creator transient empty Fleet context is derived within one batch and
+fully closes before completed State; it is not a serialized capability/default.
+Whole-final paid itinerary, immutable Shipment duration and Hull voyage origins
+survive exact bounded archive/reference-retirement contracts; no current graph or
+replacement identity repairs original payment evidence.
 
 Prepared success/failure tokens have private constructors. Publication verifies
 exact capture ownership, queue/revision cursor, allocator marks and resident

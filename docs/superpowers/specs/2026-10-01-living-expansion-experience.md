@@ -1,6 +1,6 @@
 # Living V3 experience, experiments and qualification
 
-Date: 2026-10-01. Status: **Proposed implementation contract**.
+Date: 2026-10-03. Status: **PROPOSED coordinated review submission2; independent integrated review, fresh complete vectors and human approval pending**.
 Parent: `2026-10-01-living-expansion-architecture.md`.
 The user's instruction to proceed authorizes program execution; this document
 is not evidence of implemented controls or platform acceptance.
@@ -27,7 +27,7 @@ restore focus, emit audio or overwrite a save in the new resident.
 
 ## Inspectors and observation
 
-Actor inspection follows exact Actor32 source selection: public full Systems/Lanes and World id/system mapping, exact own deposits/claims/occupation, no global foreign storage/HP/progress disclosure. Show original source ticks; DIRECT T endpoint proof differs from age300 attack eligibility. Conditional B/F dependency explanations are private diagnostic projections, not added canonical trace/Receipt fields or guarantees. Food0/zero freight explain actual evaluated causes without paid/produced/delivery credit.
+Actor inspection follows exact Actor32 source selection: public full Systems/Lanes and World id/system mapping, exact own deposits/claims/occupation, no global foreign storage/HP/progress disclosure. Show original source ticks; DIRECT T endpoint proof differs from age300 attack eligibility. Conditional B/F dependency explanations are private diagnostic projections, not added canonical trace/Receipt fields or guarantees. Food0/zero freight explain actual evaluated causes without paid/produced/delivery credit. Needs guards use complete-schema §Exhaustive Needs guard subject, producer and privacy mapping: all five typed operation subjects and local account links authenticate at the original producer prefix; historical ownership proof, not current sight/ownership/cargo receipt, controls access and missing proof fails closed.
 
 
 The creator overview may inspect committed omniscient state. Actor intelligence
@@ -41,6 +41,38 @@ private captures; neither actor receives its full record. Show declarer's own
 unchanged attempted candidate/outcome and only the
 successfully installed public defender objective. Creator omniscient replay may
 inspect complete receipts. Display filtering never rewrites canonical bytes.
+
+Canonical DispatchReservation/holder evidence is creator/authority/replay only.
+Remove the WHOLE carrier from actor views; an own historical notice may show its
+authenticated subject ID and exact constant “Dispatch was constrained by
+reservations.” without holders, source hashes, stocks or
+rival identities. Defense declaration-required consideration's candidate identity
+is defender-private; requester sees only separately derived willingness and its
+already-known named enemy. Combat contribution details/shots/current Supply proof
+are authority/replay; own defender notice references only its original action and
+outcome, never hidden rival HP. Changing owner does not grant old private notices.
+Safe notice freshness follows selected original HistoryTip/ancestry and resident,
+not latest receipt or a redacted canonical export.
+
+Explore discovery shows unknown owner as unknown. Pure scout entry is a planned
+information opportunity, not guaranteed safe arrival or military/resource access.
+Show exact novelty component/own observation age separately from new Hull reward.
+Ordinary due Fleet block distinguishes live purpose, topology, permission, Supply,
+paid HullJob, declaration lock, missing credit, physical Energy and resource holds.
+No order/undue/travelling/current-world visits have no invented blocked/departed
+entry. Paid whole-final motion has no artificial intermediate stop/refuel.
+
+Creator Shipment disposition previews show unchanged clocks/original duration,
+authored source/destination selection, early Waiting retry and permanent credit
+exclusion. Same-tag setter still stamps a genuine intervention; return reset is
+rejected. Creator temporary Fleet construction is visible only in ordered operation
+audit, never playable/saveable empty Fleet. Passenger origin/reset/destruction and
+last-Hull no-refund job disposal show exact real effects and conservation.
+Secure objectives show fixed directional World pair, freshness/sample count and
+terminal historical target; no missing terminal target is replaced silently.
+At outcome tick, prior pointer remains while real current fact is inspectable;
+next ordinary handoff shows original producer, not new success. Paused save/fork
+cannot make a current receipt witness consume itself.
 
 Entity panels must expose the following parallel surfaces:
 
@@ -59,12 +91,22 @@ and facts, rather than being inferred from the final state. Show exact category/
 deadline/score components, full admission terms, shared phase7 planning tick and
 actual admission phase. Keep counterfactual saved-exposure/request opportunity
 distinct from actual paid/delivered evidence. NeedsReserved shows physical stock,
-held stock and required debit; do not display held energy as physically missing.
+held stock and required debit only to authority/creator/authenticated replay or an
+actor whose authenticated producer-prefix reason.world ownership and corresponding
+owned Facility/Fleet links satisfy the schema's exhaustive five-row guard privacy
+mapping. Remove the whole guard for other actors or missing historical proof;
+never redact canonical Events or add these quantities to Actor32. Do not display
+held energy as physically missing.
 Declaration holds are temporary funding witnesses with debit0, distinct from later
 paid fleet departure. A rejected candidate keeps its recorded identity and score. Following a Chronicle
 entry restores or identifies its exact historical view before revealing its entity.
 A removed entity remains inspectable at the recorded view with an explicit current
-removal indication. Capacity-sized text/rows paginate or scroll; never omit fields.
+removal indication. Capacity-sized authority/creator text and rows paginate or scroll without
+omitting canonical fields. Actor-facing inspectors enforce the exact whole-carrier
+privacy rules above: full authority admission terms/audits, combat action arrays
+and reservation witnesses are not a permission to expose private fields or
+redact them into a purported canonical actor Event. Separate permitted actor
+explanations use authenticated own sources/history ancestry.
 
 ## Layers and comparisons
 

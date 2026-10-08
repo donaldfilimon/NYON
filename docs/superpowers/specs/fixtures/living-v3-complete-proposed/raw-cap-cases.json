@@ -1,0 +1,32 @@
+[
+  {
+    "input": {
+      "repeat_byte_hex": "ff",
+      "count": 8388608
+    },
+    "identity": {
+      "bytes": 8388608,
+      "sha256": "9f9b02f5ee6cbef5e018c1ee424095fc21a842ea6968c0d36114b5930dab2ba1"
+    },
+    "expected": {
+      "stage": 1,
+      "error": "noncanonical_bytes"
+    },
+    "strength": "raw_stage_boundary_not_positive_document"
+  },
+  {
+    "input": {
+      "repeat_byte_hex": "ff",
+      "count": 8388609
+    },
+    "identity": {
+      "bytes": 8388609,
+      "sha256": "79fb747e323844e2f11684c58af1f0046d23173fbcee8b18c694b588009e3c1c"
+    },
+    "expected": {
+      "stage": 0,
+      "error": "byte_capacity"
+    },
+    "strength": "raw_stage_boundary_not_positive_document"
+  }
+]

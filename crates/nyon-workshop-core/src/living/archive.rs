@@ -2,7 +2,8 @@
 //! is normative. Nested history records retain accepted creator timing and
 //! branch provenance; immutable revision identity bytes remain unchanged.
 //! Replay starts from embedded validated genesis, never from a generator or a
-//! checkpoint. Bounded polling makes arbitrary retained timelines cancellable.
+//! checkpoint. Replay is cancellable; complete nested forward budgets are separate
+//! from the counted retirement API.
 use super::catalog::ValidatedLivingCatalogPackV2;
 use super::command::{LivingCommandErrorV2, LivingCommandModeV2};
 use super::genesis::{
@@ -26,6 +27,10 @@ use super::wire::{
     LIVING_MAX_ARCHIVE_BYTES_V2, LivingSortedVecV2, LivingWireErrorV2, decode_canonical_v2,
     encode_canonical_v2,
 };
+mod retirement;
+use retirement::ArchiveSlot;
+pub use retirement::LivingArchiveRetirementJobV2;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -116,22 +121,27 @@ impl LivingArchiveV2 {
 /// actually validated and replayed, with all sibling futures reconstructed.
 #[derive(Clone, Debug)]
 pub struct ValidatedLivingArchiveV2 {
-    archive: LivingArchiveV2,
-    authority: LivingGalaxyAuthorityV2,
+    archive: ArchiveSlot<LivingArchiveV2>,
+    authority: ArchiveSlot<LivingGalaxyAuthorityV2>,
     canonical_bytes: Vec<u8>,
 }
 impl ValidatedLivingArchiveV2 {
     /// Validated document and storage metadata.
     pub const fn archive(&self) -> &LivingArchiveV2 {
-        &self.archive
+        self.archive.get()
     }
-    /// Exact reconstructed selected session.
+    /// Exact reconstructed selected session. Panics after `take_authority` consumes it.
     pub const fn authority(&self) -> &LivingGalaxyAuthorityV2 {
-        &self.authority
+        self.authority.get()
     }
-    /// Install the reconstructed selected session.
-    pub fn into_authority(self) -> LivingGalaxyAuthorityV2 {
-        self.authority
+    /// Synchronous compatibility: installs the authority and drops residual owners.
+    pub fn into_authority(mut self) -> LivingGalaxyAuthorityV2 {
+        self.take_authority()
+            .expect("validated authority already extracted")
+    }
+    /// Move the selected authority once, retaining document/bytes for retirement.
+    pub fn take_authority(&mut self) -> Result<LivingGalaxyAuthorityV2, LivingArchiveErrorV2> {
+        self.authority.take().ok_or(LivingArchiveErrorV2::NotReady)
     }
     /// Bytes checked during decode, with no derived state cache included.
     pub fn canonical_bytes(&self) -> &[u8] {
@@ -266,9 +276,10 @@ pub enum LivingArchiveReplayStatusV2 {
 /// applies one paused creator input, transitions a branch, or completes a view.
 #[derive(Debug)]
 pub struct LivingArchiveReplayV2 {
-    archive: LivingArchiveV2,
+    archive: ArchiveSlot<LivingArchiveV2>,
     canonical_bytes: Vec<u8>,
-    origin: LivingGalaxyAuthorityV2,
+    retired_bytes: Vec<u8>,
+    origin: ArchiveSlot<LivingGalaxyAuthorityV2>,
     tasks: Vec<ReplayTask>,
     task: usize,
     action: usize,
@@ -281,15 +292,12 @@ pub struct LivingArchiveReplayV2 {
     verify_final: bool,
     redo_after: Vec<LivingHistoryViewV2>,
     failure: Option<LivingArchiveErrorV2>,
+    delivered: bool,
 }
 impl LivingArchiveReplayV2 {
-    /// Release private reconstructed states immediately. No active session is touched.
+    /// Retain reconstructed owners for explicit retirement; stop execution.
     pub fn cancel(&mut self) {
         self.cancelled = true;
-        self.working = None;
-        self.staged = None;
-        self.completed.clear();
-        self.validated = None;
     }
     /// Execute at most the supplied work units. Budgets outside 1..=1024 reject.
     pub fn poll(
@@ -302,14 +310,14 @@ impl LivingArchiveReplayV2 {
         if let Some(error) = &self.failure {
             return Err(error.clone());
         }
+        if self.delivered {
+            return Err(LivingArchiveErrorV2::NotReady);
+        }
         let result = self.poll_work(budget);
         if let Err(error) = &result
             && *error != LivingArchiveErrorV2::Budget
         {
             self.failure = Some(error.clone());
-            self.working = None;
-            self.staged = None;
-            self.completed.clear();
         }
         result
     }
@@ -328,9 +336,9 @@ impl LivingArchiveReplayV2 {
         }
         for _ in 0..budget {
             if self.task == self.tasks.len() {
-                let mut active = self
+                let active = self
                     .completed
-                    .pop()
+                    .last()
                     .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
                 if active.state().tick != self.archive.final_tick
                     || (self.verify_final && active.state().digest()? != self.archive.final_digest)
@@ -340,15 +348,16 @@ impl LivingArchiveReplayV2 {
                 if !self.verify_final {
                     self.archive.final_digest = active.state().digest()?;
                     self.archive.integrity_sha256 = self.archive.integrity()?;
-                    self.canonical_bytes =
-                        encode_canonical_v2(&self.archive, LIVING_MAX_ARCHIVE_BYTES_V2)?;
+                    let bytes =
+                        encode_canonical_v2(self.archive.get(), LIVING_MAX_ARCHIVE_BYTES_V2)?;
+                    self.retired_bytes = std::mem::replace(&mut self.canonical_bytes, bytes);
                 }
-                let present = self
-                    .completed
+                let present = self.completed[..self.completed.len() - 1]
                     .iter()
                     .find(|branch| branch.branch() == active.branch())
                     .cloned()
                     .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                let mut active = self.completed.pop().expect("checked active owner");
                 active.install_history(
                     std::mem::take(&mut self.completed),
                     self.archive.accepted_sequence_high_water,
@@ -357,15 +366,15 @@ impl LivingArchiveReplayV2 {
                 );
                 active.install_redo_targets(std::mem::take(&mut self.redo_after));
                 self.validated = Some(ValidatedLivingArchiveV2 {
-                    archive: self.archive.clone(),
-                    authority: active,
+                    archive: self.archive.get().clone().into(),
+                    authority: active.into(),
                     canonical_bytes: self.canonical_bytes.clone(),
                 });
                 return Ok(LivingArchiveReplayStatusV2::Ready);
             }
             let task = &self.tasks[self.task];
             if self.working.is_none() {
-                self.working = Some(self.origin.clone());
+                self.working = Some(self.origin.get().clone());
             }
             let working = self
                 .working
@@ -449,15 +458,28 @@ impl LivingArchiveReplayV2 {
         }
         Ok(LivingArchiveReplayStatusV2::Pending)
     }
-    /// Take only a fully verified archive. Cancellation and partial work reject.
-    pub fn finish(self) -> Result<ValidatedLivingArchiveV2, LivingArchiveErrorV2> {
+    /// Borrowed once-only extraction; rejection retains every owner.
+    pub fn take_ready_result(&mut self) -> Result<ValidatedLivingArchiveV2, LivingArchiveErrorV2> {
         if self.cancelled {
             return Err(LivingArchiveErrorV2::Cancelled);
         }
-        if let Some(error) = self.failure {
-            return Err(error);
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
         }
-        self.validated.ok_or(LivingArchiveErrorV2::NotReady)
+        if self.delivered
+            || self.validated.is_none()
+            || self.task != self.tasks.len()
+            || self.staged.is_some()
+            || self.working.is_some()
+        {
+            return Err(LivingArchiveErrorV2::NotReady);
+        }
+        self.delivered = true;
+        Ok(self.validated.take().expect("checked output"))
+    }
+    /// Synchronous compatibility: consumes the wrapper and its residual owners.
+    pub fn finish(mut self) -> Result<ValidatedLivingArchiveV2, LivingArchiveErrorV2> {
+        self.take_ready_result()
     }
 }
 
@@ -523,9 +545,10 @@ pub fn begin_decode_living_archive_v2(
         actions: schedule(archive.active_view, &records, &branches)?,
     });
     Ok(LivingArchiveReplayV2 {
-        archive,
+        archive: archive.into(),
         canonical_bytes: bytes.to_vec(),
-        origin,
+        retired_bytes: Vec::new(),
+        origin: origin.into(),
         tasks,
         task: 0,
         action: 0,
@@ -538,6 +561,7 @@ pub fn begin_decode_living_archive_v2(
         verify_final: true,
         redo_after: Vec::new(),
         failure: None,
+        delivered: false,
     })
 }
 /// Reconstruct a retained history view without blocking the event thread on
@@ -637,19 +661,21 @@ pub struct LivingComparisonReplayV2 {
     left: Option<LivingArchiveReplayV2>,
     right: Option<LivingArchiveReplayV2>,
     left_ready: Option<ValidatedLivingArchiveV2>,
+    right_ready: Option<ValidatedLivingArchiveV2>,
     comparison: Option<LivingComparisonV2>,
+    cleanup: Option<Box<LivingArchiveRetirementJobV2>>,
+    stage: u8,
     cancelled: bool,
+    delivered: bool,
+    failure: Option<LivingArchiveErrorV2>,
 }
 impl LivingComparisonReplayV2 {
-    /// Drop both private reconstruction jobs and their derived states.
+    /// Stop execution, retaining both children, outputs and partial cleanup.
     pub fn cancel(&mut self) {
         self.cancelled = true;
-        self.left = None;
-        self.right = None;
-        self.left_ready = None;
-        self.comparison = None;
     }
-    /// Spend the budget on only one side per poll; total work never exceeds it.
+    /// Forward replay still uses synchronous phase helpers. Cleanup work uses
+    /// the same remaining budget and retains output anchors until it finishes.
     pub fn poll(
         &mut self,
         budget: usize,
@@ -660,56 +686,158 @@ impl LivingComparisonReplayV2 {
         if !(1..=LIVING_MAX_REPLAY_POLL_WORK_V2).contains(&budget) {
             return Err(LivingArchiveErrorV2::Budget);
         }
-        if self.comparison.is_some() {
-            return Ok(LivingArchiveReplayStatusV2::Ready);
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
         }
-        if let Some(left) = &mut self.left {
-            if left.poll(budget)? == LivingArchiveReplayStatusV2::Ready {
-                self.left_ready = Some(
-                    self.left
-                        .take()
-                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?
-                        .finish()?,
-                );
-            }
-            return Ok(LivingArchiveReplayStatusV2::Pending);
+        if self.delivered {
+            return Err(LivingArchiveErrorV2::NotReady);
         }
-        let right = self
-            .right
-            .as_mut()
-            .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
-        if right.poll(budget)? == LivingArchiveReplayStatusV2::Pending {
-            return Ok(LivingArchiveReplayStatusV2::Pending);
+        let result = self.poll_work(budget);
+        if let Err(error) = &result {
+            self.failure = Some(error.clone());
         }
-        let right = self
-            .right
-            .take()
-            .ok_or(LivingArchiveErrorV2::HistoryGraph)?
-            .finish()?;
-        let left = self
-            .left_ready
-            .take()
-            .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
-        let left_view = left.authority.bookmark()?;
-        let right_view = right.authority.bookmark()?;
-        if left_view.view.tick != right_view.view.tick {
-            return Err(LivingArchiveErrorV2::HistoryGraph);
-        }
-        self.comparison = Some(LivingComparisonV2 {
-            tick: left_view.view.tick,
-            left: left_view,
-            right: right_view,
-            left_state: left.authority.state().clone(),
-            right_state: right.authority.state().clone(),
-        });
-        Ok(LivingArchiveReplayStatusV2::Ready)
+        result
     }
-    /// Take the verified pair only after both sides finish.
-    pub fn finish(self) -> Result<LivingComparisonV2, LivingArchiveErrorV2> {
+    fn poll_work(
+        &mut self,
+        budget: usize,
+    ) -> Result<LivingArchiveReplayStatusV2, LivingArchiveErrorV2> {
+        use super::simulation::{
+            LivingPublicationRetirementPolicyV2 as Policy,
+            LivingPublicationRetirementProgressV2 as Progress,
+        };
+        for _ in 0..budget {
+            if let Some(cleanup) = &mut self.cleanup {
+                let progress = cleanup.poll(1)?;
+                if cleanup.last_poll_visits() != 0 {
+                    continue;
+                }
+                assert_eq!(
+                    progress,
+                    Progress::Ready,
+                    "internal cleanup only releases handles"
+                );
+                self.cleanup.take(); // empty original retirement Box, one visit
+                self.stage += 1;
+                if self.stage == 3 {
+                    return Ok(LivingArchiveReplayStatusV2::Pending);
+                }
+                continue;
+            }
+            match self.stage {
+                0 => {
+                    let left = self
+                        .left
+                        .as_mut()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    if left.poll(1)? == LivingArchiveReplayStatusV2::Ready {
+                        self.stage = 1;
+                    }
+                }
+                1 => {
+                    let left = self
+                        .left
+                        .as_mut()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    self.left_ready = Some(left.take_ready_result()?);
+                    self.stage = 2;
+                }
+                2 => {
+                    self.cleanup = Some(Box::new(
+                        self.left
+                            .take()
+                            .expect("retained left")
+                            .into_retirement(Policy::ReleaseHandle),
+                    ));
+                }
+                3 => {
+                    let right = self
+                        .right
+                        .as_mut()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    if right.poll(1)? == LivingArchiveReplayStatusV2::Ready {
+                        self.stage = 4;
+                    }
+                }
+                4 => {
+                    let right = self
+                        .right
+                        .as_mut()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    self.right_ready = Some(right.take_ready_result()?);
+                    self.stage = 5;
+                }
+                5 => {
+                    self.cleanup = Some(Box::new(
+                        self.right
+                            .take()
+                            .expect("retained right")
+                            .into_retirement(Policy::ReleaseHandle),
+                    ));
+                }
+                6 => {
+                    let left = self
+                        .left_ready
+                        .as_ref()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    let right = self
+                        .right_ready
+                        .as_ref()
+                        .ok_or(LivingArchiveErrorV2::HistoryGraph)?;
+                    let left_view = left.authority().bookmark()?;
+                    let right_view = right.authority().bookmark()?;
+                    if left_view.view.tick != right_view.view.tick {
+                        return Err(LivingArchiveErrorV2::HistoryGraph);
+                    }
+                    self.comparison = Some(LivingComparisonV2 {
+                        tick: left_view.view.tick,
+                        left: left_view,
+                        right: right_view,
+                        left_state: left.authority().state().clone(),
+                        right_state: right.authority().state().clone(),
+                    });
+                    self.stage = 7;
+                }
+                7 => {
+                    self.cleanup = Some(Box::new(
+                        self.left_ready
+                            .take()
+                            .expect("left output")
+                            .into_retirement(Policy::ReleaseHandle),
+                    ))
+                }
+                8 => {
+                    self.cleanup = Some(Box::new(
+                        self.right_ready
+                            .take()
+                            .expect("right output")
+                            .into_retirement(Policy::ReleaseHandle),
+                    ))
+                }
+                9 => return Ok(LivingArchiveReplayStatusV2::Ready),
+                _ => unreachable!("comparison stage"),
+            }
+        }
+        Ok(LivingArchiveReplayStatusV2::Pending)
+    }
+    /// Borrowed once-only extraction; incomplete/error/cancel retains all owners.
+    pub fn take_ready_result(&mut self) -> Result<LivingComparisonV2, LivingArchiveErrorV2> {
         if self.cancelled {
             return Err(LivingArchiveErrorV2::Cancelled);
         }
-        self.comparison.ok_or(LivingArchiveErrorV2::NotReady)
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
+        }
+        if self.delivered || self.stage != 9 || self.cleanup.is_some() || self.comparison.is_none()
+        {
+            return Err(LivingArchiveErrorV2::NotReady);
+        }
+        self.delivered = true;
+        Ok(self.comparison.take().expect("checked comparison"))
+    }
+    /// Synchronous compatibility: drops unreturned residual owners on rejection.
+    pub fn finish(mut self) -> Result<LivingComparisonV2, LivingArchiveErrorV2> {
+        self.take_ready_result()
     }
 }
 /// Reconstruct two retained creator histories at the same completed boundary.
@@ -724,8 +852,13 @@ pub fn begin_compare_living_v2(
         left: Some(begin_restore_living_view_v2(authority, left)?),
         right: Some(begin_restore_living_view_v2(authority, right)?),
         left_ready: None,
+        right_ready: None,
         comparison: None,
+        cleanup: None,
+        stage: 0,
         cancelled: false,
+        delivered: false,
+        failure: None,
     })
 }
 
@@ -971,4 +1104,53 @@ fn validate_graph(
         return Err(LivingArchiveErrorV2::HighWater);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod archive_retirement_regressions {
+    use super::*;
+    fn replay() -> LivingArchiveReplayV2 {
+        let authority = crate::living::builtin_living_sandbox_v2().unwrap();
+        begin_decode_living_archive_v2(
+            &encode_living_archive_v2(&authority).unwrap(),
+            authority.catalog(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn archive_retirement_cancel_retains_working_owner() {
+        let mut replay = replay();
+        replay.working = Some(replay.origin.get().clone());
+        replay.completed.push(replay.origin.get().clone());
+        let state = replay.working.as_ref().unwrap().state() as *const _;
+        let storage = replay.completed.as_ptr();
+        replay.cancel();
+        assert!(
+            replay.working.is_some(),
+            "cancel must retain the exact owner"
+        );
+        assert_eq!(replay.working.as_ref().unwrap().state() as *const _, state);
+        assert_eq!(replay.completed.len(), 1);
+        assert_eq!(replay.completed.as_ptr(), storage);
+    }
+    #[test]
+    fn archive_retirement_fault_retains_final_authority() {
+        let mut replay = replay();
+        replay.task = replay.tasks.len();
+        replay.archive.final_tick = LivingTickV2(1);
+        replay.completed.push(replay.origin.get().clone());
+        assert_eq!(replay.poll(1), Err(LivingArchiveErrorV2::FinalDigest));
+        assert!(
+            replay.completed.len() == 1,
+            "failed final checks must retain active owner"
+        );
+    }
+    #[test]
+    fn archive_retirement_missing_present_does_not_select_active_as_its_own_tip() {
+        let mut replay = replay();
+        replay.task = replay.tasks.len();
+        replay.completed.push(replay.origin.get().clone());
+        assert_eq!(replay.poll(1), Err(LivingArchiveErrorV2::HistoryGraph));
+        assert_eq!(replay.completed.len(), 1);
+    }
 }

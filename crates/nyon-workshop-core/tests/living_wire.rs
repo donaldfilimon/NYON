@@ -690,7 +690,7 @@ fn v2_wrapper_hex_rejects_uppercase_short_long_and_non_hex_text() {
 /// Every source file the crate compiles, compiled in so the scan cannot resolve
 /// a stale path after the checkout moves. `crate_module_scan_covers_every_file`
 /// proves this list is complete.
-const CRATE_SOURCES: [(&str, &str); 27] = [
+const CRATE_SOURCES: [(&str, &str); 28] = [
     ("lib.rs", include_str!("../src/lib.rs")),
     ("archive.rs", include_str!("../src/archive.rs")),
     ("command.rs", include_str!("../src/command.rs")),
@@ -711,6 +711,10 @@ const CRATE_SOURCES: [(&str, &str); 27] = [
     (
         "living/archive.rs",
         include_str!("../src/living/archive.rs"),
+    ),
+    (
+        "living/archive/retirement.rs",
+        include_str!("../src/living/archive/retirement.rs"),
     ),
     (
         "living/history.rs",
@@ -866,79 +870,183 @@ fn no_crate_source_file_names_both_a_workshop_v1_and_a_living_v2_identity() {
     );
 }
 
+fn scan_module_sources(sources: &[(&str, &str)]) -> Result<usize, String> {
+    use std::path::{Component, Path, PathBuf};
+
+    fn joined(base: &Path, relative: &str) -> Result<PathBuf, String> {
+        let mut result = PathBuf::new();
+        for component in base.join(relative).components() {
+            match component {
+                Component::Normal(part) => result.push(part),
+                Component::CurDir => {}
+                Component::ParentDir if result.pop() => {}
+                _ => return Err(format!("module path escapes source root: {relative}")),
+            }
+        }
+        Ok(result)
+    }
+    fn explicit_path(module: &syn::ItemMod) -> Result<Option<String>, String> {
+        let Some(attribute) = module
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("path"))
+        else {
+            return Ok(None);
+        };
+        if let syn::Meta::NameValue(value) = &attribute.meta
+            && let syn::Expr::Lit(expression) = &value.value
+            && let syn::Lit::Str(path) = &expression.lit
+        {
+            return Ok(Some(path.value()));
+        }
+        Err(format!("invalid module path for {}", module.ident))
+    }
+    struct Scan<'a> {
+        sources: &'a [(&'a str, &'a str)],
+        active: Vec<String>,
+        visited: std::collections::BTreeSet<String>,
+        declarations: usize,
+    }
+    impl Scan<'_> {
+        fn file(&mut self, name: &str, explicit: bool) -> Result<(), String> {
+            if self.active.iter().any(|active| active == name) {
+                return Err(format!("recursive module source: {name}"));
+            }
+            let source = self
+                .sources
+                .iter()
+                .find(|(label, _)| *label == name)
+                .ok_or_else(|| format!("unlisted module source: {name}"))?
+                .1;
+            let ast = syn::parse_file(source).map_err(|error| format!("{name}: {error}"))?;
+            let file = Path::new(name);
+            let parent = file.parent().unwrap_or(Path::new(""));
+            // A path-attributed external module owns its containing directory.
+            // An ordinary foo.rs has a deferred foo/ component for children.
+            let directory = if explicit
+                || matches!(
+                    file.file_name().and_then(|s| s.to_str()),
+                    Some("lib.rs" | "mod.rs")
+                ) {
+                parent.to_owned()
+            } else {
+                file.with_extension("")
+            };
+            self.active.push(name.to_owned());
+            self.visited.insert(name.to_owned());
+            self.items(&ast.items, parent, &directory)?;
+            self.active.pop();
+            Ok(())
+        }
+        fn items(
+            &mut self,
+            items: &[syn::Item],
+            path_base: &Path,
+            directory: &Path,
+        ) -> Result<(), String> {
+            for item in items {
+                let syn::Item::Mod(module) = item else {
+                    continue;
+                };
+                let explicit = explicit_path(module)?;
+                if let Some((_, contents)) = &module.content {
+                    let child_directory = match explicit {
+                        Some(path) => joined(path_base, &path)?,
+                        None => joined(directory, &module.ident.to_string())?,
+                    };
+                    self.items(contents, &child_directory, &child_directory)?;
+                    continue;
+                }
+                self.declarations += 1;
+                let candidates = match &explicit {
+                    Some(path) => vec![joined(path_base, path)?],
+                    None => vec![
+                        joined(directory, &format!("{}.rs", module.ident))?,
+                        joined(directory, &format!("{}/mod.rs", module.ident))?,
+                    ],
+                };
+                let name = candidates
+                    .iter()
+                    .filter_map(|path| path.to_str())
+                    .find(|candidate| self.sources.iter().any(|(label, _)| label == candidate))
+                    .ok_or_else(|| format!("unlisted module `{}`: {candidates:?}", module.ident))?;
+                self.file(name, explicit.is_some())?;
+            }
+            Ok(())
+        }
+    }
+    let mut scan = Scan {
+        sources,
+        active: Vec::new(),
+        visited: Default::default(),
+        declarations: 0,
+    };
+    scan.file("lib.rs", false)?;
+    if let Some((name, _)) = sources
+        .iter()
+        .find(|(name, _)| !scan.visited.contains(*name))
+    {
+        return Err(format!("unreachable listed source: {name}"));
+    }
+    Ok(scan.declarations)
+}
+
+#[test]
+fn module_scan_rejects_unlisted_inline_child() {
+    let error = scan_module_sources(&[("lib.rs", "mod tests { mod hidden; }")]).unwrap_err();
+    assert!(error.contains("hidden"));
+    // A listed decoy in the source directory cannot cover an inline child.
+    assert!(
+        scan_module_sources(&[("lib.rs", "mod tests { mod hidden; }"), ("hidden.rs", ""),])
+            .is_err()
+    );
+}
+
+#[test]
+fn module_scan_resolves_nested_default_and_explicit_contexts() {
+    let sources = [
+        (
+            "lib.rs",
+            "mod outer; #[path = \"special.rs\"] mod alias; mod rooted { mod child; }",
+        ),
+        (
+            "outer.rs",
+            "mod plain { mod child; #[path = \"chosen.rs\"] mod explicit; } #[path = \"alternate\"] mod redirected { mod leaf; } mod nested { #[path = \"redirect\"] mod redirected { mod deeper { mod leaf; } } }",
+        ),
+        ("outer/plain/child.rs", ""),
+        ("outer/plain/chosen.rs", ""),
+        ("alternate/leaf.rs", ""),
+        ("outer/nested/redirect/deeper/leaf.rs", ""),
+        ("special.rs", "mod child;"),
+        ("child.rs", ""),
+        ("rooted/child/mod.rs", "mod leaf;"),
+        ("rooted/child/leaf.rs", ""),
+    ];
+    assert_eq!(scan_module_sources(&sources).unwrap(), 9);
+    for omitted in 1..sources.len() {
+        let incomplete: Vec<_> = sources
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(index, source)| (index != omitted).then_some(source))
+            .collect();
+        assert!(
+            scan_module_sources(&incomplete).is_err(),
+            "missing {}",
+            sources[omitted].0
+        );
+    }
+}
+
 /// A guard that skips a file is worse than no guard, so prove the file list is
 /// complete: every `mod` declaration in every scanned file must resolve to
 /// another scanned file. Adding `pub mod schema;` anywhere fails this test until
 /// `schema.rs` is added to `CRATE_SOURCES`.
 #[test]
 fn crate_module_scan_covers_every_file() {
-    let scanned: Vec<&str> = CRATE_SOURCES.iter().map(|(name, _)| *name).collect();
-    let mut declarations = 0;
-    for (name, source) in CRATE_SOURCES {
-        let ast = syn::parse_file(source).unwrap_or_else(|error| panic!("{name}: {error}"));
-        for item in ast.items {
-            let syn::Item::Mod(declaration) = item else {
-                continue;
-            };
-            if declaration.content.is_some() {
-                continue;
-            }
-            declarations += 1;
-            let module = declaration.ident;
-            let parent = name.rsplit_once('/').map_or("", |(head, _)| head);
-            let explicit = declaration
-                .attrs
-                .iter()
-                .find(|attr| attr.path().is_ident("path"));
-            let candidates = if let Some(attribute) = explicit {
-                let syn::Meta::NameValue(value) = &attribute.meta else {
-                    panic!("invalid module path in {name}")
-                };
-                let syn::Expr::Lit(expression) = &value.value else {
-                    panic!("nonliteral module path in {name}")
-                };
-                let syn::Lit::Str(path) = &expression.lit else {
-                    panic!("nonstring module path in {name}")
-                };
-                // Explicit #[path] is relative to the source's directory.
-                vec![
-                    std::path::Path::new(parent)
-                        .join(path.value())
-                        .to_str()
-                        .expect("UTF-8 source label")
-                        .to_owned(),
-                ]
-            } else {
-                // Default children of foo.rs live under foo/, whereas lib.rs
-                // and mod.rs keep their containing module directory.
-                let directory = match name.rsplit('/').next().expect("source label") {
-                    "lib.rs" | "mod.rs" => parent.to_owned(),
-                    _ => name
-                        .strip_suffix(".rs")
-                        .expect("Rust source label")
-                        .to_owned(),
-                };
-                let prefix = if directory.is_empty() {
-                    String::new()
-                } else {
-                    format!("{directory}/")
-                };
-                vec![
-                    format!("{prefix}{module}.rs"),
-                    format!("{prefix}{module}/mod.rs"),
-                ]
-            };
-            assert!(
-                candidates
-                    .iter()
-                    .any(|candidate| scanned.contains(&candidate.as_str())),
-                "{name} declares module `{module}`, which the isolation scan does not \
-                 cover; add it to CRATE_SOURCES"
-            );
-        }
-    }
+    let declarations = scan_module_sources(&CRATE_SOURCES).unwrap();
     assert_eq!(
-        declarations, 26,
+        declarations, 27,
         "all top-level, Living and nested authority modules are covered"
     );
     // `lib.rs` legitimately spells the word once, in `#![forbid(unsafe_code)]`.

@@ -883,7 +883,8 @@ pub fn removal_review_lines(operations: &[LivingCreatorOperationV2]) -> Vec<Stri
     for operation in operations {
         match operation {
             LivingCreatorOperationV2::RemoveEntity { .. } => lines.push("Creator removal override: releases reservations and removes reviewed records; no economic refund.".to_owned()),
-            LivingCreatorOperationV2::ScrapFacility { .. } | LivingCreatorOperationV2::CancelConstructionJob { .. } | LivingCreatorOperationV2::CancelHullJob { .. } => lines.push("Explicit scrap/cancellation: half of recorded paid alloy is refunded; review the exact projected inventory change.".to_owned()),
+            LivingCreatorOperationV2::ScrapFacility { .. } => lines.push("Creator scrap override: removes the facility and reviewed dependents; no economic refund.".to_owned()),
+            LivingCreatorOperationV2::CancelConstructionJob { .. } | LivingCreatorOperationV2::CancelHullJob { .. } => lines.push("Explicit job cancellation: half of recorded paid alloy is refunded; review the exact projected inventory change.".to_owned()),
             LivingCreatorOperationV2::SetWorldOwner { .. } => lines.push("Ownership transfer requires foreign paid jobs to be explicitly cancelled or removed earlier in this same atomic batch.".to_owned()),
             _=>{},
         }

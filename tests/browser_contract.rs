@@ -72,7 +72,7 @@ fn web_build_is_pinned_and_generated_outputs_are_ignored() {
     assert!(wrapper.contains("build-web-webgpu.sh"));
     assert!(wrapper.contains("build-web-webgl.sh"));
     for build in [&webgpu, &webgl] {
-        assert!(build.contains("nightly-2026-09-01"));
+        assert!(build.contains("nightly-2026-10-08"));
         assert!(build.contains("WASM_BINDGEN_VERSION=\"0.2.127\""));
         assert!(build.contains("rustup target add"));
         assert!(build.contains("target/tools/wasm-bindgen-cli-"));
