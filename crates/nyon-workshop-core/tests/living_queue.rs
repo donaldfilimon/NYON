@@ -1331,9 +1331,9 @@ fn cancellation_public_stale_success_preserves_accepted_tail_and_restarts() {
 }
 
 #[test]
-fn geometry_public_local_prefix_bridge_and_genuine_stale_tail() {
+fn geometry_public_local_prefix_reviewed_suffix_and_genuine_stale_tail() {
     use nyon_workshop_core::living::*;
-    for bridge in [false, true] {
+    for reviewed_suffix in [false, true] {
         for stale in [false, true] {
             for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
                 let mut a = authority();
@@ -1368,7 +1368,7 @@ fn geometry_public_local_prefix_bridge_and_genuine_stale_tail() {
                         distance_units: 20,
                     },
                 ];
-                if bridge {
+                if reviewed_suffix {
                     ops.push(system(4, "Removed suffix target"));
                     ops.push(LivingCreatorOperationV2::RemoveEntity {
                         target: local(4),
@@ -1388,14 +1388,7 @@ fn geometry_public_local_prefix_bridge_and_genuine_stale_tail() {
                     let progress = job.poll(b).unwrap();
                     assert!(job.last_poll_visits() <= b);
                     if progress != LivingStepProgressV2::Pending {
-                        assert_eq!(
-                            progress,
-                            if bridge {
-                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
-                            } else {
-                                LivingStepProgressV2::NeedsSynchronousCompletion
-                            }
-                        );
+                        assert_eq!(progress, LivingStepProgressV2::NeedsSynchronousCompletion);
                         ready = true;
                         break;
                     }
@@ -1460,9 +1453,9 @@ fn geometry_public_local_prefix_bridge_and_genuine_stale_tail() {
 }
 
 #[test]
-fn fleet_hull_public_local_prefix_bridge_and_genuine_stale_tail() {
+fn fleet_hull_public_local_prefix_reviewed_suffix_and_genuine_stale_tail() {
     use nyon_workshop_core::living::*;
-    for bridge in [false, true] {
+    for reviewed_suffix in [false, true] {
         for stale in [false, true] {
             for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
                 let mut a = builtin_first_expansion_v2().unwrap();
@@ -1494,7 +1487,7 @@ fn fleet_hull_public_local_prefix_bridge_and_genuine_stale_tail() {
                         world: existing(world),
                     },
                 ];
-                if bridge {
+                if reviewed_suffix {
                     ops.push(system(2, "Removed metadata suffix target"));
                     ops.push(LivingCreatorOperationV2::RemoveEntity {
                         target: local(2),
@@ -1514,14 +1507,7 @@ fn fleet_hull_public_local_prefix_bridge_and_genuine_stale_tail() {
                     let progress = job.poll(b).unwrap();
                     assert!(job.last_poll_visits() <= b);
                     if progress != LivingStepProgressV2::Pending {
-                        assert_eq!(
-                            progress,
-                            if bridge {
-                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
-                            } else {
-                                LivingStepProgressV2::NeedsSynchronousCompletion
-                            }
-                        );
+                        assert_eq!(progress, LivingStepProgressV2::NeedsSynchronousCompletion);
                         ready = true;
                         break;
                     }
@@ -1586,9 +1572,9 @@ fn fleet_hull_public_local_prefix_bridge_and_genuine_stale_tail() {
 }
 
 #[test]
-fn structural_public_local_successive_split_merge_bridge_and_genuine_stale_tail() {
+fn structural_public_local_successive_split_merge_reviewed_suffix_and_genuine_stale_tail() {
     use nyon_workshop_core::living::*;
-    for bridge in [false, true] {
+    for reviewed_suffix in [false, true] {
         for stale in [false, true] {
             for schedule in [&[1][..], &[64], &[1024], &[1, 7, 64, 2, 1024]] {
                 let mut a = builtin_first_expansion_v2().unwrap();
@@ -1641,7 +1627,7 @@ fn structural_public_local_successive_split_merge_bridge_and_genuine_stale_tail(
                         source: local(0),
                     },
                 ];
-                if bridge {
+                if reviewed_suffix {
                     ops.push(system(6, "Removed structural suffix target"));
                     ops.push(LivingCreatorOperationV2::RemoveEntity {
                         target: local(6),
@@ -1661,14 +1647,7 @@ fn structural_public_local_successive_split_merge_bridge_and_genuine_stale_tail(
                     let progress = job.poll(b).unwrap();
                     assert!(job.last_poll_visits() <= b);
                     if progress != LivingStepProgressV2::Pending {
-                        assert_eq!(
-                            progress,
-                            if bridge {
-                                LivingStepProgressV2::NeedsSynchronousCreatorOperation
-                            } else {
-                                LivingStepProgressV2::NeedsSynchronousCompletion
-                            }
-                        );
+                        assert_eq!(progress, LivingStepProgressV2::NeedsSynchronousCompletion);
                         ready = true;
                         break;
                     }

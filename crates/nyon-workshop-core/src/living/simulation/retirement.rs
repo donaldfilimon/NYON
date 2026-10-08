@@ -268,6 +268,7 @@ impl Frame {
                         Action::Child(Owner::Completed(v))
                     }),
                     14 => fault(v.fault.take()),
+                    15 if v.applied_revisions.is_some() => node(v.applied_revisions.take()),
                     _ => Action::Done,
                 }
             }
@@ -952,6 +953,7 @@ macro_rules! fields {($ty:ty; $($field:ident),+)=>{impl<'a> RetirementFields<'a>
  fn retirement_child(&mut self,index:usize,policy:LivingStateRetirementPolicyV2)->Option<Box<dyn RetirementPoll+'a>> {
  let mut n=0;$(if index==n{return Some(retirement_node(std::mem::take(&mut self.$field),policy))}n+=1;)+let _=n;None
  }}}}
+fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement);
 fields!(LivingTickReceiptV2;applied_revisions,events);
 fields!(super::super::decision::LivingDecisionReceiptV2;kind,intents);
 fields!(super::super::event_facts::LivingEventFactsReceiptV2;events,omitted);
@@ -1453,6 +1455,7 @@ impl<'a> RetirementFields<'a> for QueuedCreatorEffects {
 impl<'a> RetirementFields<'a> for QueuedRemovalWork {
     #[cfg(test)]
     fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.witnesses.creator_allocations(out);
         self.removed.creator_allocations(out);
         self.dependents.creator_allocations(out);
         self.declared.creator_allocations(out);
@@ -1471,6 +1474,8 @@ impl<'a> RetirementFields<'a> for QueuedRemovalWork {
             stage: _,
             target: _,
             listed: _,
+            reviewed,
+            witnesses,
             registry: _,
             row: _,
             hull: _,
@@ -1500,6 +1505,7 @@ impl<'a> RetirementFields<'a> for QueuedRemovalWork {
             5 => Some(retirement_node(std::mem::take(plan), p)),
             6 => Some(retirement_node(filter.take(), p)),
             7 => Some(retirement_node(std::mem::take(retirement), p)),
+            8 if *reviewed => Some(retirement_node(std::mem::take(witnesses), p)),
             _ => None,
         }
     }
@@ -1814,7 +1820,8 @@ audited_fields!(LivingPreparedStepFailureV2;owners);
 audited_fields!(LivingPreparedFailureOwnersV2;capture,fault);
 audited_fields!(LivingStepCommitRejectionV2;reason,_preparation);
 audited_fields!(LivingRetiredBoundaryV2;_capture,_token,_receipt,_decision,_event_facts,_creator_recoveries,_corridor_restrictions);
-audited_fields!(LivingStepJobV2;capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
+audited_fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement,count,index,ready);
+audited_fields!(LivingStepJobV2;applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
 audited_fields!(LivingQueuedCreatorJobV2;state,queue,catalog,events,stage,revision_index,operation_index,index,locals,dormant,insertion,diplomacy_work,cancellation_work,effect_work,colony_operation,colony_create,colony_removal,colony_changed,colony_owners,recovery_storage,pending_recovery,hull_parent,hull_output,hull_index,hull_id,append,retirement,last_poll_visits,delivered);
 audited_fields!(LivingGalaxyAuthorityV2;catalog,genesis_seed,generator,branch,state,committed_revision,revisions,revision_modes,queue,accepted_sequence_high_water,fault,origin,root_branch,branch_sequence_high_water,replay_branch_sequence,archives,replay_base,saved_present,redo,last_receipt,last_decision,last_event_facts,last_creator_recoveries,last_corridor_restrictions);
 #[cfg(test)]
@@ -3868,6 +3875,7 @@ mod creator_parent_cut_tests {
             diplomacy: None,
             dispatch: None,
             completed_output: None,
+            applied_revisions: None,
             preparation_capacity: false,
             production_fault: None,
             production_handoff: false,
@@ -8041,6 +8049,166 @@ mod creator_parent_cut_tests {
             "collector".into(),
         ));
         names
+    }
+    #[test]
+    fn reviewed_removal_every_stage_refusal_retains_original_owners() {
+        use crate::living::simulation::removal_creator_tests as removal;
+        for kind in 0..3 {
+            let authority = removal::admitted_reviewed_source(kind);
+            let make_creator = |a: &LivingGalaxyAuthorityV2| {
+                Box::new(LivingQueuedCreatorJobV2::begin(
+                    a.state.as_ref().clone(),
+                    Arc::clone(&a.queue),
+                    Arc::clone(&a.catalog),
+                ))
+            };
+            let mut scan = make_creator(&authority);
+            let mut cuts = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            for cut in 0..100000 {
+                if let Some(QueuedCreatorInsertion::Removal(work)) = &scan.insertion {
+                    // Every actual witness-validation visit, plus every surrounding
+                    // stage/registry. Existing legacy tests cover all filter cuts.
+                    let first =
+                        seen.insert((work.stage as usize, work.registry, work.witnesses.len()));
+                    if first
+                        || matches!(
+                            work.stage,
+                            QueuedRemovalStage::ReviewedStable
+                                | QueuedRemovalStage::ReviewedDerived
+                                | QueuedRemovalStage::ReviewedCompare
+                        )
+                    {
+                        cuts.push(cut);
+                    }
+                }
+                if scan.poll(1).unwrap() != LivingStepProgressV2::Pending {
+                    break;
+                }
+                assert!(cut < 99999);
+            }
+            assert!(
+                seen.iter()
+                    .any(|(stage, _, _)| *stage == QueuedRemovalStage::ReviewedStable as usize)
+            );
+            assert!(
+                seen.iter()
+                    .any(|(stage, _, _)| *stage == QueuedRemovalStage::ReviewedDerived as usize)
+            );
+            assert!(
+                seen.iter()
+                    .any(|(stage, _, _)| *stage == QueuedRemovalStage::ReviewedCompare as usize)
+            );
+            for cut in cuts {
+                for stale in [false, true] {
+                    let mut counts = Vec::new();
+                    for schedule in SCHEDULES {
+                        let mut anchor = removal::admitted_reviewed_source(kind);
+                        let mut step = captured_step(
+                            make_creator(&anchor),
+                            anchor.capture_boundary().unwrap(),
+                        );
+                        let creator = step.creator.as_mut().unwrap();
+                        let pointer = &**creator as *const _;
+                        for _ in 0..cut {
+                            assert_eq!(creator.poll(1).unwrap(), LivingStepProgressV2::Pending);
+                        }
+                        let current = allocations(creator);
+                        let child_pointer = match &creator.insertion {
+                            Some(QueuedCreatorInsertion::Removal(work)) => work as *const _,
+                            _ => panic!("original removal"),
+                        };
+                        if stale {
+                            let c = anchor.published_cursor();
+                            anchor
+                                .submit(LivingCommandEnvelopeV2 {
+                                    expected_committed_revision: c.committed_revision,
+                                    expected_tick: c.tick,
+                                    expected_pending_sequence: c.pending_sequence,
+                                    mode: LivingCommandModeV2::Running,
+                                    command: LivingCommandV2::CreatorBatch {
+                                        operations: vec![LivingCreatorOperationV2::CreateSystem {
+                                            local: 0,
+                                            name: crate::living::LivingNameV2::new(
+                                                "Stale reviewed tail",
+                                            )
+                                            .unwrap(),
+                                        }],
+                                    },
+                                })
+                                .unwrap();
+                        } else {
+                            step.cancel();
+                        }
+                        let accepted = Arc::clone(&anchor.queue);
+                        let state = Arc::clone(&anchor.state);
+                        let cursor = anchor.published_cursor();
+                        assert!(step.take_synchronous_preparation(&anchor).is_err());
+                        assert!(std::ptr::eq(&**step.creator.as_ref().unwrap(), pointer));
+                        let Some(QueuedCreatorInsertion::Removal(work)) =
+                            &step.creator.as_ref().unwrap().insertion
+                        else {
+                            unreachable!()
+                        };
+                        assert!(std::ptr::eq(work, child_pointer));
+                        assert_eq!(allocations(step.creator.as_ref().unwrap()), current);
+                        assert!(
+                            Arc::ptr_eq(&anchor.queue, &accepted)
+                                && Arc::ptr_eq(&anchor.state, &state)
+                        );
+                        assert_eq!(anchor.published_cursor(), cursor);
+                        counts.push(drain_observed(
+                            step.into_boxed_retirement(
+                                LivingPublicationRetirementPolicyV2::ReleaseHandle,
+                            ),
+                            schedule,
+                            &current,
+                            (kind, stale, cut),
+                        ));
+                    }
+                    assert!(counts.iter().all(|n| *n == counts[0]));
+                }
+            }
+        }
+    }
+    #[test]
+    fn reviewed_removal_witness_tree_has_independent_counted_retirement() {
+        use crate::living::LivingDerivedRemovalV2 as D;
+        for n in [0, 1, 7, 65] {
+            let mut work = QueuedRemovalWork::begin();
+            work.reviewed = true;
+            for id in 0..n {
+                work.witnesses.insert(D::Order {
+                    fleet: LivingEntityIdV2([id; 16]),
+                });
+            }
+            let mut original = work
+                .retirement_child(8, LivingStateRetirementPolicyV2::ReleaseHandle)
+                .unwrap();
+            assert!(work.witnesses.is_empty());
+            let mut count = 0;
+            let mut done = false;
+            for _ in 0..1000 {
+                match original.retirement_step() {
+                    RetirementStep::Work => count += 1,
+                    RetirementStep::Done => {
+                        done = true;
+                        break;
+                    }
+                    RetirementStep::Deferred(_) => panic!("unshared witnesses"),
+                }
+            }
+            assert!(done);
+            // Each scalar witness: select, release payload, release child Box.
+            // The exhausted BTree root has its own final release visit.
+            assert_eq!(count, 3 * u64::from(n) + 1);
+            let mut legacy = QueuedRemovalWork::begin();
+            assert!(
+                legacy
+                    .retirement_child(8, LivingStateRetirementPolicyV2::ReleaseHandle)
+                    .is_none()
+            );
+        }
     }
     #[test]
     fn removal_creator_every_natural_cut_original_lifetimes_and_owner_arithmetic() {

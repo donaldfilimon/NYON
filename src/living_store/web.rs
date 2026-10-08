@@ -12,7 +12,38 @@ use wasm_bindgen_futures::JsFuture;
 async function livingDb(){return await new Promise((resolve,reject)=>{const r=indexedDB.open('nyon.living.v2',1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('living'))r.result.createObjectStore('living');};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('Living database blocked'));});}
 export async function livingSnapshot(){const db=await livingDb();try{return await new Promise((resolve,reject)=>{const t=db.transaction('living','readonly'),s=t.objectStore('living'),out=[null,null,null];['generation-a','generation-b','head'].forEach((k,i)=>{const r=s.get(k);r.onsuccess=()=>out[i]=r.result??null;});t.oncomplete=()=>resolve(JSON.stringify(out));t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error);});}finally{db.close();}}
 export async function livingPayload(key){const db=await livingDb();try{return await new Promise((resolve,reject)=>{const t=db.transaction('living','readonly'),r=t.objectStore('living').get(key);let out;r.onsuccess=()=>out=r.result;t.oncomplete=()=>resolve(out);t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error);});}finally{db.close();}}
-export async function livingCommit(raw,side,manifest,head,payloads,garbage){const expected=JSON.parse(raw),writes=JSON.parse(payloads),deletes=JSON.parse(garbage),db=await livingDb();try{return await new Promise((resolve,reject)=>{const t=db.transaction('living','readwrite'),s=t.objectStore('living'),out=[null,null,null];let count=0,stale=false;['generation-a','generation-b','head'].forEach((k,i)=>{const r=s.get(k);r.onsuccess=()=>{out[i]=r.result??null;if(++count===3){if(out.some((v,j)=>v!==expected[j])){stale=true;t.abort();return;}for(const [key,bytes]of writes)s.put(new Uint8Array(bytes),key);for(const key of deletes)s.delete(key);s.put(manifest,side);s.put(head,'head');}};});t.oncomplete=()=>resolve(true);t.onerror=()=>reject(t.error);t.onabort=()=>stale?resolve(false):reject(t.error);});}finally{db.close();}}
+export async function livingCommit(raw,side,manifest,head,payloads,garbage) {
+  const expected=JSON.parse(raw),writes=JSON.parse(payloads),deletes=JSON.parse(garbage);
+  const db=await livingDb();
+  try { return await new Promise((resolve,reject)=>{
+    const t=db.transaction('living','readwrite'),s=t.objectStore('living'),out=[null,null,null];
+    let count=0,stale=false,failed=false,failure,settled=false;
+    const finish=(error,value)=>{if(settled)return;settled=true;if(error)reject(failure);else resolve(value);};
+    const abortFailure=(error)=>{
+      failed=true;failure=error;stale=false;
+      try{t.abort();}catch{finish(true);}
+    };
+    t.oncomplete=()=>finish(failed,true);
+    t.onerror=()=>{if(!failed){failed=true;failure=t.error;}finish(true);};
+    t.onabort=()=>{if(stale)finish(false,false);else{if(!failed){failed=true;failure=t.error;}finish(true);}};
+    ['generation-a','generation-b','head'].forEach((key,i)=>{const r=s.get(key);r.onsuccess=()=>{
+      if(failed||settled)return;
+      try{
+        out[i]=r.result??null;
+        if(++count===3){
+          if(out.some((v,j)=>v!==expected[j])){
+            stale=true;
+            try{t.abort();}catch(error){failed=true;failure=error;stale=false;finish(true);}
+            return;
+          }
+          for(const [key,bytes] of writes)s.put(new Uint8Array(bytes),key);
+          for(const key of deletes)s.delete(key);
+          s.put(manifest,side);s.put(head,'head');
+        }
+      }catch(error){abortFailure(error);}
+    };});
+  }); } finally {db.close();}
+}
 export async function livingExists(key){const db=await livingDb();try{return await new Promise((resolve,reject)=>{const t=db.transaction('living','readonly'),r=t.objectStore('living').getKey(key);let exists=false;r.onsuccess=()=>exists=r.result!==undefined;t.oncomplete=()=>resolve(exists);t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error);});}finally{db.close();}}
 export async function livingYield(){await new Promise(resolve=>setTimeout(resolve,0));}
 "#)]

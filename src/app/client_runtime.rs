@@ -1366,8 +1366,15 @@ where
                 self.living_pack_refresh_in_flight = false;
                 self.living_saving_notebook_generation = None;
                 self.release_living_transfer_hold();
-                self.living_storage_status = format!("Living operation failed: {error}");
-                self.enter_recovery(ClientDiagnosticCode::Store, error);
+                if self.screen == ClientScreen::GalaxySandbox && self.sandbox.is_some() {
+                    self.living_storage_status = format!(
+                        "Living operation failed: {error}. Resident preserved; resolve the storage error and retry. Refresh the Library before checking any committed changes"
+                    );
+                    self.push_diagnostic(ClientDiagnosticCode::Store, error);
+                } else {
+                    self.living_storage_status = format!("Living operation failed: {error}");
+                    self.enter_recovery(ClientDiagnosticCode::Store, error);
+                }
             }
         }
     }
@@ -4658,6 +4665,134 @@ mod living_delete_guard_tests {
                 .unwrap()
                 .delete_review_descriptor()
                 .is_some()
+        );
+    }
+}
+
+#[cfg(test)]
+mod living_failure_feedback_tests {
+    use super::*;
+    use crate::{
+        library_selection::native::NativeLibraryCoordinator,
+        living_store::{native::NativeLivingStoreV2, *},
+        preferences::store::MemoryPreferencesStore,
+        scenario::{ScenarioDraft, store::MemoryScenarioStore},
+        workshop::store::MemoryWorkshopStore,
+    };
+    use nyon_workshop_core::living::{
+        LivingCommandEnvelopeV2, LivingCommandModeV2, LivingCommandTargetV2, LivingCommandV2,
+        LivingCreatorOperationV2, LivingNameV2,
+    };
+
+    struct FailedListStore(NativeLivingStoreV2);
+    impl LivingStoreV2 for FailedListStore {
+        fn begin(
+            &mut self,
+            owner: u64,
+            request: LivingStoreRequestV2,
+        ) -> Result<LivingStoreJobIdV2, LivingStoreErrorV2> {
+            self.0.begin(owner, request)
+        }
+        fn poll(&mut self, owner: u64, job: LivingStoreJobIdV2, _: usize) -> LivingStorePollV2 {
+            self.0.cancel(owner, job).unwrap();
+            LivingStorePollV2::Failed(LivingStoreErrorV2::Limit)
+        }
+        fn cancel(
+            &mut self,
+            owner: u64,
+            job: LivingStoreJobIdV2,
+        ) -> Result<LivingStoreCancelV2, LivingStoreErrorV2> {
+            self.0.cancel(owner, job)
+        }
+        fn release(&mut self, owner: u64, job: LivingStoreJobIdV2) -> bool {
+            self.0.release(owner, job)
+        }
+    }
+
+    #[test]
+    fn failed_poll_preserves_exact_resident_pending_tail_and_acknowledgement() {
+        let root = tempfile::tempdir().unwrap();
+        let classic = AppCore::new_with_preferences(
+            ScenarioDraft::factory_default().validated().unwrap(),
+            MemoryScenarioStore::default(),
+            MemoryPreferencesStore::default(),
+        );
+        let mut runtime = ClientRuntime::new(classic, MemoryWorkshopStore::default());
+        runtime
+            .select_menu_route(MainMenuRoute::GalaxySandbox)
+            .unwrap();
+        runtime.install_living_storage(
+            Box::new(FailedListStore(NativeLivingStoreV2::new(root.path()))),
+            Box::new(NativeLibraryCoordinator::new(root.path())),
+        );
+        let session = runtime.sandbox.as_mut().unwrap();
+        let acknowledged = session.bookmark().unwrap();
+        session.step_once().unwrap();
+        let mut authority = session.authority().clone();
+        let cursor = authority.published_cursor();
+        authority
+            .submit(LivingCommandEnvelopeV2 {
+                expected_committed_revision: cursor.committed_revision,
+                expected_tick: cursor.tick,
+                expected_pending_sequence: cursor.pending_sequence,
+                mode: LivingCommandModeV2::Running,
+                command: LivingCommandV2::CreatorBatch {
+                    operations: vec![LivingCreatorOperationV2::EditSystem {
+                        target: LivingCommandTargetV2::Existing {
+                            id: authority.state().systems.as_slice()[0].id,
+                        },
+                        name: LivingNameV2::new("Accepted before failure").unwrap(),
+                    }],
+                },
+            })
+            .unwrap();
+        session.install_authority(authority);
+        // Export refuses accepted pending commands. Retain that refusal and
+        // compare the exact archive after the same queued tick is committed.
+        let before = session.export_bytes();
+        let state = session.state().clone();
+        let mut expected = session.authority().clone();
+        expected.step().unwrap();
+        let expected_archive =
+            nyon_workshop_core::living::encode_living_archive_v2(&expected).unwrap();
+        let cursor = session.authority().published_cursor();
+        let bookmark = session.bookmark().unwrap();
+        let dirty = session.dirty();
+        assert!(dirty);
+        runtime.living_transfer_hold = Some(session.begin_hold().unwrap());
+        runtime.living_saving_notebook_generation = Some(session.notebook_generation());
+        runtime.living_client.as_mut().unwrap().saved = Some(acknowledged);
+        runtime.list_living_saves().unwrap();
+        runtime.poll_living_client();
+        let session = runtime.sandbox.as_ref().unwrap();
+        assert_eq!(session.export_bytes(), before);
+        assert_eq!(session.state(), &state);
+        assert_eq!(session.authority().published_cursor(), cursor);
+        assert_eq!(session.bookmark().unwrap(), bookmark);
+        assert_eq!(session.dirty(), dirty);
+        assert_eq!(
+            runtime.living_client.as_ref().unwrap().saved,
+            Some(acknowledged)
+        );
+        assert!(runtime.living_transfer_hold.is_none());
+        assert!(runtime.living_saving_notebook_generation.is_none());
+        assert_eq!(runtime.screen(), ClientScreen::GalaxySandbox);
+        assert_eq!(runtime.diagnostics().len(), 1);
+        assert!(runtime.living_storage_status().contains("capacity limit"));
+        runtime.apply_sandbox_action(crate::sandbox_session::SandboxUiAction::Step);
+        for _ in 0..100 {
+            runtime.update(Duration::ZERO);
+        }
+        assert_eq!(runtime.sandbox_tick(), Some(2));
+        assert_eq!(
+            runtime.sandbox.as_ref().unwrap().export_bytes().unwrap(),
+            expected_archive
+        );
+        assert_eq!(
+            runtime.sandbox.as_ref().unwrap().state().systems.as_slice()[0]
+                .name
+                .as_str(),
+            "Accepted before failure"
         );
     }
 }

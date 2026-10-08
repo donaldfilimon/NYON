@@ -397,6 +397,84 @@ pub enum LivingStepPreparationV2 {
 pub struct LivingPreparedBoundaryV2 {
     owners: Option<LivingPreparedBoundaryOwnersV2>,
 }
+impl LivingPreparedBoundaryV2 {
+    /// Fully prepared private state; publication still requires the capture fence.
+    pub fn state(&self) -> &LivingGalaxyStateV2 {
+        &self.owners.as_ref().expect("sealed token").state
+    }
+    /// Ordinary receipt belonging to this unpublished state.
+    pub fn receipt(&self) -> &LivingTickReceiptV2 {
+        &self.owners.as_ref().expect("sealed token").receipt
+    }
+    /// Decision receipt belonging to this unpublished state.
+    pub fn decision_receipt(&self) -> &super::decision::LivingDecisionReceiptV2 {
+        &self.owners.as_ref().expect("sealed token").decision
+    }
+    /// Event facts receipt belonging to this unpublished state.
+    pub fn event_facts_receipt(&self) -> &super::event_facts::LivingEventFactsReceiptV2 {
+        &self.owners.as_ref().expect("sealed token").event_facts
+    }
+}
+
+// Sorted receipt order is separate from the accepted-order journal. The ordinal
+// tie breaker retains duplicate IDs so the existing receipt validator still
+// rejects them at its original position in fault precedence.
+enum LivingAppliedRevisionsV2 {
+    Accepted(Vec<LivingRevisionIdV2>),
+    Sorted(Vec<LivingRevisionIdV2>),
+}
+
+struct LivingAppliedRevisionPreparationV2 {
+    storage: Option<super::step_job::LivingVecStorageJobV2<'static, LivingRevisionIdV2>>,
+    ordered: std::collections::BTreeSet<(LivingRevisionIdV2, usize)>,
+    output: Vec<LivingRevisionIdV2>,
+    retirement: super::step_job::PhaseRetirementLane<'static>,
+    count: usize,
+    index: usize,
+    ready: bool,
+}
+impl LivingAppliedRevisionPreparationV2 {
+    fn begin(count: usize) -> Self {
+        Self {
+            storage: Some(super::step_job::LivingVecStorageJobV2::begin_empty(count)),
+            ordered: Default::default(),
+            output: Vec::new(),
+            retirement: Default::default(),
+            count,
+            index: 0,
+            ready: false,
+        }
+    }
+    // Exactly one storage, source, output or control visit. The parent supplies
+    // a copied ID from its existing immutable capture, never a cloned queue.
+    fn visit(
+        &mut self,
+        next: Option<LivingRevisionIdV2>,
+    ) -> Result<(), super::step_job::LivingStorageJobErrorV2> {
+        if self.retirement.visit() {
+            return Ok(());
+        }
+        if let Some(storage) = &mut self.storage {
+            if !storage.ready() {
+                storage.poll(1)?;
+            } else {
+                self.output = storage.take_ready_result()?;
+                self.retirement.start(self.storage.take());
+            }
+        } else if self.index < self.count {
+            self.ordered
+                .insert((next.expect("captured revision"), self.index));
+            self.index += 1;
+        } else if let Some((id, _)) = self.ordered.pop_first() {
+            // Storage was prepared for exactly count rows, including duplicates.
+            super::step_job::LivingVecStorageJobV2::commit_one(&mut self.output, &mut Some(id))?;
+        } else {
+            self.ready = true;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct LivingPreparedBoundaryOwnersV2 {
     capture: OwnerSlot<LivingBoundaryCaptureV2>,
@@ -505,6 +583,7 @@ pub struct LivingStepJobV2 {
             LivingCompletedStepPhasesV2,
         )>,
     >,
+    applied_revisions: Option<LivingAppliedRevisionPreparationV2>,
     preparation_capacity: bool,
     production_fault: Option<super::step_job::ProductionFailure>,
     production_handoff: bool,
@@ -638,7 +717,38 @@ impl LivingStepJobV2 {
                 continue;
             }
             if self.needs_synchronous_completion() {
-                return Ok(LivingStepProgressV2::NeedsSynchronousCompletion);
+                if self
+                    .applied_revisions
+                    .as_ref()
+                    .is_some_and(|work| work.ready)
+                {
+                    return Ok(LivingStepProgressV2::NeedsSynchronousCompletion);
+                }
+                // Admission and every child visit share the remaining parent budget.
+                self.last_poll_visits += 1;
+                self.total_visits += 1;
+                if let Some(work) = &mut self.applied_revisions {
+                    let next = self
+                        .capture
+                        .queue
+                        .get(work.index)
+                        .map(|queued| queued.revision.id);
+                    if let Err(error) = work.visit(next) {
+                        if error == super::step_job::LivingStorageJobErrorV2::CapacityOverflow {
+                            self.preparation_capacity = true;
+                            return Err(LivingStepJobErrorV2::PreparationCapacity);
+                        }
+                        self.fault = Some(LivingDeterministicFaultV2::Invariant);
+                        return Err(LivingStepJobErrorV2::Fault(
+                            LivingDeterministicFaultV2::Invariant,
+                        ));
+                    }
+                } else {
+                    self.applied_revisions = Some(LivingAppliedRevisionPreparationV2::begin(
+                        self.capture.queue.len(),
+                    ));
+                }
+                continue;
             }
             if let Some(output) = &mut self.completed_output {
                 let tick = LivingTickV2(self.capture.state.tick.0 + 1);
@@ -876,11 +986,18 @@ impl LivingStepJobV2 {
                 self.retirement.start(self.dispatch.take());
             }
         }
-        Ok(if self.needs_synchronous_completion() {
-            LivingStepProgressV2::NeedsSynchronousCompletion
-        } else {
-            LivingStepProgressV2::Pending
-        })
+        Ok(
+            if self.needs_synchronous_completion()
+                && self
+                    .applied_revisions
+                    .as_ref()
+                    .is_some_and(|work| work.ready)
+            {
+                LivingStepProgressV2::NeedsSynchronousCompletion
+            } else {
+                LivingStepProgressV2::Pending
+            },
+        )
     }
     fn capture_for_preparation(&mut self) -> OwnerSlot<LivingBoundaryCaptureV2> {
         // Keep the original fixed source anchors until executor retirement.
@@ -953,7 +1070,13 @@ impl LivingStepJobV2 {
             )));
         }
         let source_digest = self.source_digest.ok_or(LivingStepJobErrorV2::NotReady)?;
-        if self.completed_output.is_some() && !self.needs_synchronous_completion() {
+        if self.completed_output.is_some()
+            && (!self.needs_synchronous_completion()
+                || !self
+                    .applied_revisions
+                    .as_ref()
+                    .is_some_and(|work| work.ready))
+        {
             return Err(LivingStepJobErrorV2::NotReady);
         }
         let (candidate, events, completed) = if let Some(output) = &mut self.completed_output {
@@ -1061,12 +1184,18 @@ impl LivingStepJobV2 {
                 LivingCompletedStepPhasesV2::Scheduled { arrivals },
             )
         };
-        let applied = self
-            .capture
-            .queue
-            .iter()
-            .map(|queued| queued.revision.id)
-            .collect();
+        let applied = if let Some(work) = &mut self.applied_revisions {
+            LivingAppliedRevisionsV2::Sorted(std::mem::take(&mut work.output))
+        } else {
+            // The explicit unsupported-creator bridge still completes synchronously.
+            LivingAppliedRevisionsV2::Accepted(
+                self.capture
+                    .queue
+                    .iter()
+                    .map(|queued| queued.revision.id)
+                    .collect(),
+            )
+        };
         let (candidate, receipt, decision, event_facts, creator_recoveries, corridor_restrictions) =
             match authority.run_boundary_candidate_with_source_digest(
                 candidate,
@@ -1125,8 +1254,7 @@ impl LivingStepJobV2 {
     }
 }
 
-// A phase-one cursor for the core operations. Delegated operations explicitly
-// stop for synchronous completion until their own cascade cursors exist.
+// A phase-one cursor for creator operations. Boundary sealing remains synchronous.
 #[derive(Clone, Copy)]
 enum QueuedCreatorStage {
     Revision,
@@ -1195,6 +1323,13 @@ enum QueuedCreatorStage {
     EmitCreator,
     AppendCreator,
     FinishRevision,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Creator dispatch is fully bounded; retain the private compatibility bridge and its owner fixtures during staged Step sealing"
+        )
+    )]
     NeedsSynchronous,
     Ready,
     AgreementPlan,
@@ -1666,6 +1801,9 @@ enum QueuedRemovalStage {
     DependentsRead,
     DependentsEmit,
     Check,
+    ReviewedStable,
+    ReviewedDerived,
+    ReviewedCompare,
     DeclaredRead,
     DeclaredInsert,
     Compare,
@@ -1679,6 +1817,8 @@ struct QueuedRemovalWork {
     stage: QueuedRemovalStage,
     target: Option<LivingEntityIdV2>,
     listed: bool,
+    reviewed: bool,
+    witnesses: std::collections::BTreeSet<super::command::LivingDerivedRemovalV2>,
     registry: usize,
     row: usize,
     hull: usize,
@@ -1705,6 +1845,8 @@ impl QueuedRemovalWork {
             stage: QueuedRemovalStage::Resolve,
             target: None,
             listed: false,
+            reviewed: false,
+            witnesses: std::collections::BTreeSet::new(),
             registry: 0,
             row: 0,
             hull: 0,
@@ -1975,7 +2117,11 @@ impl QueuedRemovalWork {
                         self.listed = true;
                         self.input_len = dependents.len();
                     }
-                    Cascade::RemoveReviewed { .. } => return Err(F::Invariant),
+                    Cascade::RemoveReviewed { dependents, .. } => {
+                        self.listed = true;
+                        self.reviewed = true;
+                        self.input_len = dependents.len();
+                    }
                 }
                 self.stage = S::Discover;
             }
@@ -2109,10 +2255,131 @@ impl QueuedRemovalWork {
             S::Check => {
                 if self.listed {
                     self.index = 0;
-                    self.stage = S::DeclaredRead;
+                    self.stage = if self.reviewed {
+                        S::ReviewedStable
+                    } else {
+                        S::DeclaredRead
+                    };
                 } else if !self.dependents.is_empty() || self.legacy != 0 {
                     return Err(F::Referenced);
                 } else {
+                    self.registry = 0;
+                    self.row = 0;
+                    self.stage = S::FilterPlan;
+                }
+            }
+            S::ReviewedStable => {
+                let Cascade::RemoveReviewed { dependents, .. } = cascade else {
+                    return Err(F::Invariant);
+                };
+                if dependents.len() != self.dependents.len() {
+                    return Err(F::Mismatch);
+                }
+                if let Some(reference) = dependents.get(self.index) {
+                    if Self::resolve(reference, locals)? != self.dependents[self.index] {
+                        return Err(F::Mismatch);
+                    }
+                    self.index += 1;
+                } else {
+                    self.registry = 13;
+                    self.row = 0;
+                    self.stage = S::ReviewedDerived;
+                }
+            }
+            S::ReviewedDerived => {
+                use super::command::LivingDerivedRemovalV2 as D;
+                // Build one exact keyed witness per visit. The ordered tree replaces
+                // the reference preview's bulk sort without copying registry owners.
+                let witness = match self.registry {
+                    13 => state.colonies.as_slice().get(self.row).map(|r| D::Colony {
+                        world: r.world,
+                        owner: r.owner,
+                    }),
+                    14 => state
+                        .observations
+                        .as_slice()
+                        .get(self.row)
+                        .map(|r| D::Observation {
+                            civilization: r.civilization,
+                            world: r.world,
+                        }),
+                    15 => state
+                        .relations
+                        .as_slice()
+                        .get(self.row)
+                        .map(|r| D::Relation {
+                            from: r.from,
+                            to: r.to,
+                        }),
+                    16 => state
+                        .agreements
+                        .as_slice()
+                        .get(self.row)
+                        .map(|r| D::Agreement {
+                            a: r.participant_a,
+                            b: r.participant_b,
+                            agreement_kind: r.kind,
+                        }),
+                    17 => state.wars.as_slice().get(self.row).map(|r| D::War {
+                        a: r.participant_a,
+                        b: r.participant_b,
+                    }),
+                    18 => state.settlement_claims.as_slice().get(self.row).map(|r| {
+                        D::SettlementClaim {
+                            world: r.world,
+                            civilization: r.civilization,
+                        }
+                    }),
+                    19 => state
+                        .occupations
+                        .as_slice()
+                        .get(self.row)
+                        .map(|r| D::Occupation {
+                            world: r.world,
+                            claimant: r.claimant,
+                        }),
+                    20 => state
+                        .fleets
+                        .as_slice()
+                        .get(self.row)
+                        .map(|r| D::Order { fleet: r.id }),
+                    21 => {
+                        self.index = 0;
+                        self.stage = S::ReviewedCompare;
+                        return Ok(true);
+                    }
+                    _ => return Err(F::Invariant),
+                };
+                if let Some(witness) = witness {
+                    let hit = if self.registry == 20 {
+                        let fleet = &state.fleets.as_slice()[self.row];
+                        self.removed.contains(&fleet.id) && fleet.order.is_some()
+                    } else {
+                        self.derived_match(state, self.registry, self.row)
+                            .ok_or(F::Invariant)?
+                    };
+                    if hit {
+                        self.witnesses.insert(witness);
+                    }
+                    self.row += 1;
+                } else {
+                    self.registry += 1;
+                    self.row = 0;
+                }
+            }
+            S::ReviewedCompare => {
+                let Cascade::RemoveReviewed { derived, .. } = cascade else {
+                    return Err(F::Invariant);
+                };
+                if let Some(witness) = self.witnesses.pop_first() {
+                    if derived.get(self.index) != Some(&witness) {
+                        return Err(F::Mismatch);
+                    }
+                    self.index += 1;
+                } else {
+                    if self.index != derived.len() {
+                        return Err(F::Mismatch);
+                    }
                     self.registry = 0;
                     self.row = 0;
                     self.stage = S::FilterPlan;
@@ -4126,15 +4393,8 @@ impl LivingQueuedCreatorJobV2 {
                             },
                         )))
                     }
-                    LivingCreatorOperationV2::RemoveEntity { cascade, .. }
-                    | LivingCreatorOperationV2::ScrapFacility { cascade, .. } => {
-                        if matches!(
-                            cascade,
-                            super::command::LivingCascadeDispositionV2::RemoveReviewed { .. }
-                        ) {
-                            self.stage = NeedsSynchronous;
-                            return Ok(true);
-                        }
+                    LivingCreatorOperationV2::RemoveEntity { .. }
+                    | LivingCreatorOperationV2::ScrapFacility { .. } => {
                         Some(QueuedCreatorInsertion::Removal(QueuedRemovalWork::begin()))
                     }
                     LivingCreatorOperationV2::SplitFleet { .. } => {
@@ -6199,6 +6459,7 @@ impl LivingGalaxyAuthorityV2 {
             diplomacy: None,
             dispatch: None,
             completed_output: None,
+            applied_revisions: None,
             preparation_capacity: false,
             production_fault: None,
             production_handoff: false,
@@ -7326,14 +7587,20 @@ impl LivingGalaxyAuthorityV2 {
         events: LivingPendingEventsV2,
         recorded: Option<Vec<LivingRevisionIdV2>>,
     ) -> Result<LivingBoundaryOutputV2, LivingDeterministicFaultV2> {
-        self.run_boundary_candidate_with_source_digest(candidate, events, recorded, None, None)
+        self.run_boundary_candidate_with_source_digest(
+            candidate,
+            events,
+            recorded.map(LivingAppliedRevisionsV2::Accepted),
+            None,
+            None,
+        )
     }
 
     fn run_boundary_candidate_with_source_digest(
         &self,
         mut candidate: LivingGalaxyStateV2,
         mut events: LivingPendingEventsV2,
-        recorded: Option<Vec<LivingRevisionIdV2>>,
+        recorded: Option<LivingAppliedRevisionsV2>,
         source_digest: Option<super::ids::LivingStateDigestV2>,
         completed_phases: Option<LivingCompletedStepPhasesV2>,
     ) -> Result<LivingBoundaryOutputV2, LivingDeterministicFaultV2> {
@@ -7432,9 +7699,18 @@ impl LivingGalaxyAuthorityV2 {
 
         candidate.validate(&self.catalog)?;
         let digest = candidate.digest()?;
-        let mut applied: Vec<LivingRevisionIdV2> = recorded
-            .unwrap_or_else(|| self.queue.iter().map(|queued| queued.revision.id).collect());
-        applied.sort_unstable();
+        let applied = match recorded {
+            Some(LivingAppliedRevisionsV2::Sorted(applied)) => applied,
+            recorded => {
+                let mut applied = match recorded {
+                    Some(LivingAppliedRevisionsV2::Accepted(applied)) => applied,
+                    None => self.queue.iter().map(|queued| queued.revision.id).collect(),
+                    Some(LivingAppliedRevisionsV2::Sorted(_)) => unreachable!(),
+                };
+                applied.sort_unstable();
+                applied
+            }
+        };
         let receipt = seal_living_tick_receipt_v2(tick, applied, &events, digest)?;
         let event_facts =
             super::event_facts::seal_living_event_facts_receipt_v2(&receipt, &events)?;
@@ -8023,6 +8299,239 @@ pub(crate) mod tests {
             genesis,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn applied_revision_preparation_preserves_duplicates_and_sorted_order() {
+        for input in [
+            vec![],
+            vec![9, 2, 9, 1],
+            (0..1024).map(|n| (n % 251) as u8).collect(),
+        ] {
+            let ids: Vec<_> = input.iter().map(|n| LivingRevisionIdV2([*n; 32])).collect();
+            let mut expected = ids.clone();
+            expected.sort_unstable(); // Independent standard-library ordering oracle.
+            let mut total = None;
+            for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 3, 1024][..]] {
+                let mut work = LivingAppliedRevisionPreparationV2::begin(ids.len());
+                let mut visits = 0;
+                let mut poll = 0;
+                while !work.ready {
+                    for _ in 0..schedule[poll % schedule.len()] {
+                        if work.ready {
+                            break;
+                        }
+                        work.visit(ids.get(work.index).copied()).unwrap();
+                        visits += 1;
+                        assert!(work.output.len() <= ids.len());
+                        assert_eq!(work.ordered.len() + work.output.len(), work.index);
+                    }
+                    poll += 1;
+                }
+                assert_eq!(work.output, expected);
+                assert!(work.storage.is_none());
+                assert!(work.retirement.is_empty());
+                assert!(work.ordered.is_empty());
+                if let Some(total) = total {
+                    assert_eq!(visits, total);
+                } else {
+                    total = Some(visits);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn applied_revision_preparation_receipt_order_differs_from_accepted_journal() {
+        let mut base = authority();
+        for name in ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"] {
+            submit(&mut base, vec![system(name)]);
+        }
+        let accepted: Vec<_> = base.queue.iter().map(|row| row.revision.id).collect();
+        let mut sorted = accepted.clone();
+        sorted.sort_unstable();
+        assert_ne!(accepted, sorted, "fixture must distinguish the two orders");
+        let mut reference = base.clone();
+        reference.step().unwrap(); // Original public orchestration remains independent.
+        let mut total = None;
+        for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 7, 64, 3, 1024][..]] {
+            let mut staged = base.clone();
+            let mut job = staged.begin_step().unwrap();
+            for poll in 0..100_000 {
+                let budget = schedule[poll % schedule.len()];
+                let progress = job.poll(budget).unwrap();
+                assert!(job.last_poll_visits() <= budget);
+                if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                    break;
+                }
+            }
+            let work = job.applied_revisions.as_ref().unwrap();
+            assert!(work.ready);
+            assert_eq!(work.output, sorted);
+            let output_pointer = work.output.as_ptr();
+            let visits = job.total_visits();
+            if let Some(total) = total {
+                assert_eq!(visits, total);
+            } else {
+                total = Some(visits);
+            }
+            assert_eq!(job.poll(1025), Err(LivingStepJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+            for budget in [1, 64, 1024] {
+                assert_eq!(
+                    job.poll(budget),
+                    Ok(LivingStepProgressV2::NeedsSynchronousCompletion)
+                );
+                assert_eq!(job.last_poll_visits(), 0);
+                assert_eq!(job.total_visits(), visits);
+            }
+            let LivingStepPreparationV2::Ready(prepared) =
+                job.take_synchronous_preparation(&staged).unwrap()
+            else {
+                panic!("expected success")
+            };
+            assert_eq!(
+                prepared.receipt().applied_revisions.as_ptr(),
+                output_pointer
+            );
+            assert_eq!(prepared.state(), reference.state());
+            assert_eq!(Some(prepared.receipt()), reference.last_receipt());
+            assert_eq!(Some(prepared.decision_receipt()), reference.last_decision());
+            assert_eq!(
+                Some(prepared.event_facts_receipt()),
+                reference.last_event_facts()
+            );
+            assert!(matches!(
+                job.take_synchronous_preparation(&staged),
+                Err(LivingStepJobErrorV2::NotReady)
+            ));
+            drop(staged.commit_step(prepared).unwrap());
+            assert_eq!(
+                staged
+                    .revisions
+                    .iter()
+                    .map(|row| row.id)
+                    .collect::<Vec<_>>(),
+                accepted
+            );
+            assert_eq!(
+                staged.revision_modes.as_ref(),
+                reference.revision_modes.as_ref()
+            );
+            assert!(staged.queue.is_empty());
+        }
+    }
+
+    #[test]
+    fn applied_revision_preparation_every_cut_retains_owner_on_cancel_stale_and_incomplete() {
+        let mut base = authority();
+        for name in ["First", "Second", "Third"] {
+            submit(&mut base, vec![system(name)]);
+        }
+        let mut cuts = None;
+        for mode in 0..3 {
+            let mut cut = 0;
+            loop {
+                let mut current = base.clone();
+                let mut job = current.begin_step().unwrap();
+                while job.applied_revisions.is_none() {
+                    assert_eq!(job.poll(1).unwrap(), LivingStepProgressV2::Pending);
+                }
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                }
+                let work = job.applied_revisions.as_ref().unwrap();
+                let ready = work.ready;
+                let owner = (
+                    work.output.as_ptr(),
+                    work.output.len(),
+                    work.ordered.len(),
+                    work.index,
+                );
+                if mode == 0 && !ready {
+                    assert!(matches!(
+                        job.take_synchronous_preparation(&current),
+                        Err(LivingStepJobErrorV2::NotReady)
+                    ));
+                } else if mode == 1 {
+                    job.cancel();
+                    assert_eq!(job.poll(1), Err(LivingStepJobErrorV2::Cancelled));
+                    assert_eq!(job.last_poll_visits(), 0);
+                    assert!(matches!(
+                        job.take_synchronous_preparation(&current),
+                        Err(LivingStepJobErrorV2::Cancelled)
+                    ));
+                } else if mode == 2 {
+                    submit(&mut current, vec![system("Tail")]);
+                    assert!(matches!(
+                        job.take_synchronous_preparation(&current),
+                        Err(LivingStepJobErrorV2::Stale)
+                    ));
+                }
+                let work = job.applied_revisions.as_ref().unwrap();
+                assert_eq!(
+                    (
+                        work.output.as_ptr(),
+                        work.output.len(),
+                        work.ordered.len(),
+                        work.index
+                    ),
+                    owner
+                );
+                assert_eq!(current.state(), base.state());
+                assert_eq!(current.queue.len(), if mode == 2 { 4 } else { 3 });
+                assert!(current.fault.is_none());
+                let mut retired =
+                    job.into_retirement(LivingPublicationRetirementPolicyV2::ReleaseHandle);
+                loop {
+                    let progress = retired.poll(1).unwrap();
+                    assert!(retired.last_poll_visits() <= 1);
+                    if progress == LivingPublicationRetirementProgressV2::Ready {
+                        break;
+                    }
+                }
+                if ready {
+                    if let Some(cuts) = cuts {
+                        assert_eq!(cut, cuts);
+                    } else {
+                        cuts = Some(cut);
+                    }
+                    break;
+                }
+                cut += 1;
+                assert!(cut < 100);
+            }
+        }
+    }
+
+    #[test]
+    fn applied_revision_preparation_capacity_failure_is_charged_once_without_fault_token() {
+        let current = authority();
+        let mut job = current.begin_step().unwrap();
+        while job.applied_revisions.is_none() {
+            assert_eq!(job.poll(1).unwrap(), LivingStepProgressV2::Pending);
+        }
+        assert!(
+            job.applied_revisions
+                .as_mut()
+                .unwrap()
+                .storage
+                .as_mut()
+                .unwrap()
+                .inject_structural_empty_capacity_failure()
+        );
+        let before = job.total_visits();
+        assert_eq!(job.poll(64), Err(LivingStepJobErrorV2::PreparationCapacity));
+        assert_eq!(job.last_poll_visits(), 1);
+        assert_eq!(job.total_visits(), before + 1);
+        assert_eq!(job.poll(64), Err(LivingStepJobErrorV2::PreparationCapacity));
+        assert_eq!(job.last_poll_visits(), 0);
+        assert!(matches!(
+            job.take_synchronous_preparation(&current),
+            Err(LivingStepJobErrorV2::PreparationCapacity)
+        ));
+        assert!(job.applied_revisions.as_ref().unwrap().storage.is_some());
+        assert!(current.fault.is_none());
     }
 
     fn prepare_staged(
@@ -12295,11 +12804,10 @@ mod creator_batch_cursor_tests {
         }
     }
     #[test]
-    fn creator_batch_unsupported_suffix_retains_prefix_locals_dormant_and_index() {
+    fn creator_batch_reviewed_suffix_retains_prefix_locals_dormant_and_index() {
         let catalog = Arc::new(crate::living::living_core_pack_v2().unwrap());
-        let prefix = operations()[0].clone();
         let q = queue(vec![
-            prefix,
+            operations()[0].clone(),
             LivingCreatorOperationV2::ScrapFacility {
                 target: local(0),
                 cascade: super::super::command::LivingCascadeDispositionV2::RemoveReviewed {
@@ -12311,28 +12819,28 @@ mod creator_batch_cursor_tests {
         for schedule in SCHEDULES {
             let mut job =
                 LivingQueuedCreatorJobV2::begin(base(), Arc::clone(&q), Arc::clone(&catalog));
-            for poll in 0..10000 {
-                assert!(poll < 9999, "fallback did not arrive");
-                let b = schedule[poll % schedule.len()];
-                let progress = job.poll(b).unwrap();
-                assert!(job.last_poll_visits <= b);
-                if progress == LivingStepProgressV2::NeedsSynchronousCreatorOperation {
-                    assert_eq!(job.operation_index, 1);
-                    assert_eq!(job.state.facilities.as_slice().len(), 1);
-                    assert_eq!(job.locals.len(), 1);
-                    assert!(job.dormant.contains(&id(4)));
-                    assert_eq!(job.events, LivingPendingEventsV2::new());
-                    assert!(job.append.is_none());
-                    assert_eq!(job.state.accepted_sequence, 0);
-                    assert!(job.take_ready_result().is_err());
-                    for b in [1, 64, 1024] {
-                        assert_eq!(job.poll(b).unwrap(), progress);
-                        assert_eq!(job.last_poll_visits, 0);
-                    }
+            // Stop at the actual operation boundary to inspect prefix owners.
+            for _ in 0..10000 {
+                if job.operation_index == 1 && job.insertion.is_some() {
                     break;
                 }
-                assert_eq!(progress, LivingStepProgressV2::Pending);
+                assert_eq!(job.poll(1).unwrap(), LivingStepProgressV2::Pending);
             }
+            assert_eq!(job.operation_index, 1);
+            assert_eq!(job.state.facilities.as_slice().len(), 1);
+            assert_eq!(job.locals.len(), 1);
+            assert!(job.dormant.contains(&id(4)));
+            assert_eq!(job.events, LivingPendingEventsV2::new());
+            assert!(job.append.is_none());
+            assert_eq!(job.state.accepted_sequence, 0);
+            assert!(job.take_ready_result().is_err());
+            super::geometry_creator_tests::run(&mut job, schedule).unwrap();
+            let mut expected = base();
+            apply_revision_range(&mut expected, &q[0].revision, &catalog, 0).unwrap();
+            assert_eq!(job.state, expected);
+            assert!(job.state.facilities.as_slice().is_empty());
+            assert!(job.locals.is_empty() && job.dormant.is_empty());
+            assert_eq!(job.events.payloads().len(), 1);
         }
     }
     #[test]
@@ -13938,7 +14446,7 @@ mod cancellation_creator_tests {
         }
     }
     #[test]
-    fn cancellation_creator_prefix_unsupported_suffix_retains_effects_and_fault_order() {
+    fn cancellation_creator_prefix_reviewed_suffix_retains_effects_and_fault_order() {
         for fail in [false, true] {
             for schedule in SCHEDULES {
                 let (mut job, _, _) = source(0);
@@ -13956,13 +14464,13 @@ mod cancellation_creator_tests {
                 ])
                 .into();
                 let expected = reference(&job);
-                run(&mut job, schedule).unwrap();
-                assert!(matches!(job.stage, QueuedCreatorStage::NeedsSynchronous));
-                let prefix = job.effect_work.as_ref().unwrap().values.as_ptr();
-                assert_eq!(job.effect_work.as_ref().unwrap().values.len(), 2);
-                let result = job.take_synchronous_result();
+                let result = run(&mut job, schedule);
                 match expected {
-                    Ok(expected) => assert_eq!(result.unwrap(), expected),
+                    Ok(expected) => {
+                        result.unwrap();
+                        assert!(matches!(job.stage, QueuedCreatorStage::Ready));
+                        assert_eq!(job.take_ready_result().unwrap(), expected);
+                    }
                     Err(reason) => {
                         assert_eq!(
                             result,
@@ -13973,8 +14481,17 @@ mod cancellation_creator_tests {
                                 }
                             ))
                         );
-                        assert_eq!(job.effect_work.as_ref().unwrap().values.as_ptr(), prefix);
+                        assert_eq!(job.operation_index, 1);
+                        assert_eq!(job.effect_work.as_ref().unwrap().values.len(), 2);
                         assert_eq!(job.events.payloads().len(), 1);
+                        assert!(job.append.is_none());
+                        assert_eq!(job.state.accepted_sequence, 0);
+                        let prefix = job.effect_work.as_ref().unwrap().values.as_ptr();
+                        for budget in [1, 64, 1024] {
+                            assert!(job.poll(budget).is_err());
+                            assert_eq!(job.last_poll_visits, 0);
+                            assert_eq!(job.effect_work.as_ref().unwrap().values.as_ptr(), prefix);
+                        }
                     }
                 }
             }
@@ -16313,6 +16830,362 @@ mod removal_creator_tests {
         schedule: &[usize],
     ) -> Result<usize, super::super::step_job::LivingLifecycleJobErrorV2> {
         super::geometry_creator_tests::run(job, schedule)
+    }
+    fn reviewed_operation(
+        state: &LivingGalaxyStateV2,
+        target: LivingEntityIdV2,
+        scrap: bool,
+    ) -> LivingCreatorOperationV2 {
+        let dependents = crate::living::preview_living_removal_v2(state, target)
+            .unwrap()
+            .dependents
+            .into_iter()
+            .map(|id| LivingCommandTargetV2::Existing { id })
+            .collect();
+        let derived = crate::living::preview_living_derived_removal_v2(state, target).unwrap();
+        let cascade = crate::living::LivingCascadeDispositionV2::RemoveReviewed {
+            dependents,
+            derived,
+        };
+        let target = LivingCommandTargetV2::Existing { id: target };
+        if scrap {
+            LivingCreatorOperationV2::ScrapFacility { target, cascade }
+        } else {
+            LivingCreatorOperationV2::RemoveEntity { target, cascade }
+        }
+    }
+    pub(super) fn reviewed_source(kind: usize) -> Box<LivingQueuedCreatorJobV2> {
+        let (mut job, _, _) = source(kind);
+        let target = match operation(kind) {
+            LivingCreatorOperationV2::RemoveEntity {
+                target: LivingCommandTargetV2::Existing { id },
+                ..
+            } => id,
+            _ => unreachable!(),
+        };
+        job.queue = super::creator_batch_cursor_tests::queue(vec![reviewed_operation(
+            &job.state,
+            target,
+            kind == 4,
+        )])
+        .into();
+        job
+    }
+    pub(super) fn admitted_reviewed_source(kind: usize) -> LivingGalaxyAuthorityV2 {
+        let mut authority = crate::living::builtin_first_expansion_v2().unwrap();
+        if kind == 2 {
+            let peer = authority.state.civilizations.as_slice()[0].clone();
+            let c = authority.published_cursor();
+            authority
+                .apply_paused(LivingCommandEnvelopeV2 {
+                    expected_committed_revision: c.committed_revision,
+                    expected_tick: c.tick,
+                    expected_pending_sequence: c.pending_sequence,
+                    mode: LivingCommandModeV2::Paused,
+                    command: LivingCommandV2::CreatorBatch {
+                        operations: vec![
+                            LivingCreatorOperationV2::CreateCivilization {
+                                local: 0,
+                                name: LivingNameV2::new("Only Derived").unwrap(),
+                                policy: peer.policy,
+                                status: LivingCivilizationStatusV2::Dormant,
+                            },
+                            LivingCreatorOperationV2::SetRelationBase {
+                                from: LivingCommandTargetV2::Local { local: 0 },
+                                to: LivingCommandTargetV2::Existing { id: peer.id },
+                                base_disposition: 5,
+                            },
+                        ],
+                    },
+                })
+                .unwrap();
+        }
+        let target = match kind {
+            0 => authority.state.civilizations.as_slice()[0].id,
+            1 => authority.state.facilities.as_slice()[0].id,
+            2 => {
+                authority
+                    .state
+                    .civilizations
+                    .as_slice()
+                    .iter()
+                    .find(|c| c.name.as_str() == "Only Derived")
+                    .unwrap()
+                    .id
+            }
+            _ => unreachable!(),
+        };
+        let operation = reviewed_operation(&authority.state, target, kind == 1);
+        if kind == 2 {
+            assert_eq!(
+                crate::living::preview_living_derived_removal_v2(&authority.state, target).unwrap(),
+                vec![crate::living::LivingDerivedRemovalV2::Relation {
+                    from: target,
+                    to: authority
+                        .state
+                        .civilizations
+                        .as_slice()
+                        .iter()
+                        .find(|c| c.id != target)
+                        .unwrap()
+                        .id
+                }]
+            );
+            assert!(
+                crate::living::preview_living_removal_v2(&authority.state, target)
+                    .unwrap()
+                    .dependents
+                    .is_empty()
+            );
+        }
+        let c = authority.published_cursor();
+        authority
+            .submit(LivingCommandEnvelopeV2 {
+                expected_committed_revision: c.committed_revision,
+                expected_tick: c.tick,
+                expected_pending_sequence: c.pending_sequence,
+                mode: LivingCommandModeV2::Running,
+                command: LivingCommandV2::CreatorBatch {
+                    operations: vec![operation],
+                },
+            })
+            .unwrap();
+        authority
+    }
+    #[test]
+    fn reviewed_removal_admitted_cascades_and_no_refund_match_reference() {
+        for kind in 0..3 {
+            let authority = admitted_reviewed_source(kind);
+            let original = authority.state.as_ref().clone();
+            let mut totals = Vec::new();
+            for schedule in SCHEDULES {
+                let mut job = LivingQueuedCreatorJobV2::begin(
+                    original.clone(),
+                    Arc::clone(&authority.queue),
+                    Arc::clone(&authority.catalog),
+                );
+                let mut expected = original.clone();
+                let (effects, recoveries) = apply_revision_with_recoveries(
+                    &mut expected,
+                    &authority.queue[0].revision,
+                    &authority.catalog,
+                )
+                .unwrap();
+                assert!(effects.is_empty() && recoveries.is_empty());
+                totals.push(run(&mut job, schedule).unwrap());
+                assert!(matches!(job.stage, QueuedCreatorStage::Ready));
+                assert_eq!(job.state, expected);
+                assert_eq!(job.events.payloads().len(), 1);
+                match kind {
+                    0 => {
+                        assert!(job.state.civilizations.as_slice().is_empty());
+                        assert!(job.state.colonies.as_slice().is_empty());
+                    }
+                    1 => {
+                        assert_eq!(job.state.worlds, original.worlds);
+                        assert_eq!(
+                            job.state.facilities.as_slice().len() + 1,
+                            original.facilities.as_slice().len()
+                        );
+                    }
+                    2 => {
+                        assert!(
+                            job.state
+                                .civilizations
+                                .as_slice()
+                                .iter()
+                                .all(|c| c.name.as_str() != "Only Derived")
+                        );
+                        assert!(job.state.relations.as_slice().is_empty());
+                    }
+                    _ => unreachable!(),
+                }
+                assert!(job.take_ready_result().is_ok());
+                assert!(job.take_ready_result().is_err());
+            }
+            assert!(totals.iter().all(|n| *n == totals[0]));
+        }
+    }
+    #[test]
+    fn reviewed_removal_step_uses_bounded_applied_ids_and_preserves_all_receipts() {
+        for kind in 0..3 {
+            let base = admitted_reviewed_source(kind);
+            let mut reference = base.clone();
+            reference.step().unwrap();
+            for schedule in SCHEDULES {
+                let mut authority = base.clone();
+                let mut job = authority.begin_step().unwrap();
+                let mut reached = false;
+                for attempt in 0..100000 {
+                    let budget = schedule[attempt % schedule.len()];
+                    let progress = job.poll(budget).unwrap();
+                    assert!(job.last_poll_visits() <= budget);
+                    assert_ne!(
+                        progress,
+                        LivingStepProgressV2::NeedsSynchronousCreatorOperation
+                    );
+                    if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                        reached = true;
+                        break;
+                    }
+                }
+                assert!(reached);
+                let ids = job
+                    .applied_revisions
+                    .as_ref()
+                    .expect("bounded ID prerequisite reached");
+                assert!(ids.ready);
+                assert_eq!(ids.output, vec![authority.queue[0].revision.id]);
+                let LivingStepPreparationV2::Ready(prepared) =
+                    job.take_synchronous_preparation(&authority).unwrap()
+                else {
+                    panic!("reviewed preparation")
+                };
+                assert!(job.take_synchronous_preparation(&authority).is_err());
+                drop(authority.commit_step(prepared).unwrap());
+                assert_eq!(authority.state(), reference.state());
+                assert_eq!(authority.last_receipt(), reference.last_receipt());
+                assert_eq!(authority.last_decision(), reference.last_decision());
+                assert_eq!(authority.last_event_facts(), reference.last_event_facts());
+            }
+        }
+    }
+    #[test]
+    fn reviewed_removal_exact_witness_errors_precede_mutation() {
+        use crate::living::{LivingCascadeDispositionV2 as C, LivingDerivedRemovalV2 as D};
+        for case in 0..10 {
+            for schedule in SCHEDULES {
+                let mut job = reviewed_source(1);
+                let original = job.state.clone();
+                let mut op = reviewed_operation(&original, id(10), false);
+                let LivingCreatorOperationV2::RemoveEntity {
+                    target,
+                    cascade:
+                        C::RemoveReviewed {
+                            dependents,
+                            derived,
+                        },
+                } = &mut op
+                else {
+                    unreachable!()
+                };
+                match case {
+                    0 => {
+                        dependents.pop();
+                    }
+                    1 => dependents.push(t(99)),
+                    2 => dependents.swap(0, 1),
+                    3 => {
+                        derived.pop();
+                    }
+                    4 => derived.push(D::Order { fleet: id(99) }),
+                    5 => derived.swap(0, 1),
+                    6 => {
+                        let D::Colony { owner, .. } = derived
+                            .iter_mut()
+                            .find(|r| matches!(r, D::Colony { .. }))
+                            .unwrap()
+                        else {
+                            unreachable!()
+                        };
+                        *owner = id(99);
+                    }
+                    7 => {
+                        let D::Colony { world, .. } = derived
+                            .iter_mut()
+                            .find(|r| matches!(r, D::Colony { .. }))
+                            .unwrap()
+                        else {
+                            unreachable!()
+                        };
+                        *world = id(99);
+                    }
+                    8 | 9 => {
+                        *target = t(99);
+                        derived.clear();
+                    }
+                    _ => unreachable!(),
+                }
+                if case == 9 {
+                    let LivingCreatorOperationV2::RemoveEntity { target, cascade } = op else {
+                        unreachable!()
+                    };
+                    op = LivingCreatorOperationV2::ScrapFacility { target, cascade };
+                }
+                // Private malformed reviewed witnesses: structural admission itself
+                // rejects reordered lists; replay must still defend its own inputs.
+                let mut q = job.queue.as_ref().clone();
+                Arc::make_mut(&mut q[0].revision).command = LivingCommandV2::CreatorBatch {
+                    operations: vec![op],
+                };
+                job.queue = Arc::new(q).into();
+                let mut reference = original.clone();
+                let reason =
+                    apply_revision_range(&mut reference, &job.queue[0].revision, &job.catalog, 0)
+                        .unwrap_err();
+                assert_eq!(
+                    reason,
+                    if case >= 8 {
+                        LivingCommandRejectionV2::MissingTarget {
+                            operation: 0,
+                            reference: if case == 9 {
+                                "facility"
+                            } else {
+                                "removal entity"
+                            },
+                        }
+                    } else {
+                        LivingCommandRejectionV2::CascadeMismatch
+                    }
+                );
+                let expected = super::super::step_job::LivingLifecycleJobErrorV2::Fault(
+                    LivingDeterministicFaultV2::Replay {
+                        accepted_sequence: 1,
+                        reason: Box::new(reason),
+                    },
+                );
+                assert_eq!(run(&mut job, schedule), Err(expected.clone()));
+                assert_eq!(job.state, original);
+                assert_eq!(reference, original);
+                for budget in [1, 64, 1024] {
+                    assert_eq!(job.poll(budget), Err(expected.clone()));
+                    assert_eq!(job.last_poll_visits, 0);
+                }
+            }
+        }
+    }
+    #[test]
+    fn reviewed_removal_all_registry_witnesses_match_independent_reference() {
+        for kind in 0..6 {
+            for schedule in SCHEDULES {
+                let mut job = reviewed_source(kind);
+                let original_worlds = job.state.worlds.clone();
+                if kind == 4 {
+                    assert_eq!(
+                        job.state
+                            .facilities
+                            .as_slice()
+                            .iter()
+                            .find(|row| row.id == id(73))
+                            .unwrap()
+                            .paid_alloy,
+                        40
+                    );
+                }
+                let mut expected = job.state.clone();
+                apply_revision_range(&mut expected, &job.queue[0].revision, &job.catalog, 0)
+                    .unwrap();
+                run(&mut job, schedule).unwrap();
+                assert!(matches!(job.stage, QueuedCreatorStage::Ready));
+                assert_eq!(job.state, expected);
+                if kind == 4 {
+                    assert_eq!(
+                        job.state.worlds, original_worlds,
+                        "paid facility scrap gives no refund"
+                    );
+                }
+            }
+        }
     }
     #[test]
     fn removal_creator_private_all_registry_reference_and_unchanged_memories() {

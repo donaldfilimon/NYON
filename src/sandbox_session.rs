@@ -215,6 +215,70 @@ impl SandboxHold {
     }
 }
 
+const PACE_WINDOW_NANOS: u128 = 1_000_000_000;
+const TICK_NANOS: u128 = 100_000_000;
+
+#[derive(Clone, Copy, Default)]
+struct PublicationSample {
+    age: u128,
+    count: u64,
+}
+
+/// Exact trailing (now - one second, now] publication counts. Transport admits
+/// at most 200 ticks per second plus 20 carried requests and one fractional
+/// request, so 256 slots suffice regardless of redraw frequency. Equal-time
+/// publications share a slot; elapsed time comes exclusively from update.
+struct PublicationPace {
+    samples: [PublicationSample; 256],
+    elapsed: u128,
+    limited_age: Option<u128>,
+}
+
+impl Default for PublicationPace {
+    fn default() -> Self {
+        Self {
+            samples: [PublicationSample::default(); 256],
+            elapsed: 0,
+            limited_age: None,
+        }
+    }
+}
+
+impl PublicationPace {
+    fn record(&mut self, elapsed: Duration, committed: u64, limited: bool) -> Option<f64> {
+        let nanos = elapsed.as_nanos();
+        self.elapsed = self.elapsed.saturating_add(nanos).min(PACE_WINDOW_NANOS);
+        for sample in &mut self.samples {
+            sample.age = sample.age.saturating_add(nanos);
+            if sample.age >= PACE_WINDOW_NANOS {
+                *sample = PublicationSample::default();
+            }
+        }
+        self.limited_age = if limited {
+            Some(0)
+        } else {
+            self.limited_age
+                .map(|age| age.saturating_add(nanos))
+                .filter(|age| *age < PACE_WINDOW_NANOS)
+        };
+        if committed != 0 {
+            let index = self
+                .samples
+                .iter()
+                .position(|sample| sample.count != 0 && sample.age == 0)
+                .or_else(|| self.samples.iter().position(|sample| sample.count == 0))
+                .expect("transport admission bounds publication samples below 256");
+            let sample = &mut self.samples[index];
+            sample.age = 0;
+            sample.count = sample.count.saturating_add(committed);
+        }
+        (self.elapsed != 0 && self.limited_age.is_some()).then(|| {
+            let count: f64 = self.samples.iter().map(|sample| sample.count as f64).sum();
+            count * TICK_NANOS as f64 / self.elapsed as f64
+        })
+    }
+}
+
 /// The session installed when the main menu opens the galaxy sandbox.
 pub struct SandboxSession {
     authority: LivingGalaxyAuthorityV2,
@@ -231,6 +295,7 @@ pub struct SandboxSession {
     next_hold: u64,
     fault: Option<String>,
     limited_speed: Option<f64>,
+    publication_pace: PublicationPace,
     selected_world: Option<LivingEntityIdV2>,
     selected_entity: Option<LivingEntitySelection>,
     selected_system: Option<LivingEntityIdV2>,
@@ -373,6 +438,7 @@ impl SandboxSession {
             next_hold: 0,
             fault: None,
             limited_speed: None,
+            publication_pace: PublicationPace::default(),
             selected_world,
             selected_entity: selected_world
                 .map(|id| LivingEntitySelection::new(LivingEntityKind::World, id)),
@@ -1007,8 +1073,7 @@ impl SandboxSession {
 
     pub fn set_speed(&mut self, speed: SandboxSpeed) {
         self.speed = speed;
-        self.debt_nanos = 0;
-        self.limited_speed = None;
+        self.cancel_step();
     }
 
     pub fn toggle_pause(&mut self) {
@@ -1050,7 +1115,7 @@ impl SandboxSession {
         }
         let removed = self.holds.remove(&hold.id);
         if removed {
-            self.debt_nanos = 0;
+            self.cancel_step();
         }
         removed
     }
@@ -1219,7 +1284,12 @@ impl SandboxSession {
                 if let Some(fault) = &self.fault {
                     return Err(fault.clone());
                 }
-                // Repeated input while processing requests no additional tick.
+                // Each manual step starts its own observation; repeated input
+                // while processing requests no additional tick.
+                if !self.explicit_step {
+                    self.publication_pace = PublicationPace::default();
+                    self.limited_speed = None;
+                }
                 self.debt_nanos = 0;
                 self.due_ticks = 1;
                 self.explicit_step = true;
@@ -3365,6 +3435,8 @@ impl SandboxSession {
         self.debt_nanos = 0;
         self.due_ticks = 0;
         self.explicit_step = false;
+        self.limited_speed = None;
+        self.publication_pace = PublicationPace::default();
     }
 
     /// A prospective boundary never changes the published presentation.
@@ -3560,20 +3632,22 @@ impl SandboxSession {
             self.cancel_step();
             return Ok(0);
         }
-        const TICK_NANOS: u128 = 100_000_000;
         let mut capped = false;
         if !self.paused {
-            self.debt_nanos += elapsed.as_nanos() * u128::from(self.speed.multiplier());
+            self.debt_nanos = self.debt_nanos.saturating_add(
+                elapsed
+                    .as_nanos()
+                    .saturating_mul(u128::from(self.speed.multiplier())),
+            );
             let requested = self.debt_nanos / TICK_NANOS;
             capped = requested + u128::from(self.due_ticks) > 20;
             self.due_ticks = (u128::from(self.due_ticks) + requested).min(20) as u64;
             self.debt_nanos %= TICK_NANOS;
         }
         let committed = self.poll_step(1024)?;
-        if !elapsed.is_zero() {
-            self.limited_speed = (capped || self.processing())
-                .then(|| (committed as f64 * TICK_NANOS as f64) / elapsed.as_nanos() as f64);
-        }
+        self.limited_speed =
+            self.publication_pace
+                .record(elapsed, committed, capped || self.processing());
         Ok(committed)
     }
 
@@ -6184,7 +6258,7 @@ impl SandboxSession {
                 kind: InspectorTextKind::Fact,
                 label: header.clone(),
                 value: None,
-                lines: wrap_text(header, width - 24.0, scale),
+                lines: storage_status_display_lines(header, bounds.width(), scale, 2),
                 bounds,
                 clip: modal,
             });
@@ -7038,7 +7112,7 @@ impl SandboxSession {
         ];
         let speed_line = match self.limited_speed {
             Some(effective) => format!(
-                "Speed {}x requested; {effective:.2}x effective; update work capped",
+                "Speed {}x requested; {effective:.2}x effective; recent update work capped",
                 self.speed.multiplier()
             ),
             None => format!("Speed {}x", self.speed.multiplier()),
@@ -7364,7 +7438,12 @@ impl SandboxSession {
             kind: InspectorTextKind::Fact,
             label: self.storage_status.clone(),
             value: None,
-            lines: vec![self.storage_status.clone()],
+            lines: storage_status_display_lines(
+                &self.storage_status,
+                storage_bounds.width(),
+                layout.ui_scale,
+                1,
+            ),
             bounds: storage_bounds,
             clip: storage_bounds,
         });
@@ -7728,6 +7807,59 @@ fn canonical_history_tick(value: &str) -> Result<LivingTickV2, String> {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The atlas accepts printable ASCII only. Keep the exact diagnostic in the
+/// status/semantic label, and bound only its sighted projection and layout work.
+fn storage_status_display_lines(
+    source: &str,
+    width: f32,
+    scale: f32,
+    max_lines: usize,
+) -> Vec<String> {
+    const MAX_DISPLAY_CHARACTERS: usize = 512;
+    let width = width - 2.0 * crate::ui::platform_sdf::text_ink_padding(scale).min(width * 0.25);
+    if width <= 0.0 || max_lines == 0 {
+        return Vec::new();
+    }
+    let mut characters = source.chars();
+    let display: String = characters
+        .by_ref()
+        .take(MAX_DISPLAY_CHARACTERS)
+        .map(|character| {
+            if character.is_whitespace() {
+                ' '
+            } else if (' '..='~').contains(&character) {
+                character
+            } else {
+                '?'
+            }
+        })
+        .collect();
+    let source_truncated = characters.next().is_some();
+    let metrics = AtlasMetrics::embedded().expect("embedded atlas metrics");
+    let fits = |line: &str| {
+        metrics
+            .measure_text(15.0 * scale, FontWeight::Regular, line)
+            .is_ok_and(|measure| measure.advance <= width)
+    };
+    let mut lines = wrap_text(&display, width, scale);
+    let oversized = lines.iter().position(|line| !fits(line));
+    let truncated = source_truncated || lines.len() > max_lines || oversized.is_some();
+    lines.truncate(oversized.map_or(max_lines, |index| (index + 1).min(max_lines)));
+    if truncated && let Some(last) = lines.last_mut() {
+        let suffix = ["...", "..", ".", ""]
+            .into_iter()
+            .find(|suffix| fits(suffix))
+            .unwrap_or("");
+        while !fits(&format!("{last}{suffix}")) {
+            if last.pop().is_none() {
+                break;
+            }
+        }
+        last.push_str(suffix);
+    }
+    lines
 }
 
 fn wrap_text(source: &str, width: f32, scale: f32) -> Vec<String> {
@@ -8135,6 +8267,189 @@ mod tests {
             assert!(session.last_step_visits <= 1024);
         }
         assert_eq!(session.tick(), 21);
+    }
+
+    #[test]
+    fn transport_speed_cancels_burst_and_private_step_but_retains_accepted_commands() {
+        use nyon_workshop_core::living::{
+            LivingCommandTargetV2, LivingCreatorOperationV2, LivingNameV2,
+        };
+        let mut session = SandboxSession::open().unwrap();
+        session.set_paused(false);
+        session.set_speed(SandboxSpeed::Fastest);
+        session.update(Duration::from_secs(1)).unwrap();
+        assert!(session.due_ticks > 1);
+        session.poll_step(1).unwrap();
+        assert!(session.step_job.is_some());
+        let cursor = session.authority.published_cursor();
+        session
+            .authority
+            .submit(LivingCommandEnvelopeV2 {
+                expected_committed_revision: cursor.committed_revision,
+                expected_tick: cursor.tick,
+                expected_pending_sequence: cursor.pending_sequence,
+                mode: LivingCommandModeV2::Running,
+                command: LivingCommandV2::CreatorBatch {
+                    operations: vec![LivingCreatorOperationV2::EditSystem {
+                        target: LivingCommandTargetV2::Existing {
+                            id: session.state().systems.as_slice()[0].id,
+                        },
+                        name: LivingNameV2::new("Retained command").unwrap(),
+                    }],
+                },
+            })
+            .unwrap();
+        let accepted = session.authority.published_cursor();
+        let accepted_state = session.state().clone();
+        let mut reference = session.authority.clone();
+        session.set_speed(SandboxSpeed::Normal);
+        assert!(!session.processing());
+        assert!(!session.explicit_step);
+        assert_eq!(session.debt_nanos, 0);
+        assert_eq!(session.authority.published_cursor(), accepted);
+        assert_eq!(session.state(), &accepted_state);
+        assert_eq!(session.update(Duration::ZERO).unwrap(), 0);
+        session.update(Duration::from_millis(100)).unwrap();
+        while session.processing() {
+            session.update(Duration::ZERO).unwrap();
+        }
+        reference.step().unwrap();
+        assert_eq!(
+            session.export_bytes().unwrap(),
+            encode_living_archive_v2(&reference).unwrap()
+        );
+        session.set_paused(true);
+        session.apply_action(SandboxUiAction::Step).unwrap();
+        session.poll_step(1).unwrap();
+        session.set_speed(SandboxSpeed::Fast);
+        assert!(!session.processing());
+        assert!(!session.explicit_step);
+    }
+
+    #[test]
+    fn transport_pace_counts_zero_delta_publications_and_accessible_label() {
+        let mut session = SandboxSession::open().unwrap();
+        session.set_paused(false);
+        session.set_speed(SandboxSpeed::Fast);
+        session.update(Duration::from_secs(1)).unwrap();
+        while session.processing() {
+            session.update(Duration::ZERO).unwrap();
+        }
+        assert_eq!(session.tick(), 20);
+        assert_eq!(session.limited_speed, Some(2.0));
+        let frame = session.frame(Vec2::new(1280.0, 720.0), false);
+        assert!(
+            frame
+                .semantics
+                .nodes_depth_first()
+                .iter()
+                .any(|node| node.name
+                    == "Speed 4x requested; 2.00x effective; recent update work capped")
+        );
+        let mut pace = PublicationPace::default();
+        assert_eq!(pace.record(Duration::ZERO, 1, true), None);
+        assert_eq!(pace.record(Duration::from_millis(100), 0, true), Some(1.0));
+        assert_eq!(pace.record(Duration::ZERO, 1, false), Some(2.0));
+        session.set_paused(true);
+        session.apply_action(SandboxUiAction::Step).unwrap();
+        session.update(Duration::from_millis(10)).unwrap();
+        while session.processing() {
+            session.update(Duration::ZERO).unwrap();
+        }
+        assert_eq!(session.tick(), 21);
+        assert!(
+            session
+                .publication_pace
+                .samples
+                .iter()
+                .any(|sample| sample.count != 0)
+        );
+        session.apply_action(SandboxUiAction::Step).unwrap();
+        assert_eq!(session.limited_speed, None);
+        assert_eq!(session.publication_pace.elapsed, 0);
+    }
+
+    #[test]
+    fn transport_pace_exact_window_grouping_and_bounded_storage() {
+        let mut grouped = PublicationPace::default();
+        let mut split = PublicationPace::default();
+        for _ in 0..300 {
+            let expected = grouped.record(Duration::from_millis(5), 1, true);
+            for _ in 0..4 {
+                split.record(Duration::from_millis(1), 0, true);
+            }
+            assert_eq!(split.record(Duration::from_millis(1), 1, true), expected);
+            assert!(
+                split
+                    .samples
+                    .iter()
+                    .filter(|sample| sample.count != 0)
+                    .count()
+                    <= 200
+            );
+        }
+        let mut pace = PublicationPace::default();
+        pace.record(Duration::from_millis(100), 2, true);
+        assert_eq!(
+            pace.record(Duration::from_nanos(999_999_999), 0, true),
+            Some(0.2)
+        );
+        assert_eq!(pace.record(Duration::from_nanos(1), 0, true), Some(0.0));
+        assert_eq!(pace.record(Duration::MAX, 1, true), Some(0.1));
+        assert_eq!(
+            pace.samples
+                .iter()
+                .filter(|sample| sample.count != 0)
+                .count(),
+            1
+        );
+        for _ in 0..10_000 {
+            pace.record(Duration::ZERO, 1, true);
+        }
+        assert_eq!(
+            pace.samples
+                .iter()
+                .filter(|sample| sample.count != 0)
+                .count(),
+            1
+        );
+        assert!(pace.record(Duration::ZERO, 0, false).unwrap().is_finite());
+        assert_eq!(pace.record(Duration::from_secs(1), 0, false), None);
+    }
+
+    #[test]
+    fn transport_controls_reset_measured_pace() {
+        for mode in 0..6 {
+            let mut session = SandboxSession::open().unwrap();
+            session.set_paused(false);
+            session.update(Duration::from_secs(3)).unwrap();
+            assert!(session.limited_speed.is_some());
+            match mode {
+                0 => session.set_paused(true),
+                1 => {
+                    let hold = session.begin_hold().unwrap();
+                    assert!(session.end_hold(hold));
+                }
+                2 => session.set_suspended(true),
+                3 => session.set_speed(SandboxSpeed::Fastest),
+                4 => session.install_authority(session.authority.clone()),
+                _ => {
+                    let view = session.bookmark().unwrap().view;
+                    session
+                        .apply_action(SandboxUiAction::RestoreHistoryView(view))
+                        .unwrap();
+                }
+            }
+            assert_eq!(session.limited_speed, None);
+            assert_eq!(session.publication_pace.elapsed, 0);
+            assert!(
+                session
+                    .publication_pace
+                    .samples
+                    .iter()
+                    .all(|sample| sample.count == 0)
+            );
+        }
     }
 
     fn finish_ui_history(session: &mut SandboxSession) {
@@ -8842,6 +9157,179 @@ mod unicode_display_tests {
             let rows: Vec<_> = ui_text_chunks(text).collect();
             assert_eq!(rows.concat(), text);
             assert!(rows.iter().all(|row| !row.is_empty() && row.len() <= 32));
+        }
+    }
+}
+
+#[cfg(test)]
+mod storage_status_display_tests {
+    use super::*;
+    use crate::ui::platform_sdf::build_platform_ui_batch;
+
+    fn assert_status_composes(raw: &str, library: bool) {
+        let metrics = AtlasMetrics::embedded().unwrap();
+        let mut session = SandboxSession::open().unwrap();
+        if library {
+            session.open_library().unwrap();
+        }
+        let bookmark = session.bookmark().unwrap();
+        let digest = session.state().digest().unwrap();
+        let dirty = session.dirty();
+        session.set_storage_projection(raw, &[], false);
+        let id = if library {
+            "sandbox.library.status"
+        } else {
+            "sandbox.storage.status"
+        };
+        for _ in 0..3 {
+            let frame = session.frame(Vec2::new(1280.0, 800.0), false);
+            build_platform_ui_batch(&frame, &metrics).unwrap();
+            let status = frame
+                .sighted_text
+                .iter()
+                .find(|text| text.semantic_id.as_str() == id)
+                .unwrap();
+            assert_eq!(status.label.as_bytes(), raw.as_bytes());
+            assert_eq!(session.storage_status.as_bytes(), raw.as_bytes());
+            let nodes = frame.semantics.nodes_depth_first();
+            let node = nodes.iter().find(|node| node.id.as_str() == id).unwrap();
+            assert_eq!(node.name.as_bytes(), raw.as_bytes());
+            assert!(
+                status
+                    .lines
+                    .iter()
+                    .all(|line| { line.bytes().all(|byte| (b' '..=b'~').contains(&byte)) })
+            );
+        }
+        session.set_storage_projection("Saved", &[], false);
+        let frame = session.frame(Vec2::new(1280.0, 800.0), false);
+        let output = build_platform_ui_batch(&frame, &metrics).unwrap();
+        assert!(
+            output
+                .text_runs
+                .iter()
+                .any(|run| { run.semantic_id.as_str() == id && run.exact_text == "Saved" })
+        );
+        assert_eq!(session.bookmark().unwrap(), bookmark);
+        assert_eq!(session.state().digest().unwrap(), digest);
+        assert_eq!(session.dirty(), dirty);
+    }
+
+    #[test]
+    fn storage_status_footer_composes_raw_exception_without_changing_semantics() {
+        for raw in [
+            "quota\nretry",
+            "quota\r\nretry",
+            "quota\tretry",
+            "quota\0\x01retry",
+            "quota é界🌌 retry",
+        ] {
+            assert_status_composes(raw, false);
+        }
+    }
+
+    #[test]
+    fn storage_status_library_composes_raw_exception_without_changing_semantics() {
+        for raw in [
+            "quota\rretry",
+            "quota\nretry",
+            "quota\tretry",
+            "quota\0\x01retry",
+            "quota é界🌌 retry",
+        ] {
+            assert_status_composes(raw, true);
+        }
+    }
+
+    #[test]
+    fn storage_status_long_exception_fits_bounded_rows_at_supported_scales() {
+        let metrics = AtlasMetrics::embedded().unwrap();
+        let raw = format!(
+            "QuotaExceededError\n\r\t界\0{} retry save or refresh",
+            "long detail ".repeat(1_000)
+        );
+        for library in [false, true] {
+            let mut session = SandboxSession::open().unwrap();
+            if library {
+                session.open_library().unwrap();
+            }
+            session.set_storage_projection(&raw, &[], false);
+            for viewport in [
+                Vec2::new(800.0, 480.0),
+                Vec2::new(1280.0, 800.0),
+                Vec2::new(1920.0, 1080.0),
+            ] {
+                for scale in [0.85, 1.0, 1.30] {
+                    let frame = session.frame_with_scale(viewport, scale, false);
+                    let output = build_platform_ui_batch(&frame, &metrics).unwrap();
+                    for status in frame.sighted_text.iter().filter(|text| {
+                        matches!(
+                            text.semantic_id.as_str(),
+                            "sandbox.storage.status" | "sandbox.library.status"
+                        )
+                    }) {
+                        let max_lines = if status.semantic_id.as_str() == "sandbox.storage.status" {
+                            1
+                        } else {
+                            2
+                        };
+                        assert!(status.lines.len() <= max_lines);
+                        assert!(status.lines.last().unwrap().ends_with("..."));
+                        assert_eq!(status.label.as_bytes(), raw.as_bytes());
+                        let width = status.bounds.width()
+                            - 2.0 * crate::ui::platform_sdf::text_ink_padding(scale);
+                        for line in &status.lines {
+                            assert!(line.len() <= 512);
+                            assert!(line.bytes().all(|byte| (b' '..=b'~').contains(&byte)));
+                            assert!(
+                                metrics
+                                    .measure_text(15.0 * scale, FontWeight::Regular, line)
+                                    .unwrap()
+                                    .advance
+                                    <= width
+                            );
+                        }
+                        let runs: Vec<_> = output
+                            .text_runs
+                            .iter()
+                            .filter(|run| run.semantic_id == status.semantic_id)
+                            .collect();
+                        // Modal scope hides the footer while Library is open.
+                        if !library || status.semantic_id.as_str() == "sandbox.library.status" {
+                            assert_eq!(runs.len(), status.lines.len());
+                            for (run, line) in runs.iter().zip(&status.lines) {
+                                assert_eq!(&run.exact_text, line);
+                                assert!(run.clip.contains_rect(run.bounds));
+                            }
+                        }
+                    }
+                }
+            }
+            assert_eq!(session.storage_status, raw);
+        }
+    }
+
+    #[test]
+    fn storage_status_projection_bounds_prefix_and_handles_subglyph_width() {
+        let metrics = AtlasMetrics::embedded().unwrap();
+        assert_eq!(
+            storage_status_display_lines("a\nb\rc\td\0é", 1000.0, 1.0, 1),
+            ["a b c d??"]
+        );
+        let lines = storage_status_display_lines(&"x".repeat(10_000), 10_000.0, 1.0, 1);
+        assert_eq!(lines[0], format!("{}...", "x".repeat(512)));
+        for width in [0.0, 0.1, 1.0, 3.0, 6.0, 10.0, 20.0] {
+            let padded_width =
+                width - 2.0 * crate::ui::platform_sdf::text_ink_padding(1.0).min(width * 0.25);
+            let lines = storage_status_display_lines("WW\n界\0long", width, 1.0, 2);
+            assert!(lines.len() <= 2);
+            assert!(lines.iter().all(|line| {
+                metrics
+                    .measure_text(15.0, FontWeight::Regular, line)
+                    .unwrap()
+                    .advance
+                    <= padded_width
+            }));
         }
     }
 }

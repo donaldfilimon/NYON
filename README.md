@@ -28,6 +28,14 @@ The repository pins `nightly-2026-10-08` in `rust-toolchain.toml`.
 cargo run --release
 ```
 
+For an isolated qualification profile, use an absolute application-data root:
+
+```bash
+NYON_PROFILE_DIR=/absolute/test/profile cargo run --release
+```
+
+This routes scenario, preferences, Workshop, Living, Library selection, and Living audio reads and writes into that root, without legacy fallback. An empty or relative value fails startup. When unset, existing platform defaults and read-only legacy fallback remain. File-picker transfers still use explicitly selected files.
+
 The shared native source is intended for macOS, Windows, and Linux. Current live startup evidence is macOS Metal; compilation or CI configuration alone is not runtime acceptance on another platform.
 
 ## Build and run in a browser

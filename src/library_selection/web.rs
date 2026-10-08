@@ -20,15 +20,34 @@ export async function nyonSelectionRead() {
     t.oncomplete=()=>resolve(JSON.stringify(out));t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error);
   }); } finally {db.close();}
 }
-export async function nyonSelectionCas(snapshot, next, side, head) {
-  const expected=JSON.parse(snapshot),db=await selectionDb();
+export async function nyonSelectionCas(snapshot,next,side,head) {
+  const expected=JSON.parse(snapshot);
+  const db=await selectionDb();
   try { return await new Promise((resolve,reject)=>{
-    const t=db.transaction('selection','readwrite'),s=t.objectStore('selection'),out=[null,null,null];let count=0,stale=false;
+    const t=db.transaction('selection','readwrite'),s=t.objectStore('selection'),out=[null,null,null];
+    let count=0,stale=false,failed=false,failure,settled=false;
+    const finish=(error,value)=>{if(settled)return;settled=true;if(error)reject(failure);else resolve(value);};
+    const abortFailure=(error)=>{
+      failed=true;failure=error;stale=false;
+      try{t.abort();}catch{finish(true);}
+    };
+    t.oncomplete=()=>finish(failed,true);
+    t.onerror=()=>{if(!failed){failed=true;failure=t.error;}finish(true);};
+    t.onabort=()=>{if(stale)finish(false,false);else{if(!failed){failed=true;failure=t.error;}finish(true);}};
     ['generation-a','generation-b','head'].forEach((key,i)=>{const r=s.get(key);r.onsuccess=()=>{
-      out[i]=r.result??null;if(++count===3){if(out.some((v,j)=>v!==expected[j])){stale=true;t.abort();return;}
-      s.put(next,side);s.put(head,'head');}
+      if(failed||settled)return;
+      try{
+        out[i]=r.result??null;
+        if(++count===3){
+          if(out.some((v,j)=>v!==expected[j])){
+            stale=true;
+            try{t.abort();}catch(error){failed=true;failure=error;stale=false;finish(true);}
+            return;
+          }
+          s.put(next,side);s.put(head,'head');
+        }
+      }catch(error){abortFailure(error);}
     };});
-    t.oncomplete=()=>resolve(true);t.onerror=()=>reject(t.error);t.onabort=()=>stale?resolve(false):reject(t.error);
   }); } finally {db.close();}
 }
 "#)]

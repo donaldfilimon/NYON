@@ -1,5 +1,12 @@
 # Sandbox Completion and Expansion Implementation Plan
 
+2026-10-08 verified prerequisite milestone: see the
+[Living completion ledger](../../qualification/2026-10-08-living-completion-ledger.md).
+Native and paired wasm gates are green for the recorded candidate; whole V2
+completion, player qualification and V3 approval remain open. The intentionally
+refreshed toolchain is `nightly-2026-10-08`; the original plan stack below is
+historical context.
+
 > **For agentic workers:** Use the native task-by-task execution workflow. Design tasks produce reviewed specifications before implementation tasks for new mechanics begin. Do not spawn agents, commit, push or publish without the user's authorization.
 
 **Goal:** Complete and qualify the existing Living Galaxy sandbox, then deliver autonomous population/research, evolving ecology, negotiated diplomacy and objective-driven conflict with complete creator, history, persistence and player workflows.

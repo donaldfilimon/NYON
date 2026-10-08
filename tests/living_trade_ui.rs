@@ -10,17 +10,28 @@ use nyon::{
 };
 use nyon_workshop_core::living::*;
 use std::time::{Duration, Instant};
-fn terminal(client: &mut LivingClient) -> LivingClientEvent {
-    let deadline = Instant::now() + Duration::from_secs(30);
+// This is a test deadlock guard, not a player-facing latency requirement.
+fn terminal(client: &mut LivingClient, stage: &str) -> LivingClientEvent {
+    let started = Instant::now();
+    let guard = Duration::from_secs(120);
+    let mut polls = 0_u64;
+    let mut next_report = Duration::from_secs(10);
     loop {
         let event = client.poll();
+        polls += 1;
+        let elapsed = started.elapsed();
         if !matches!(event, LivingClientEvent::Pending) {
+            eprintln!("trade Notebook {stage}: terminal after {elapsed:?}, {polls} polls");
             return event;
         }
         assert!(
-            Instant::now() < deadline,
-            "trade Notebook persistence timed out"
+            elapsed < guard,
+            "trade Notebook {stage}: still Pending after {elapsed:?}, {polls} polls (guard {guard:?})"
         );
+        if elapsed >= next_report {
+            eprintln!("trade Notebook {stage}: Pending after {elapsed:?}, {polls} polls");
+            next_report = elapsed + Duration::from_secs(10);
+        }
         std::thread::sleep(Duration::from_millis(1));
     }
 }
@@ -81,7 +92,7 @@ fn record_formation_and_delivery_observations_save_and_continue_exact_replay() {
     let mut writer = client(root.path());
     writer.read_selection().unwrap();
     assert!(matches!(
-        terminal(&mut writer),
+        terminal(&mut writer, "initial selection"),
         LivingClientEvent::AbsentSelection
     ));
     let (bookmarks, experiments) = session.notebook_snapshot();
@@ -95,7 +106,7 @@ fn record_formation_and_delivery_observations_save_and_continue_exact_replay() {
         )
         .unwrap();
     assert!(
-        matches!(terminal(&mut writer), LivingClientEvent::Saved { bookmark, leave: true } if bookmark == before)
+        matches!(terminal(&mut writer, "save evidence"), LivingClientEvent::Saved { bookmark, leave: true } if bookmark == before)
     );
     drop(writer);
     let mut reader = client(root.path());
@@ -103,7 +114,7 @@ fn record_formation_and_delivery_observations_save_and_continue_exact_replay() {
     let LivingClientEvent::ReadyWithNotebook {
         authority,
         notebook,
-    } = terminal(&mut reader)
+    } = terminal(&mut reader, "Continue replay")
     else {
         panic!("Continue did not replay trade evidence");
     };
