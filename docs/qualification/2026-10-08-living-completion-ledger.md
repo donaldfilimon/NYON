@@ -1,9 +1,11 @@
 # Living completion ledger — 2026-10-08
 
-Status: **Partial**. The committed prerequisite `57c4d87` strengthens V2
-preparation, storage recovery and player transport. The following due-intent
-candidate completes bounded intent composition through dispatch; boundary sealing
-still has a synchronous suffix. Broader candidate qualification is running.
+Status: **Partial**. Committed prerequisites `57c4d87` and `e9be7a0` strengthen
+V2 preparation, storage recovery, player transport and bounded due intents through
+dispatch. The current sealing slice adds counted candidate tick-setting,
+validation, hashing and ordinary receipt preparation. Facts, decisions, recovery
+bindings and journals still have a synchronous suffix. This sealing slice
+passed its scoped source review, covering gates and fresh live qualification.
 No V3 authority or player mechanics have been implemented.
 
 ## Implemented and reviewed
@@ -112,7 +114,7 @@ The next production slice is counted boundary sealing and journal preparation,
 preserving the independent synchronous orchestration oracle.
 
 **Player qualification Partial:** all-tool cancel/stale/durable fresh-Continue
-journeys, remaining experiment witnesses, real quota exhaustion and generation
+journeys, remaining experiment witnesses, device-full storage and generation
 conflicts, portable transfers, offline reopening, complete native/browser
 keyboard/focus/accessibility/Retina/touch/pinch acceptance, capacity p95,
 endurance and memory qualification remain open. Host paging was observed;
@@ -129,9 +131,11 @@ still precede separate V3 implementation. No implicit V2 conversion is approved.
 
 ## Delivery
 
-The prior verified prerequisite is committed locally as `57c4d87` on canonical
-`main`. The due-intent candidate passed the broader automated gates and is completing
-fresh live qualification and is ready for its local commit. Whole-program completion is not claimed.
+The due-intent milestone is committed locally as `e9be7a0` on canonical `main`,
+after all 15 current gates and fresh browser qualification. The subsequent
+sealing slice is independently source-reviewed and passed all 15 covering
+gates plus fresh native/browser qualification. Whole-program completion is
+not claimed.
 Push remains unauthorized; remote CI has not qualified either candidate.
 
 ## Due-intent candidate — reviewed core evidence
@@ -180,3 +184,70 @@ belongs to the earlier commit. Fresh WebGPU and forced WebGL2 Low each saved/reo
 15,088 archive bytes equal to the current native pure-authority harness. This
 uses the production encoder, not an independent serialization oracle; WebGPU
 High, renderer parity and performance acceptance remain unqualified.
+
+## Counted state and ordinary receipt sealing — qualified slice
+
+Actual post-dispatch Step now writes the candidate tick, validates that stored
+state, hashes it and seals the ordinary receipt under counted visits. Variable
+encoding fragments are at most 256 bytes. Original applied-ID and nested facts
+allocations remain owned through exactly-once child transfer and bounded cleanup;
+completion waits for its retirement lane. The transitional suffix consumes the
+prepared ordinary receipt and skips those completed stages.
+
+The original complete synchronous orchestration and commit are preserved as a
+separate test oracle. Independent source review approved this slice and derived
+135-byte empty encoding, 43/82 scoped cleanup counts and the exact 32 MiB
+ordinary-payload boundary formula from the schema/owner graph. Initial new-test
+planning mistakes (quoted tick and omitted Option wrappers) and failed logs are
+retained; no original canonical values, vectors, IDs or final comparisons changed.
+
+Focused qualification passed **939 core tests** across 27 test-result summaries,
+including 12 new regressions, strict core Clippy, formatting, unchanged independent vectors
+and diff checks. Current full workspace formatting, strict Clippy and **1,833 tests**
+across 101 test-result summaries passed with zero failures or ignored tests.
+Release and the separate fuzz formatting/locked Clippy gates also passed; fuzz execution was not run.
+All 15 documented/current gate commands passed, including both backend builds,
+root/core wasm checks, wasm Clippy, paired artifact qualification, shader layout,
+unchanged independent V2 vectors, static fingerprint validation and 25 Python
+tool tests. Static fingerprint validation does not establish live renderer parity.
+The exact release binary, SHA-256
+`528f9d987acb1c705d2e7cead1bc0f2d2ed6a608a1c97ecedcb05b92dd77ad86`,
+passed an isolated native Metal journey on Apple M5: Step reached tick 1, Save
+confirmed, and a fresh launch reopened the exact saved galaxy at tick 1.
+Focus changes initially interrupted automation; activating the viewport before
+each action resolved the journey. This is storage/transport evidence, not
+complete accessibility or performance qualification. Fresh WebGPU manual Step
+reached 100 boundaries; Save and reload reopened tick 100 with valid archive
+integrity. A browser-enforced one-byte quota then rejected Save at resident tick
+101 with QuotaExceededError while the complete stored Living record hash and
+head remained unchanged at tick 100. Restoring quota, retrying Save and reloading
+reopened tick 101. Fresh forced WebGL2 Low then completed 100 boundaries from
+a new Vale Confluence, saved and reopened tick 100 while asserting the fallback
+throughout. Its 15,088-byte archive SHA-256 matches WebGPU:
+`0c92f4fedf3365b4049f1755eaaf33de2cbcb977da950ef1526a6ffc656cba20`.
+An earlier intended fallback journey changed backend to WebGPU and is excluded
+from fallback evidence; its raw record is retained. The current native
+pure-authority harness returned zero and its complete 15,088 bytes matched the captured WebGPU archive; the verified WebGL2 archive
+hash matches those bytes. This uses the production encoder, not an independent
+serialization oracle. An interrupted polling connection was recovered by
+rerunning the exact built harness and confirming its output unchanged. Quota
+injection is not physical device-full storage qualification.
+Private malformed-receipt and capacity fixtures are distinct from authentic Step
+and reached-stage cancellation/stale coverage. The inherited state-size tests are reused evidence, not a new authentic
+oversized post-dispatch world.
+
+Public Ready, borrowed extraction freshness, complete facts/decision verification,
+recovery/corridor binding, journal copying, shared replay/runtime cleanup and
+whole-program player/performance/V3 qualification remain open.
+
+## Strategic world expansion — design review
+
+Donald chose strategic cubic planets first and approved the experience direction
+at 21:35 EDT: easier Continue/Templates/Demos navigation, searchable galaxy,
+system and six-faced planet views, presets up to 64 systems/512 worlds, authentic
+guided demos and persistent graphics/camera/accessibility/audio settings.
+Architecture-section approval and subsequent written-spec/plan reviews remain
+pending under the explicitly invoked brainstorming workflow. No new cubic
+renderer, large preset generator or expanded settings implementation is claimed.
+Source audits also identified existing later-page template placement, common
+Settings preference-error feedback and Guide UI-scale gaps for narrow fixes.

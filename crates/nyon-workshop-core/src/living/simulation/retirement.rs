@@ -273,6 +273,8 @@ impl Frame {
                     // the original intent owner precedes revision preparation.
                     15 if v.intents.is_some() => node(v.intents.take()),
                     15 | 16 if v.applied_revisions.is_some() => node(v.applied_revisions.take()),
+                    15..=17 if v.sealing.is_some() => node(v.sealing.take()),
+                    15..=18 if v.sealed_receipt.is_some() => node(v.sealed_receipt.take()),
                     _ => Action::Done,
                 }
             }
@@ -963,6 +965,66 @@ macro_rules! fields {($ty:ty; $($field:ident),+)=>{impl<'a> RetirementFields<'a>
  fn retirement_child(&mut self,index:usize,policy:LivingStateRetirementPolicyV2)->Option<Box<dyn RetirementPoll+'a>> {
  let mut n=0;$(if index==n{return Some(retirement_node(std::mem::take(&mut self.$field),policy))}n+=1;)+let _=n;None
  }}}}
+impl<'a> RetirementFields<'a> for Box<LivingBoundarySealJobV2> {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.as_ref().creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        self.as_mut().retirement_child(index, policy)
+    }
+}
+impl<'a> RetirementFields<'a> for LivingBoundarySealJobV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.candidate.creator_allocations(out);
+        self.state.creator_allocations(out);
+        self.pending.creator_allocations(out);
+        self.applied.creator_allocations(out);
+        self.validation.creator_allocations(out);
+        self.hash.creator_allocations(out);
+        self.ordinary.creator_allocations(out);
+        self.receipt.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            candidate,
+            state,
+            pending,
+            applied,
+            validation,
+            hash,
+            ordinary,
+            receipt,
+            retirement,
+            digest: _,
+            tick: _,
+            stage: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(std::mem::take(candidate), policy)),
+            1 => Some(retirement_node(std::mem::take(state), policy)),
+            2 => Some(retirement_node(std::mem::take(pending), policy)),
+            3 => Some(retirement_node(std::mem::take(applied), policy)),
+            4 => Some(retirement_node(std::mem::take(validation), policy)),
+            5 => Some(retirement_node(std::mem::take(hash), policy)),
+            6 => Some(retirement_node(std::mem::take(ordinary), policy)),
+            7 => Some(retirement_node(std::mem::take(receipt), policy)),
+            8 => Some(retirement_node(std::mem::take(retirement), policy)),
+            _ => None,
+        }
+    }
+}
+
 fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement);
 fields!(LivingTickReceiptV2;applied_revisions,events);
 fields!(super::super::decision::LivingDecisionReceiptV2;kind,intents);
@@ -1834,7 +1896,8 @@ audited_fields!(LivingPreparedFailureOwnersV2;capture,fault);
 audited_fields!(LivingStepCommitRejectionV2;reason,_preparation);
 audited_fields!(LivingRetiredBoundaryV2;_capture,_token,_receipt,_decision,_event_facts,_creator_recoveries,_corridor_restrictions);
 audited_fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement,count,index,ready);
-audited_fields!(LivingStepJobV2;applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,intents,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
+audited_fields!(LivingBoundarySealJobV2;candidate,state,pending,applied,validation,hash,ordinary,receipt,retirement,digest,tick,stage);
+audited_fields!(LivingStepJobV2;sealing,sealed_receipt,applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,intents,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
 audited_fields!(LivingQueuedCreatorJobV2;state,queue,catalog,events,stage,revision_index,operation_index,index,locals,dormant,insertion,diplomacy_work,cancellation_work,effect_work,colony_operation,colony_create,colony_removal,colony_changed,colony_owners,recovery_storage,pending_recovery,hull_parent,hull_output,hull_index,hull_id,append,retirement,last_poll_visits,delivered);
 audited_fields!(LivingGalaxyAuthorityV2;catalog,genesis_seed,generator,branch,state,committed_revision,revisions,revision_modes,queue,accepted_sequence_high_water,fault,origin,root_branch,branch_sequence_high_water,replay_branch_sequence,archives,replay_base,saved_present,redo,last_receipt,last_decision,last_event_facts,last_creator_recoveries,last_corridor_restrictions);
 #[cfg(test)]
@@ -3964,6 +4027,8 @@ mod creator_parent_cut_tests {
             dispatch: None,
             completed_output: None,
             applied_revisions: None,
+            sealing: None,
+            sealed_receipt: None,
             preparation_capacity: false,
             production_fault: None,
             production_handoff: false,

@@ -906,6 +906,302 @@ impl<'a> RetirementFields<'a> for LivingPendingEventAppendJobV2 {
     }
 }
 
+/// Owning ordinary receipt sealer. The pending collector stays intact until
+/// borrowed extraction; facts and decision validation belong to the later suffix.
+pub(crate) struct LivingOrdinaryReceiptJobV2 {
+    pending: Option<LivingPendingEventsV2>,
+    applied: Vec<LivingRevisionIdV2>,
+    events: Vec<LivingEventV2>,
+    storage: Option<LivingVecStorageJobV2<'static, LivingEventV2>>,
+    retirement: PhaseRetirementLane<'static>,
+    receipt: Option<LivingTickReceiptV2>,
+    tick: LivingTickV2,
+    state_digest: LivingStateDigestV2,
+    digest: LivingReceiptDigestV2,
+    hasher: sha2::Sha256,
+    bytes: usize,
+    max_fragment: usize,
+    stage: u8,
+    index: usize,
+    fault: Option<LivingReceiptErrorV2>,
+    capacity: bool,
+    delivered: bool,
+}
+impl LivingOrdinaryReceiptJobV2 {
+    pub(crate) fn begin(
+        tick: LivingTickV2,
+        applied: Vec<LivingRevisionIdV2>,
+        pending: LivingPendingEventsV2,
+        state_digest: LivingStateDigestV2,
+    ) -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(super::ids::LIVING_RECEIPT_DOMAIN_V2);
+        Self {
+            pending: Some(pending),
+            applied,
+            events: Vec::new(),
+            storage: None,
+            retirement: PhaseRetirementLane::default(),
+            receipt: None,
+            tick,
+            state_digest,
+            digest: LivingReceiptDigestV2([0; 32]),
+            hasher,
+            bytes: 0,
+            max_fragment: 0,
+            stage: 0,
+            index: 1,
+            fault: None,
+            capacity: false,
+            delivered: false,
+        }
+    }
+    pub(crate) fn ready(&self) -> bool {
+        self.stage == 11 && !self.delivered
+    }
+    /// One actual source row, fixed canonical token, storage visit or handoff.
+    /// The caller owns the shared poll budget and cancellation/fault latch.
+    pub(crate) fn visit(&mut self) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::LivingLifecycleJobErrorV2 as E;
+        if let Some(fault) = self.fault {
+            return Err(E::Fault(fault.into()));
+        }
+        if self.capacity {
+            return Err(E::PreparationCapacity);
+        }
+        if self.retirement.visit() {
+            return Ok(());
+        }
+        let result = self.visit_inner();
+        match result {
+            Err(OrdinarySealError::Receipt(fault)) => {
+                self.fault = Some(fault);
+                Err(E::Fault(fault.into()))
+            }
+            Err(OrdinarySealError::Storage(LivingStorageJobErrorV2::CapacityOverflow)) => {
+                self.capacity = true;
+                Err(E::PreparationCapacity)
+            }
+            Err(OrdinarySealError::Storage(_)) => Err(E::Fault(
+                super::simulation::LivingDeterministicFaultV2::Invariant,
+            )),
+            Ok(()) => Ok(()),
+        }
+    }
+    fn visit_inner(&mut self) -> Result<(), OrdinarySealError> {
+        use sha2::Digest;
+        use std::io::Write;
+        let mut fragment = OrdinarySealFragment {
+            bytes: [0; 256],
+            len: 0,
+        };
+        match self.stage {
+            0 => {
+                if self.index < self.applied.len() {
+                    if self.applied[self.index - 1] >= self.applied[self.index] {
+                        return Err(LivingReceiptErrorV2::UnsortedRevisions.into());
+                    }
+                    self.index += 1;
+                } else {
+                    self.stage = 1;
+                    self.index = 0;
+                }
+            }
+            1 => {
+                fragment.write_all(b"{\"tick\":").unwrap();
+                fragment.encode(&self.tick)?;
+                fragment.write_all(b",\"applied_revisions\":[").unwrap();
+                self.stage = 2;
+            }
+            2 => {
+                if let Some(id) = self.applied.get(self.index) {
+                    if self.index != 0 {
+                        fragment.write_all(b",").unwrap();
+                    }
+                    fragment.encode(id)?;
+                    self.index += 1;
+                } else {
+                    self.stage = 3;
+                    self.index = 0;
+                }
+            }
+            3 => {
+                fragment.write_all(b"],\"event_payloads\":[").unwrap();
+                self.stage = 4;
+            }
+            4 => {
+                if let Some(payload) = self.pending.as_ref().unwrap().payloads().get(self.index) {
+                    if self.index != 0 {
+                        fragment.write_all(b",").unwrap();
+                    }
+                    // A closed ordinal/provenance/kind row has no variable string.
+                    fragment.encode(payload)?;
+                    self.index += 1;
+                } else {
+                    self.stage = 5;
+                    self.index = 0;
+                }
+            }
+            5 => {
+                fragment.write_all(b"],\"state_digest\":").unwrap();
+                fragment.encode(&self.state_digest)?;
+                fragment.write_all(b"}").unwrap();
+                self.stage = 6;
+            }
+            6 => {
+                if self.bytes > LIVING_MAX_ARCHIVE_BYTES_V2 {
+                    return Err(LivingReceiptErrorV2::Wire(LivingWireErrorV2::TooLarge {
+                        actual: self.bytes,
+                        limit: LIVING_MAX_ARCHIVE_BYTES_V2,
+                    })
+                    .into());
+                }
+                self.digest = LivingReceiptDigestV2(self.hasher.clone().finalize().into());
+                self.stage = 7;
+            }
+            7 => {
+                self.storage = Some(LivingVecStorageJobV2::begin_empty(
+                    self.pending.as_ref().unwrap().len(),
+                ));
+                self.stage = 8;
+            }
+            8 => {
+                let storage = self.storage.as_mut().unwrap();
+                if storage.ready() {
+                    self.events = storage.take_ready_result()?;
+                    self.retirement.start(self.storage.take());
+                    self.stage = 9;
+                } else {
+                    storage.poll(1)?;
+                }
+            }
+            9 => {
+                if let Some(payload) = self.pending.as_ref().unwrap().payloads().get(self.index) {
+                    let mut event = Some(LivingEventV2 {
+                        id: event_id_v2(self.digest, payload.ordinal),
+                        ordinal: payload.ordinal,
+                        provenance: payload.provenance,
+                        kind: payload.kind,
+                    });
+                    LivingVecStorageJobV2::commit_one(&mut self.events, &mut event)?;
+                    self.index += 1;
+                } else {
+                    self.stage = 10;
+                }
+            }
+            10 => {
+                self.receipt = Some(LivingTickReceiptV2 {
+                    tick: self.tick,
+                    applied_revisions: std::mem::take(&mut self.applied),
+                    events: std::mem::take(&mut self.events),
+                    state_digest: self.state_digest,
+                    digest: self.digest,
+                });
+                self.stage = 11;
+            }
+            _ => {}
+        }
+        self.bytes += fragment.len;
+        self.max_fragment = self.max_fragment.max(fragment.len);
+        if self.bytes <= LIVING_MAX_ARCHIVE_BYTES_V2 {
+            self.hasher.update(&fragment.bytes[..fragment.len]);
+        }
+        Ok(())
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Option<(LivingPendingEventsV2, LivingTickReceiptV2)> {
+        if !self.ready() || self.fault.is_some() || self.capacity {
+            return None;
+        }
+        self.delivered = true;
+        Some((self.pending.take().unwrap(), self.receipt.take().unwrap()))
+    }
+}
+struct OrdinarySealFragment {
+    bytes: [u8; 256],
+    len: usize,
+}
+impl std::io::Write for OrdinarySealFragment {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > self.bytes.len() - self.len {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        self.bytes[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+        self.len += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl OrdinarySealFragment {
+    fn encode(&mut self, value: &impl Serialize) -> Result<(), OrdinarySealError> {
+        serde_json::to_writer(self, value)
+            .map_err(|_| LivingReceiptErrorV2::Wire(LivingWireErrorV2::Json).into())
+    }
+}
+enum OrdinarySealError {
+    Receipt(LivingReceiptErrorV2),
+    Storage(LivingStorageJobErrorV2),
+}
+impl From<LivingReceiptErrorV2> for OrdinarySealError {
+    fn from(value: LivingReceiptErrorV2) -> Self {
+        Self::Receipt(value)
+    }
+}
+impl From<LivingStorageJobErrorV2> for OrdinarySealError {
+    fn from(value: LivingStorageJobErrorV2) -> Self {
+        Self::Storage(value)
+    }
+}
+impl<'a> RetirementFields<'a> for LivingOrdinaryReceiptJobV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.pending.creator_allocations(out);
+        self.applied.creator_allocations(out);
+        self.events.creator_allocations(out);
+        self.storage.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+        self.receipt.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            pending,
+            applied,
+            events,
+            storage,
+            retirement,
+            receipt,
+            tick: _,
+            state_digest: _,
+            digest: _,
+            hasher: _,
+            bytes: _,
+            max_fragment: _,
+            stage: _,
+            index: _,
+            fault: _,
+            capacity: _,
+            delivered: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(pending.take(), policy)),
+            1 => Some(retirement_node(std::mem::take(applied), policy)),
+            2 => Some(retirement_node(std::mem::take(events), policy)),
+            3 => Some(retirement_node(storage.take(), policy)),
+            4 => Some(retirement_node(std::mem::take(retirement), policy)),
+            5 => Some(retirement_node(receipt.take(), policy)),
+            _ => None,
+        }
+    }
+}
+
 /// Seal a boundary: hash the payload, derive every event identity from that
 /// digest, then assemble the public receipt, in that order.
 pub fn seal_living_tick_receipt_v2(
@@ -2029,4 +2325,232 @@ pub(crate) fn production_append_collector_fixture() -> LivingPendingEventsV2 {
     assert_eq!(events.entries.capacity(), 1);
     assert_eq!(events.explained.capacity(), 1);
     events
+}
+
+#[cfg(test)]
+mod ordinary_sealing_tests {
+    use super::*;
+    fn empty() -> LivingOrdinaryReceiptJobV2 {
+        LivingOrdinaryReceiptJobV2::begin(
+            LivingTickV2(1),
+            Vec::new(),
+            LivingPendingEventsV2::new(),
+            LivingStateDigestV2([0; 32]),
+        )
+    }
+    #[test]
+    fn ordinary_sealing_empty_every_budget_matches_literal_json() {
+        let canonical = concat!(
+            "{\"tick\":1,\"applied_revisions\":[],\"event_payloads\":[],\"state_digest\":\"",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "\"}"
+        );
+        assert_eq!(canonical.len(), 135);
+        for budget in 1..=1024 {
+            let mut job = empty();
+            while !job.ready() {
+                for _ in 0..budget {
+                    if job.ready() {
+                        break;
+                    }
+                    job.visit().unwrap();
+                }
+            }
+            assert_eq!(job.bytes, 135);
+            assert!(job.max_fragment <= 256);
+            let (_, receipt) = job.take_ready_result().unwrap();
+            assert_eq!(receipt.digest, receipt_digest_v2(canonical.as_bytes()));
+            assert!(job.take_ready_result().is_none());
+        }
+    }
+    #[test]
+    fn ordinary_sealing_preserves_payload_semantics_and_fault_order() {
+        let mut pending = LivingPendingEventsV2::new();
+        pending.entries.push(LivingEventPayloadV2 {
+            ordinal: 9,
+            provenance: LivingEventProvenanceV2::Creator {
+                revision: LivingRevisionIdV2([7; 32]),
+            },
+            kind: LivingEventKindV2::CivilizationReactivated,
+        });
+        let applied = vec![LivingRevisionIdV2([1; 32]), LivingRevisionIdV2([2; 32])];
+        let expected = seal_living_tick_receipt_v2(
+            LivingTickV2(1),
+            applied.clone(),
+            &pending,
+            LivingStateDigestV2([0; 32]),
+        )
+        .unwrap();
+        let pointer = pending.entries.as_ptr();
+        let mut job = LivingOrdinaryReceiptJobV2::begin(
+            LivingTickV2(1),
+            applied,
+            pending,
+            LivingStateDigestV2([0; 32]),
+        );
+        while !job.ready() {
+            job.visit().unwrap();
+        }
+        assert!(job.max_fragment <= 256);
+        let (pending, receipt) = job.take_ready_result().unwrap();
+        assert_eq!(pending.entries.as_ptr(), pointer);
+        assert_eq!(receipt, expected);
+        assert_eq!(
+            receipt.verify(),
+            Err(LivingReceiptErrorV2::EventIdentityMismatch)
+        );
+        let mut job = LivingOrdinaryReceiptJobV2::begin(
+            LivingTickV2(1),
+            vec![LivingRevisionIdV2([2; 32]), LivingRevisionIdV2([1; 32])],
+            pending,
+            LivingStateDigestV2([0; 32]),
+        );
+        assert!(matches!(
+            job.visit(),
+            Err(super::super::step_job::LivingLifecycleJobErrorV2::Fault(
+                super::super::simulation::LivingDeterministicFaultV2::Receipt(
+                    LivingReceiptErrorV2::UnsortedRevisions
+                )
+            ))
+        ));
+        assert_eq!(job.bytes, 0);
+        assert_eq!(job.pending.as_ref().unwrap().entries.as_ptr(), pointer);
+    }
+    #[test]
+    fn ordinary_sealing_real_archive_limit_and_complete_oversize_measurement() {
+        // Schema arithmetic: 134 base bytes with nonempty
+        // revision array; 500793 * 67 revision bytes; 8 * 146 - 1 event bytes.
+        // A closed creator/combat_round row with ordinal0 is145 bytes.
+        for (revisions, tick, expected_bytes) in [
+            (500792usize, 1, 33_554_365usize),
+            (500793, 1, 33_554_432),
+            (500793, 10, 33_554_433),
+        ] {
+            let applied: Vec<_> = (0..revisions)
+                .map(|i| {
+                    let mut id = [0; 32];
+                    id[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                    LivingRevisionIdV2(id)
+                })
+                .collect();
+            let mut pending = LivingPendingEventsV2::new();
+            pending.entries = vec![
+                LivingEventPayloadV2 {
+                    ordinal: 0,
+                    provenance: LivingEventProvenanceV2::Creator {
+                        revision: LivingRevisionIdV2([0; 32])
+                    },
+                    kind: LivingEventKindV2::CombatRound
+                };
+                8
+            ];
+            let expected = seal_living_tick_receipt_v2(
+                LivingTickV2(tick),
+                applied.clone(),
+                &pending,
+                LivingStateDigestV2([0; 32]),
+            );
+            let mut job = LivingOrdinaryReceiptJobV2::begin(
+                LivingTickV2(tick),
+                applied,
+                pending,
+                LivingStateDigestV2([0; 32]),
+            );
+            let actual = loop {
+                if let Err(error) = job.visit() {
+                    break Err(error);
+                }
+                if job.ready() {
+                    break Ok(job.take_ready_result().unwrap().1);
+                }
+            };
+            assert_eq!(job.bytes, expected_bytes);
+            assert!(job.max_fragment <= 256);
+            match expected {
+                Ok(receipt) => assert_eq!(actual.unwrap(), receipt),
+                Err(fault) => assert_eq!(
+                    actual.unwrap_err(),
+                    super::super::step_job::LivingLifecycleJobErrorV2::Fault(fault.into())
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_sealing_every_stage_retains_nested_original_allocations() {
+        for stage in 0..=11 {
+            let mut job = empty();
+            let facts = LivingEventFactsV2 {
+                blocked_reasons: vec![super::super::model::LivingBlockedReasonV2::Disabled; 3],
+                affected: vec![super::super::ids::LivingEntityIdV2([1; 16]); 2],
+                ..Default::default()
+            };
+            let pointer = facts.affected.as_ptr();
+            job.pending.as_mut().unwrap().explained.push((0, facts));
+            while job.stage != stage {
+                job.visit().unwrap();
+            }
+            assert_eq!(
+                job.pending.as_ref().unwrap().explained[0]
+                    .1
+                    .affected
+                    .as_ptr(),
+                pointer
+            );
+            let mut retirement = LivingPhaseRetirementJobV2::begin(
+                job,
+                LivingStateRetirementPolicyV2::ReleaseHandle,
+            );
+            while retirement.poll(64).unwrap() != LivingLifecycleProgressV2::Ready {}
+            if stage == 0 {
+                // Initial43 plus explained row39: RetiredPair wraps both
+                // fields in Some, adding6 to framing5 + ordinal1 + facts25.
+                // Vector edge adds2.
+                assert_eq!(retirement.total_visits(), 82);
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_sealing_storage_capacity_is_private_and_retains_source() {
+        let mut job = empty();
+        while job.stage != 7 {
+            job.visit().unwrap();
+        }
+        job.storage = Some(LivingVecStorageJobV2::begin_empty(usize::MAX));
+        job.stage = 8;
+        let error = loop {
+            if let Err(error) = job.visit() {
+                break error;
+            }
+        };
+        assert_eq!(
+            error,
+            super::super::step_job::LivingLifecycleJobErrorV2::PreparationCapacity
+        );
+        assert!(job.pending.is_some());
+        assert!(job.storage.is_some());
+        assert!(job.fault.is_none());
+        assert!(job.take_ready_result().is_none());
+        assert_eq!(job.visit(), Err(error));
+        let mut retirement =
+            LivingPhaseRetirementJobV2::begin(job, LivingStateRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(64).unwrap() != LivingLifecycleProgressV2::Ready {}
+    }
+
+    #[test]
+    fn ordinary_sealing_initial_retirement_literal_count() {
+        // Six children: Some(empty pending)=19; two empty Vecs=2;
+        // absent storage/receipt=2; empty lane=7; composite framing=13.
+        for budget in [1, 64, 1024] {
+            let mut retirement = LivingPhaseRetirementJobV2::begin(
+                empty(),
+                LivingStateRetirementPolicyV2::ReleaseHandle,
+            );
+            while retirement.poll(budget).unwrap() != LivingLifecycleProgressV2::Ready {}
+            assert_eq!(retirement.total_visits(), 43);
+            retirement.poll(budget).unwrap();
+            assert_eq!(retirement.last_poll_visits(), 0);
+        }
+    }
 }

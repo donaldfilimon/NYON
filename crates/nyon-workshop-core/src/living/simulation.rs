@@ -559,10 +559,144 @@ enum LivingCompletedStepPhasesV2 {
     DispatchComplete,
 }
 
-/// Partial staged executor: bounded copying, hashing, supported creator edits,
-/// and scheduled phases through due intents and dispatch.
-/// Final sealing uses an explicitly synchronous completion API.
-/// Resident transport polls this job; the synchronous suffix remains explicit.
+/// Private post-dispatch work; Ready here does not mean publication is prepared.
+struct LivingBoundarySealJobV2 {
+    candidate: Option<LivingGalaxyStateV2>,
+    state: Option<Arc<LivingGalaxyStateV2>>,
+    pending: Option<LivingPendingEventsV2>,
+    applied: Vec<LivingRevisionIdV2>,
+    validation: Option<super::step_job::LivingStateValidationJobV2>,
+    hash: Option<super::step_job::LivingStateHashJobV2>,
+    ordinary: Option<super::receipt::LivingOrdinaryReceiptJobV2>,
+    receipt: Option<LivingTickReceiptV2>,
+    retirement: super::step_job::PhaseRetirementLane<'static>,
+    digest: Option<super::ids::LivingStateDigestV2>,
+    tick: LivingTickV2,
+    stage: u8,
+}
+impl LivingBoundarySealJobV2 {
+    fn begin(
+        candidate: LivingGalaxyStateV2,
+        pending: LivingPendingEventsV2,
+        applied: Vec<LivingRevisionIdV2>,
+        tick: LivingTickV2,
+    ) -> Self {
+        Self {
+            candidate: Some(candidate),
+            state: None,
+            pending: Some(pending),
+            applied,
+            validation: None,
+            hash: None,
+            ordinary: None,
+            receipt: None,
+            retirement: Default::default(),
+            digest: None,
+            tick,
+            stage: 0,
+        }
+    }
+    fn ready(&self) -> bool {
+        self.stage == 7 && self.retirement.is_empty()
+    }
+    fn visit(
+        &mut self,
+        catalog: &Arc<ValidatedLivingCatalogPackV2>,
+    ) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::{
+            LivingLifecycleProgressV2 as P, LivingStateHashJobV2, LivingStateValidationJobV2,
+        };
+        if self.retirement.visit() {
+            return Ok(());
+        }
+        match self.stage {
+            0 => {
+                let mut state = self.candidate.take().unwrap();
+                state.tick = self.tick;
+                self.state = Some(Arc::new(state));
+                self.stage = 1;
+            }
+            1 => {
+                self.validation = Some(LivingStateValidationJobV2::begin(
+                    Arc::clone(catalog),
+                    Arc::clone(self.state.as_ref().unwrap()),
+                ));
+                self.stage = 2;
+            }
+            2 => {
+                if self.validation.as_mut().unwrap().poll(1)? == P::Ready {
+                    self.retirement.start(self.validation.take());
+                    self.stage = 3;
+                }
+            }
+            3 => {
+                self.hash = Some(LivingStateHashJobV2::begin(Arc::clone(
+                    self.state.as_ref().unwrap(),
+                )));
+                self.stage = 4;
+            }
+            4 => {
+                let hash = self.hash.as_mut().unwrap();
+                if hash.poll(1)? == P::Ready {
+                    self.digest = Some(hash.take_ready_result()?);
+                    self.retirement.start(self.hash.take());
+                    self.stage = 5;
+                }
+            }
+            5 => {
+                self.ordinary = Some(super::receipt::LivingOrdinaryReceiptJobV2::begin(
+                    self.tick,
+                    std::mem::take(&mut self.applied),
+                    self.pending.take().unwrap(),
+                    self.digest.unwrap(),
+                ));
+                self.stage = 6;
+            }
+            6 => {
+                let ordinary = self.ordinary.as_mut().unwrap();
+                if ordinary.ready() {
+                    let (pending, receipt) = ordinary.take_ready_result().unwrap();
+                    self.pending = Some(pending);
+                    self.receipt = Some(receipt);
+                    self.retirement.start(self.ordinary.take());
+                    self.stage = 7;
+                } else {
+                    ordinary.visit()?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn take_ready_result(
+        &mut self,
+    ) -> Option<(
+        LivingGalaxyStateV2,
+        LivingPendingEventsV2,
+        LivingTickReceiptV2,
+    )> {
+        if !self.ready() {
+            return None;
+        }
+        let source = self.state.take()?;
+        let state = match Arc::try_unwrap(source) {
+            Ok(state) => state,
+            Err(source) => {
+                self.state = Some(source);
+                return None;
+            }
+        };
+        Some((
+            state,
+            self.pending.take().unwrap(),
+            self.receipt.take().unwrap(),
+        ))
+    }
+}
+
+/// Partial staged executor through dispatch, candidate validation/hash and
+/// ordinary receipt sealing. Facts, decisions, bindings and journal preparation
+/// retain an explicitly synchronous completion API.
 pub struct LivingStepJobV2 {
     capture: OwnerSlot<LivingBoundaryCaptureV2>,
     copy: Option<super::step_job::LivingStateCopyJobV2>,
@@ -586,6 +720,8 @@ pub struct LivingStepJobV2 {
         )>,
     >,
     applied_revisions: Option<LivingAppliedRevisionPreparationV2>,
+    sealing: Option<Box<LivingBoundarySealJobV2>>,
+    sealed_receipt: Option<LivingTickReceiptV2>,
     preparation_capacity: bool,
     production_fault: Option<super::step_job::ProductionFailure>,
     production_handoff: bool,
@@ -662,8 +798,8 @@ impl LivingStepJobV2 {
         self.total_visits
     }
     /// Poll private preparation and supported creator/lifecycle/arrival phases
-    /// under one shared record budget, through due intents and dispatch.
-    /// Final sealing remains explicitly synchronous.
+    /// under one shared record budget, through ordinary receipt sealing.
+    /// Facts, decision and journal preparation remain explicitly synchronous.
     pub fn poll(&mut self, budget: usize) -> Result<LivingStepProgressV2, LivingStepJobErrorV2> {
         use super::step_job::{LivingLifecycleJobErrorV2, LivingLifecycleProgressV2};
         self.last_poll_visits = 0;
@@ -717,12 +853,54 @@ impl LivingStepJobV2 {
                 continue;
             }
             if self.needs_synchronous_completion() {
+                if self.sealed_receipt.is_some() {
+                    return Ok(LivingStepProgressV2::NeedsSynchronousCompletion);
+                }
                 if self
                     .applied_revisions
                     .as_ref()
                     .is_some_and(|work| work.ready)
                 {
-                    return Ok(LivingStepProgressV2::NeedsSynchronousCompletion);
+                    self.last_poll_visits += 1;
+                    self.total_visits += 1;
+                    if let Some(sealing) = &mut self.sealing {
+                        if sealing.ready() {
+                            let (state, events, receipt) = sealing
+                                .take_ready_result()
+                                .ok_or(LivingStepJobErrorV2::NotReady)?;
+                            let output = self.completed_output.as_mut().unwrap();
+                            output.0 = state;
+                            output.1 = events;
+                            self.sealed_receipt = Some(receipt);
+                            self.retirement.start(self.sealing.take());
+                        } else if let Err(error) = sealing.visit(&self.capture.catalog) {
+                            match error {
+                                LivingLifecycleJobErrorV2::PreparationCapacity => {
+                                    self.preparation_capacity = true;
+                                    return Err(LivingStepJobErrorV2::PreparationCapacity);
+                                }
+                                LivingLifecycleJobErrorV2::Fault(fault) => {
+                                    self.fault = Some(fault.clone());
+                                    return Err(LivingStepJobErrorV2::Fault(fault));
+                                }
+                                _ => {
+                                    self.fault = Some(LivingDeterministicFaultV2::Invariant);
+                                    return Err(LivingStepJobErrorV2::Fault(
+                                        LivingDeterministicFaultV2::Invariant,
+                                    ));
+                                }
+                            }
+                        }
+                    } else {
+                        let output = self.completed_output.as_mut().unwrap();
+                        self.sealing = Some(Box::new(LivingBoundarySealJobV2::begin(
+                            std::mem::take(&mut output.0),
+                            std::mem::take(&mut output.1),
+                            std::mem::take(&mut self.applied_revisions.as_mut().unwrap().output),
+                            LivingTickV2(self.capture.state.tick.0 + 1),
+                        )));
+                    }
+                    continue;
                 }
                 // Admission and every child visit share the remaining parent budget.
                 self.last_poll_visits += 1;
@@ -1017,12 +1195,7 @@ impl LivingStepJobV2 {
             }
         }
         Ok(
-            if self.needs_synchronous_completion()
-                && self
-                    .applied_revisions
-                    .as_ref()
-                    .is_some_and(|work| work.ready)
-            {
+            if self.needs_synchronous_completion() && self.sealed_receipt.is_some() {
                 LivingStepProgressV2::NeedsSynchronousCompletion
             } else {
                 LivingStepProgressV2::Pending
@@ -1101,11 +1274,7 @@ impl LivingStepJobV2 {
         }
         let source_digest = self.source_digest.ok_or(LivingStepJobErrorV2::NotReady)?;
         if self.completed_output.is_some()
-            && (!self.needs_synchronous_completion()
-                || !self
-                    .applied_revisions
-                    .as_ref()
-                    .is_some_and(|work| work.ready))
+            && (!self.needs_synchronous_completion() || self.sealed_receipt.is_none())
         {
             return Err(LivingStepJobErrorV2::NotReady);
         }
@@ -1234,6 +1403,7 @@ impl LivingStepJobV2 {
                 Some(applied),
                 Some(source_digest),
                 Some(completed),
+                self.sealed_receipt.take(),
             ) {
                 Ok(output) => output,
                 Err(fault) => {
@@ -6492,6 +6662,8 @@ impl LivingGalaxyAuthorityV2 {
             dispatch: None,
             completed_output: None,
             applied_revisions: None,
+            sealing: None,
+            sealed_receipt: None,
             preparation_capacity: false,
             production_fault: None,
             production_handoff: false,
@@ -7509,6 +7681,59 @@ impl LivingGalaxyAuthorityV2 {
         }
     }
 
+    #[cfg(test)]
+    fn step_reference(&mut self) -> Result<LivingTickReceiptV2, LivingDeterministicFaultV2> {
+        if self.saved_present.is_some() {
+            return Err(LivingDeterministicFaultV2::ViewingHistory);
+        }
+        if let Some(fault) = &self.fault {
+            return Err(fault.clone());
+        }
+        match self.run_boundary_candidate_reference(
+            self.state.as_ref().clone(),
+            LivingPendingEventsV2::new(),
+            None,
+            None,
+            None,
+        ) {
+            Ok((
+                candidate,
+                receipt,
+                decision,
+                event_facts,
+                creator_recoveries,
+                corridor_restrictions,
+            )) => {
+                // The only mutation of a successful boundary, after every
+                // fallible step has run.
+                let applied = std::mem::take(&mut self.queue);
+                if let Some(last) = applied.last() {
+                    self.committed_revision = Some(last.revision.id);
+                }
+                Arc::make_mut(&mut self.revision_modes).extend(std::iter::repeat_n(
+                    LivingCommandModeV2::Running,
+                    applied.len(),
+                ));
+                Arc::make_mut(&mut self.revisions).extend(
+                    applied
+                        .iter()
+                        .map(|queued| queued.revision.as_ref().clone()),
+                );
+                self.state = Arc::new(candidate).into();
+                self.last_receipt = Some(receipt.clone());
+                self.last_decision = Some(decision);
+                self.last_event_facts = Some(event_facts);
+                self.last_creator_recoveries = creator_recoveries;
+                self.last_corridor_restrictions = corridor_restrictions;
+                Ok(receipt)
+            }
+            Err(fault) => {
+                self.fault = Some(fault.clone());
+                Err(fault)
+            }
+        }
+    }
+
     /// Discard a queue retained by a fault and resume.
     ///
     /// The sequences the discarded envelopes were issued stay spent: the
@@ -7625,10 +7850,177 @@ impl LivingGalaxyAuthorityV2 {
             recorded.map(LivingAppliedRevisionsV2::Accepted),
             None,
             None,
+            None,
         )
     }
 
     fn run_boundary_candidate_with_source_digest(
+        &self,
+        mut candidate: LivingGalaxyStateV2,
+        mut events: LivingPendingEventsV2,
+        recorded: Option<LivingAppliedRevisionsV2>,
+        source_digest: Option<super::ids::LivingStateDigestV2>,
+        completed_phases: Option<LivingCompletedStepPhasesV2>,
+        sealed_receipt: Option<LivingTickReceiptV2>,
+    ) -> Result<LivingBoundaryOutputV2, LivingDeterministicFaultV2> {
+        let tick = self
+            .state
+            .tick
+            .0
+            .checked_add(1)
+            .map(LivingTickV2)
+            .ok_or(LivingDeterministicFaultV2::Arithmetic)?;
+        let scheduled_applied = completed_phases.is_some();
+        let observations_applied = matches!(
+            completed_phases,
+            Some(
+                LivingCompletedStepPhasesV2::ObservationsComplete
+                    | LivingCompletedStepPhasesV2::DiplomacyComplete
+                    | LivingCompletedStepPhasesV2::IntentsComplete
+                    | LivingCompletedStepPhasesV2::DispatchComplete
+            )
+        );
+        let diplomacy_applied = matches!(
+            completed_phases,
+            Some(
+                LivingCompletedStepPhasesV2::DiplomacyComplete
+                    | LivingCompletedStepPhasesV2::IntentsComplete
+                    | LivingCompletedStepPhasesV2::DispatchComplete
+            )
+        );
+        let intents_applied = matches!(
+            completed_phases,
+            Some(
+                LivingCompletedStepPhasesV2::IntentsComplete
+                    | LivingCompletedStepPhasesV2::DispatchComplete
+            )
+        );
+        let dispatch_applied = matches!(
+            completed_phases,
+            Some(LivingCompletedStepPhasesV2::DispatchComplete)
+        );
+        let arrivals = match completed_phases {
+            Some(LivingCompletedStepPhasesV2::Scheduled { arrivals }) => arrivals,
+            _ => Vec::new(),
+        };
+        let mut context = LivingStepContextV2 {
+            catalog: &self.catalog,
+            genesis_seed: self.genesis_seed,
+            branch: self.branch,
+            tick,
+            state: &mut candidate,
+            events: &mut events,
+            arrivals,
+            repair_exclusions: Default::default(),
+        };
+
+        for (phase, _) in LIVING_PHASE_REGISTRY_V2 {
+            match phase {
+                LivingPhaseV2::ApplyCreatorInterventions => {
+                    if recorded.is_none() {
+                        apply_queued_interventions(&mut context, &self.queue)?;
+                    }
+                }
+                LivingPhaseV2::ExpireLifecycles => {
+                    if !scheduled_applied {
+                        advance_lifecycles(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::ResolveArrivals => {
+                    if !scheduled_applied {
+                        resolve_arrivals(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::ResolveConflict => {
+                    if !observations_applied {
+                        resolve_combat_occupation_and_claims(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::RunProduction => {
+                    if !observations_applied {
+                        complete_jobs_and_run_recipes(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::RefreshObservations => {
+                    if !observations_applied {
+                        refresh_observations(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::UpdateDiplomacy => {
+                    if !diplomacy_applied && tick.0.is_multiple_of(DIPLOMACY_PERIOD_TICKS) {
+                        update_diplomacy(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::GenerateIntents => {
+                    if !intents_applied && tick.0.is_multiple_of(INTENT_PERIOD_TICKS) {
+                        generate_and_reserve_intents(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::DispatchOrders => {
+                    if !dispatch_applied {
+                        dispatch_orders_and_freight(&mut context)?;
+                    }
+                }
+                LivingPhaseV2::CommitBoundary => {
+                    if sealed_receipt.is_none() {
+                        context.state.tick = tick;
+                    }
+                }
+            }
+        }
+
+        let receipt = if let Some(receipt) = sealed_receipt {
+            receipt
+        } else {
+            candidate.validate(&self.catalog)?;
+            let digest = candidate.digest()?;
+            let applied = match recorded {
+                Some(LivingAppliedRevisionsV2::Sorted(applied)) => applied,
+                recorded => {
+                    let mut applied = match recorded {
+                        Some(LivingAppliedRevisionsV2::Accepted(applied)) => applied,
+                        None => self.queue.iter().map(|queued| queued.revision.id).collect(),
+                        Some(LivingAppliedRevisionsV2::Sorted(_)) => unreachable!(),
+                    };
+                    applied.sort_unstable();
+                    applied
+                }
+            };
+            seal_living_tick_receipt_v2(tick, applied, &events, digest)?
+        };
+        let event_facts =
+            super::event_facts::seal_living_event_facts_receipt_v2(&receipt, &events)?;
+        let creator_recoveries =
+            bind_creator_recoveries(&candidate, &receipt, &events.creator_recoveries);
+        let mut corridor_restrictions = std::mem::take(&mut events.corridor_restrictions);
+        for witness in &mut corridor_restrictions {
+            if witness.tick != receipt.tick {
+                return Err(LivingDeterministicFaultV2::Invariant);
+            }
+            witness.receipt_digest = receipt.digest;
+        }
+        let decision = super::decision::seal_living_decision_receipt_v2(
+            self.catalog.catalog_hash(),
+            self.branch,
+            match source_digest {
+                Some(digest) => digest,
+                None => self.state.digest()?,
+            },
+            &receipt,
+            events.decisions,
+        )?;
+        Ok((
+            candidate,
+            receipt,
+            decision,
+            event_facts,
+            creator_recoveries,
+            corridor_restrictions,
+        ))
+    }
+
+    #[cfg(test)]
+    fn run_boundary_candidate_reference(
         &self,
         mut candidate: LivingGalaxyStateV2,
         mut events: LivingPendingEventsV2,
@@ -8383,6 +8775,221 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn counted_sealing_matches_independent_synchronous_boundary() {
+        for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 31, 256, 7, 1024][..]] {
+            let mut authority = authority();
+            submit(&mut authority, vec![system("Seal oracle")]);
+            let expected = authority
+                .run_boundary_candidate_reference(
+                    authority.state.as_ref().clone(),
+                    LivingPendingEventsV2::new(),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+            let mut reference = authority.clone();
+            assert_eq!(reference.step_reference().unwrap(), expected.1);
+            assert_eq!(reference.state(), &expected.0);
+            let mut job = authority.begin_step().unwrap();
+            let mut poll = 0;
+            loop {
+                let budget = schedule[poll % schedule.len()];
+                let progress = job.poll(budget).unwrap();
+                assert!(job.last_poll_visits() <= budget);
+                poll += 1;
+                assert!(poll < 100_000);
+                if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                    break;
+                }
+            }
+            assert_eq!(job.completed_output.as_ref().unwrap().0, expected.0);
+            assert_eq!(job.sealed_receipt.as_ref().unwrap(), &expected.1);
+            assert_eq!(job.poll(0), Err(LivingStepJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+            assert_eq!(job.poll(1025), Err(LivingStepJobErrorV2::Budget));
+            assert_eq!(job.last_poll_visits(), 0);
+            assert_eq!(
+                job.poll(1).unwrap(),
+                LivingStepProgressV2::NeedsSynchronousCompletion
+            );
+            assert_eq!(job.last_poll_visits(), 0);
+            let LivingStepPreparationV2::Ready(prepared) =
+                job.take_synchronous_preparation(&authority).unwrap()
+            else {
+                panic!("success")
+            };
+            assert_eq!(prepared.receipt(), &expected.1);
+            assert_eq!(prepared.decision_receipt(), &expected.2);
+            assert_eq!(prepared.event_facts_receipt(), &expected.3);
+        }
+    }
+
+    #[test]
+    fn counted_sealing_empty_parent_all_valid_budgets() {
+        let authority = authority();
+        let expected = authority
+            .run_boundary_candidate_reference(
+                authority.state.as_ref().clone(),
+                LivingPendingEventsV2::new(),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        for budget in 1..=1024 {
+            let mut job = authority.begin_step().unwrap();
+            loop {
+                let progress = job.poll(budget).unwrap();
+                assert!(job.last_poll_visits() <= budget);
+                if progress == LivingStepProgressV2::NeedsSynchronousCompletion {
+                    break;
+                }
+            }
+            assert_eq!(&job.completed_output.as_ref().unwrap().0, &expected.0);
+            assert_eq!(job.sealed_receipt.as_ref(), Some(&expected.1));
+            let mut retirement =
+                job.into_retirement(LivingPublicationRetirementPolicyV2::ReleaseHandle);
+            while retirement.poll(1024).unwrap() != LivingPublicationRetirementProgressV2::Ready {}
+        }
+    }
+
+    #[test]
+    fn counted_sealing_moves_original_applied_id_allocation_into_preparation() {
+        let mut authority = authority();
+        submit(&mut authority, vec![system("Original ID buffer")]);
+        let mut job = authority.begin_step().unwrap();
+        let pointer = loop {
+            job.poll(1).unwrap();
+            if let Some(work) = &job.applied_revisions
+                && work.ready
+                && job.sealing.is_none()
+            {
+                assert_eq!(work.output.len(), 1);
+                break work.output.as_ptr();
+            }
+        };
+        while job.poll(1).unwrap() != LivingStepProgressV2::NeedsSynchronousCompletion {}
+        assert_eq!(
+            job.sealed_receipt
+                .as_ref()
+                .unwrap()
+                .applied_revisions
+                .as_ptr(),
+            pointer
+        );
+        let LivingStepPreparationV2::Ready(prepared) =
+            job.take_synchronous_preparation(&authority).unwrap()
+        else {
+            panic!("success")
+        };
+        assert_eq!(prepared.receipt().applied_revisions.as_ptr(), pointer);
+        assert_eq!(
+            prepared.receipt().applied_revisions,
+            vec![authority.queue[0].revision.id]
+        );
+        let mut retirement =
+            job.into_retirement(LivingPublicationRetirementPolicyV2::ReleaseHandle);
+        while retirement.poll(1024).unwrap() != LivingPublicationRetirementProgressV2::Ready {}
+    }
+
+    #[test]
+    fn counted_sealing_validation_precedes_ordinary_revision_fault() {
+        let authority = super::super::rules::builtin_living_sandbox_v2().unwrap();
+        let mut candidate = authority.state.as_ref().clone();
+        candidate.stars.record_at_mut(0).unwrap().system = LivingEntityIdV2([255; 16]);
+        candidate.tick = LivingTickV2(1);
+        let expected = candidate.validate(&authority.catalog).unwrap_err();
+        let pointer = candidate.stars.as_slice().as_ptr();
+        let mut seal = LivingBoundarySealJobV2::begin(
+            candidate,
+            LivingPendingEventsV2::new(),
+            vec![LivingRevisionIdV2([2; 32]), LivingRevisionIdV2([1; 32])],
+            LivingTickV2(1),
+        );
+        let error = loop {
+            if let Err(error) = seal.visit(&authority.catalog) {
+                break error;
+            }
+        };
+        assert_eq!(
+            error,
+            super::super::step_job::LivingLifecycleJobErrorV2::Fault(expected.into())
+        );
+        assert!(seal.hash.is_none());
+        assert!(seal.ordinary.is_none());
+        assert_eq!(
+            seal.state.as_ref().unwrap().stars.as_slice().as_ptr(),
+            pointer
+        );
+        assert!(seal.take_ready_result().is_none());
+        let mut retirement = super::super::step_job::LivingPhaseRetirementJobV2::begin(
+            seal,
+            super::super::step_job::LivingStateRetirementPolicyV2::ReleaseHandle,
+        );
+        while retirement.poll(64).unwrap()
+            != super::super::step_job::LivingLifecycleProgressV2::Ready
+        {}
+    }
+
+    #[test]
+    fn counted_sealing_every_reached_stage_retains_candidate_on_cancel_or_stale() {
+        for stage in 0..=7 {
+            for cancel in [false, true] {
+                let mut authority = authority();
+                submit(&mut authority, vec![system("Retained sealing")]);
+                let mut job = authority.begin_step().unwrap();
+                for poll in 0..100_000 {
+                    if job.sealing.as_ref().is_some_and(|seal| seal.stage == stage) {
+                        break;
+                    }
+                    job.poll(1).unwrap();
+                    assert!(poll < 99_999, "stage {stage}");
+                }
+                let seal = job.sealing.as_ref().unwrap();
+                let state = seal.candidate.as_ref().or(seal.state.as_deref()).unwrap();
+                let pointer = state.systems.as_slice().as_ptr();
+                assert!(!state.systems.as_slice().is_empty());
+                if cancel {
+                    job.cancel();
+                } else {
+                    submit(&mut authority, vec![system("New queue")]);
+                }
+                assert!(!job.is_current(&authority));
+                assert!(matches!(
+                    job.take_synchronous_preparation(&authority),
+                    Err(LivingStepJobErrorV2::Cancelled | LivingStepJobErrorV2::Stale)
+                ));
+                let seal = job.sealing.as_ref().unwrap();
+                let state = seal.candidate.as_ref().or(seal.state.as_deref()).unwrap();
+                assert_eq!(state.systems.as_slice().as_ptr(), pointer);
+                let mut retirement =
+                    job.into_retirement(LivingPublicationRetirementPolicyV2::ReleaseHandle);
+                while retirement.poll(64).unwrap() != LivingPublicationRetirementProgressV2::Ready {
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn staged_step_sealing_sets_candidate_tick_before_synchronous_suffix() {
+        let mut authority = authority();
+        submit(&mut authority, vec![system("Counted sealing")]);
+        let mut job = authority.begin_step().unwrap();
+        for _ in 0..100_000 {
+            if job.poll(64).unwrap() == LivingStepProgressV2::NeedsSynchronousCompletion {
+                assert_eq!(
+                    job.completed_output.as_ref().unwrap().0.tick,
+                    LivingTickV2(1)
+                );
+                assert_eq!(authority.state().tick, LivingTickV2(0));
+                return;
+            }
+        }
+        panic!("sealing did not complete");
+    }
+
+    #[test]
     fn applied_revision_preparation_receipt_order_differs_from_accepted_journal() {
         let mut base = authority();
         for name in ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"] {
@@ -8408,8 +9015,10 @@ pub(crate) mod tests {
             }
             let work = job.applied_revisions.as_ref().unwrap();
             assert!(work.ready);
-            assert_eq!(work.output, sorted);
-            let output_pointer = work.output.as_ptr();
+            assert!(work.output.is_empty(), "original IDs moved into receipt");
+            let sealed = job.sealed_receipt.as_ref().unwrap();
+            assert_eq!(sealed.applied_revisions, sorted);
+            let output_pointer = sealed.applied_revisions.as_ptr();
             let visits = job.total_visits();
             if let Some(total) = total {
                 assert_eq!(visits, total);
@@ -8597,8 +9206,7 @@ pub(crate) mod tests {
         let base = scheduled_staged_fixture();
         let mut reference = base.clone();
         reference.step().unwrap();
-        let mut expected = reference.state().clone();
-        expected.tick = base.state().tick;
+        let expected = reference.state().clone();
         let mut total = None;
         for budget in [1, 64, 1024] {
             let mut staged = base.clone();
@@ -17122,7 +17730,11 @@ mod removal_creator_tests {
                     .as_ref()
                     .expect("bounded ID prerequisite reached");
                 assert!(ids.ready);
-                assert_eq!(ids.output, vec![authority.queue[0].revision.id]);
+                assert!(ids.output.is_empty(), "original IDs moved into receipt");
+                assert_eq!(
+                    job.sealed_receipt.as_ref().unwrap().applied_revisions,
+                    vec![authority.queue[0].revision.id]
+                );
                 let LivingStepPreparationV2::Ready(prepared) =
                     job.take_synchronous_preparation(&authority).unwrap()
                 else {
