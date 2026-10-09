@@ -6818,6 +6818,12 @@ macro_rules! storage_job {
                 self.selected_capacity = usize::MAX;
                 true
             }
+            #[cfg(test)]
+            pub(crate) fn inject_structural_growth_capacity_failure(&mut self) -> bool {
+                if self.stage != StorageStage::Inspect { return false; }
+                self.additional = usize::MAX;
+                true
+            }
             pub(crate) fn begin(original: $collection, additional: usize) -> Self {
                 Self {
                     original: Some(original),
@@ -31121,5 +31127,84 @@ mod creator_replacement_tests {
             Err(LivingLifecycleJobErrorV2::PreparationCapacity)
         );
         drain(job, SCHEDULES[3]);
+    }
+}
+
+// The validator already owns the exact incremental indexes; phase retirement
+// drains those original allocations, then releases its retained source/catalog.
+impl<'a> RetirementFields<'a> for LivingStateValidationJobV2 {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            catalog: _,
+            source: _,
+            effective_tick: _,
+            cursor: _,
+            index: _,
+            nested: _,
+            collection: _,
+            untargeted_jobs: _,
+            hull_count: _,
+            targeted_jobs: _,
+            identities: _,
+            systems: _,
+            worlds: _,
+            civilizations: _,
+            lanes: _,
+            fleets: _,
+            declarations: _,
+            industry: _,
+            observed_batteries: _,
+            cancelled: _,
+            delivered: _,
+            retirement_requested: _,
+            retirement_ready: _,
+            retirement_index: _,
+            fault: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(
+                std::mem::take(&mut self.targeted_jobs),
+                policy,
+            )),
+            1 => Some(retirement_node(
+                std::mem::take(&mut self.identities),
+                policy,
+            )),
+            2 => Some(retirement_node(std::mem::take(&mut self.systems), policy)),
+            3 => Some(retirement_node(std::mem::take(&mut self.worlds), policy)),
+            4 => Some(retirement_node(
+                std::mem::take(&mut self.civilizations),
+                policy,
+            )),
+            5 => Some(retirement_node(std::mem::take(&mut self.lanes), policy)),
+            6 => Some(retirement_node(std::mem::take(&mut self.fleets), policy)),
+            7 => Some(retirement_node(
+                std::mem::take(&mut self.declarations),
+                policy,
+            )),
+            8 => Some(retirement_node(std::mem::take(&mut self.industry), policy)),
+            9 => Some(retirement_node(self.source.take(), policy)),
+            10 => Some(retirement_node(
+                self.catalog.take().map(LivingPhaseCatalogV2::Owned),
+                policy,
+            )),
+            _ => None,
+        }
+    }
+}
+impl<'a> RetirementFields<'a> for ValidationIndustryCounts {
+    const LEAF: bool = true;
+    fn retirement_child(
+        &mut self,
+        _: usize,
+        _: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        None
     }
 }

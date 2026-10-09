@@ -268,7 +268,11 @@ impl Frame {
                         Action::Child(Owner::Completed(v))
                     }),
                     14 => fault(v.fault.take()),
-                    15 if v.applied_revisions.is_some() => node(v.applied_revisions.take()),
+                    // Preserve the optional-tail convention: absent owners do
+                    // not introduce synthetic retirement work. If both exist,
+                    // the original intent owner precedes revision preparation.
+                    15 if v.intents.is_some() => node(v.intents.take()),
+                    15 | 16 if v.applied_revisions.is_some() => node(v.applied_revisions.take()),
                     _ => Action::Done,
                 }
             }
@@ -557,6 +561,12 @@ pub struct LivingPublicationRetirementJobV2 {
     shared: u64,
 }
 impl LivingPublicationRetirementJobV2 {
+    pub(crate) fn begin_fault(value: LivingDeterministicFaultV2) -> Self {
+        Self::begin(
+            Owner::Fault(value),
+            LivingPublicationRetirementPolicyV2::ReleaseHandle,
+        )
+    }
     fn begin(root: Owner, policy: LivingPublicationRetirementPolicyV2) -> Self {
         let mut job = Self::begin_open(policy);
         job.root = Some(root);
@@ -1298,7 +1308,10 @@ impl<'a> RetirementFields<'a> for LivingCompletedStepPhasesV2 {
             Self::Scheduled { arrivals } => {
                 (i == 0).then(|| retirement_node(std::mem::take(arrivals), p))
             }
-            Self::ObservationsComplete | Self::DiplomacyComplete | Self::DispatchComplete => None,
+            Self::ObservationsComplete
+            | Self::DiplomacyComplete
+            | Self::IntentsComplete
+            | Self::DispatchComplete => None,
         }
     }
 }
@@ -1821,7 +1834,7 @@ audited_fields!(LivingPreparedFailureOwnersV2;capture,fault);
 audited_fields!(LivingStepCommitRejectionV2;reason,_preparation);
 audited_fields!(LivingRetiredBoundaryV2;_capture,_token,_receipt,_decision,_event_facts,_creator_recoveries,_corridor_restrictions);
 audited_fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement,count,index,ready);
-audited_fields!(LivingStepJobV2;applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
+audited_fields!(LivingStepJobV2;applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,intents,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
 audited_fields!(LivingQueuedCreatorJobV2;state,queue,catalog,events,stage,revision_index,operation_index,index,locals,dormant,insertion,diplomacy_work,cancellation_work,effect_work,colony_operation,colony_create,colony_removal,colony_changed,colony_owners,recovery_storage,pending_recovery,hull_parent,hull_output,hull_index,hull_id,append,retirement,last_poll_visits,delivered);
 audited_fields!(LivingGalaxyAuthorityV2;catalog,genesis_seed,generator,branch,state,committed_revision,revisions,revision_modes,queue,accepted_sequence_high_water,fault,origin,root_branch,branch_sequence_high_water,replay_branch_sequence,archives,replay_base,saved_present,redo,last_receipt,last_decision,last_event_facts,last_creator_recoveries,last_corridor_restrictions);
 #[cfg(test)]
@@ -3113,6 +3126,80 @@ mod tests {
     }
 
     #[test]
+    fn due_intent_step_retirement_optional_tail_preserves_all_four_owner_combinations() {
+        for intents in [false, true] {
+            for revisions in [false, true] {
+                for budgets in [&[1][..], &[64][..], &[1024][..], MIXED] {
+                    let authority = authority();
+                    let mut step = Box::new(authority.begin_step().unwrap());
+                    if intents {
+                        step.intents = Some(Box::new(
+                            super::super::super::rules::LivingDueIntentsJobV2::begin(
+                                Arc::clone(&authority.catalog),
+                                LivingGalaxyStateV2::default(),
+                                LivingPendingEventsV2::default(),
+                                LivingTickV2(20),
+                                [0x33; 32],
+                                authority.branch,
+                            ),
+                        ));
+                    }
+                    if revisions {
+                        step.applied_revisions = Some(LivingAppliedRevisionPreparationV2::begin(1));
+                    }
+                    let mut frame = Frame {
+                        owner: Owner::Step(StepOwner::Boxed(step)),
+                        field: 15,
+                    };
+                    let aliases = Arc::strong_count(&authority.catalog);
+                    // Each present original owner yields exactly one child.
+                    // Neither absent owner produces a placeholder node.
+                    for index in 0..usize::from(intents) + usize::from(revisions) {
+                        let Action::Node(mut child) = frame.visit() else {
+                            panic!("present tail owner omitted")
+                        };
+                        if intents && index == 0 {
+                            assert_eq!(
+                                Arc::strong_count(&authority.catalog),
+                                aliases,
+                                "handoff retains original catalog aliases"
+                            );
+                        }
+                        let Owner::Step(owner) = &mut frame.owner else {
+                            unreachable!()
+                        };
+                        assert!(owner.value().intents.is_none());
+                        assert_eq!(
+                            owner.value().applied_revisions.is_some(),
+                            intents && revisions && index == 0
+                        );
+                        let mut finished = false;
+                        for _ in 0..100_000 {
+                            match child.retirement_step() {
+                                RetirementStep::Done => {
+                                    finished = true;
+                                    break;
+                                }
+                                RetirementStep::Work => {}
+                                RetirementStep::Deferred(_) => {
+                                    panic!("ReleaseHandle has external anchors")
+                                }
+                            }
+                        }
+                        assert!(finished);
+                    }
+                    assert!(matches!(frame.visit(), Action::Done));
+                    let mut rest = LivingPublicationRetirementJobV2::begin(
+                        frame.owner,
+                        LivingPublicationRetirementPolicyV2::ReleaseHandle,
+                    );
+                    drain(&mut rest, budgets);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn publication_retirement_borrowed_rejection_preserves_capture_and_partial_owners() {
         for mode in 0..3 {
             let mut a = creator_fixture();
@@ -3873,6 +3960,7 @@ mod creator_parent_cut_tests {
             observation: None,
             observation_events: None,
             diplomacy: None,
+            intents: None,
             dispatch: None,
             completed_output: None,
             applied_revisions: None,

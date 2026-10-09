@@ -13453,6 +13453,1035 @@ mod intent_reservation_tests {
         assert!(bad.inputs.is_some());
     }
 
+    fn due_intent_reference(
+        authority: &LivingGalaxyAuthorityV2,
+        source: &LivingGalaxyStateV2,
+        events: super::super::receipt::LivingPendingEventsV2,
+    ) -> (
+        LivingGalaxyStateV2,
+        super::super::receipt::LivingPendingEventsV2,
+    ) {
+        let mut state = source.clone();
+        let mut events = events;
+        let mut ctx = LivingStepContextV2 {
+            catalog: authority.catalog(),
+            genesis_seed: [0; 32],
+            branch: authority.branch(),
+            tick: LivingTickV2(source.tick.0 + 1),
+            state: &mut state,
+            events: &mut events,
+            arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
+        };
+        generate_and_reserve_intents_with_disclosure(&mut ctx, false).unwrap();
+        (state, events)
+    }
+    fn due_intent_cross_system_state() -> LivingGalaxyStateV2 {
+        let mut state = route_adjustment_state();
+        let graph = exact_path_state(3, &[(0, 1, 1), (0, 2, 1)]);
+        state.systems = graph.systems;
+        state.lanes = graph.lanes;
+        for row in state.stars.as_slice().to_vec() {
+            state.stars.find_mut(&row.id).unwrap().system = eid(32);
+        }
+        for row in state.worlds.as_slice().to_vec() {
+            state.worlds.find_mut(&row.id).unwrap().system = eid(32);
+        }
+        state.worlds.find_mut(&eid(8)).unwrap().system = eid(34);
+        state
+    }
+    fn due_intent_job(
+        authority: &LivingGalaxyAuthorityV2,
+        state: &LivingGalaxyStateV2,
+    ) -> LivingDueIntentsJobV2 {
+        LivingDueIntentsJobV2::begin(
+            authority.catalog_snapshot(),
+            state.clone(),
+            Default::default(),
+            LivingTickV2(state.tick.0 + 1),
+            [0; 32],
+            authority.branch(),
+        )
+    }
+    #[test]
+    fn due_intent_parent_independent_orchestration_state_decisions_and_funding() {
+        use super::super::step_job::{
+            LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+        };
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let (_, fleet) = fleet_enumeration_fixture();
+        let mut winning_actors = std::collections::BTreeSet::new();
+        let mut fleet_winner = false;
+        for state in [
+            authority.state().clone(),
+            route_adjustment_state(),
+            fleet,
+            due_intent_cross_system_state(),
+        ] {
+            let (expected, events) = due_intent_reference(&authority, &state, Default::default());
+            let mut total = None;
+            for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+                let mut job = due_intent_job(&authority, &state);
+                let source = job.source.clone();
+                let source_ptr = source.worlds.as_slice().as_ptr();
+                assert!(matches!(job.take_ready_result(), Err(Error::NotReady)));
+                for invalid in [0, 1025] {
+                    assert_eq!(job.poll(invalid), Err(Error::Budget));
+                    assert_eq!(job.last_poll_visits(), 0);
+                }
+                let mut polls = 0;
+                loop {
+                    let budget = budgets[polls % budgets.len()];
+                    polls += 1;
+                    let before = job.total_visits;
+                    let progress = job.poll(budget).unwrap();
+                    assert!(job.last_poll_visits <= budget);
+                    assert_eq!(job.total_visits - before, job.last_poll_visits as u64);
+                    assert_eq!(source.worlds.as_slice().as_ptr(), source_ptr);
+                    assert_eq!(*source, state);
+                    if progress == Progress::Ready {
+                        break;
+                    }
+                    assert!(polls < 2_000_000);
+                }
+                if let Some(total) = total {
+                    assert_eq!(job.total_visits, total);
+                } else {
+                    total = Some(job.total_visits);
+                }
+                assert_eq!(job.poll(1), Ok(Progress::Ready));
+                assert_eq!(job.last_poll_visits, 0);
+                let (actual, actual_events) = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(actual_events.decisions, events.decisions);
+                assert_eq!(actual_events.payloads(), events.payloads());
+                assert_eq!(actual_events.explained, events.explained);
+                assert!(matches!(job.take_ready_result(), Err(Error::NotReady)));
+                for actor in state.civilizations.as_slice() {
+                    let accepted: Vec<_> = actual_events
+                        .decisions
+                        .iter()
+                        .filter(|d| {
+                            d.actor == actor.id && d.outcome == LivingDecisionOutcomeV2::Accepted
+                        })
+                        .collect();
+                    assert!(accepted.len() <= 2);
+                    for decision in accepted {
+                        winning_actors.insert(decision.actor);
+                        fleet_winner |= matches!(
+                            decision.action,
+                            LivingIntentActionV2::Settle { .. }
+                                | LivingIntentActionV2::Explore { .. }
+                                | LivingIntentActionV2::Attack { .. }
+                                | LivingIntentActionV2::Defend { .. }
+                        );
+                        assert_eq!(
+                            decision.snapshot_digest,
+                            living_decision_snapshot_digest_v2(
+                                &state,
+                                LivingTickV2(state.tick.0 + 1)
+                            )
+                            .unwrap()
+                        );
+                    }
+                }
+                rules_retirement_drain(job, budgets);
+            }
+        }
+        assert!(fleet_winner, "fixture must accept a fleet proposal");
+        assert!(
+            winning_actors.len() >= 2,
+            "fixture must accept multiple actors"
+        );
+    }
+    #[test]
+    fn due_intent_empty_all_budgets_and_stage_cancel_retirement() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = LivingGalaxyStateV2::default();
+        let mut expected = None;
+        for budget in 1..=1024 {
+            let mut job = due_intent_job(&authority, &state);
+            while job.poll(budget).unwrap() != Progress::Ready {}
+            if let Some(total) = expected {
+                assert_eq!(job.total_visits, total);
+            } else {
+                expected = Some(job.total_visits);
+            }
+            assert_eq!(job.take_ready_result().unwrap().0, state);
+            rules_retirement_drain(job, &[budget]);
+        }
+        let state = route_adjustment_state();
+        rules_retirement_exercise(
+            || due_intent_job(&authority, &state),
+            |j, b| j.poll(b),
+            |j| j.take_ready_result(),
+            |j, f| {
+                if f {
+                    j.fault = Some(super::super::step_job::LivingLifecycleJobErrorV2::Fault(
+                        LivingDeterministicFaultV2::Arithmetic,
+                    ));
+                } else {
+                    j.cancel();
+                }
+            },
+            |j| j.test_stage_key(),
+        );
+    }
+    #[test]
+    fn due_intent_nested_domain_conflict_and_original_payload_retention() {
+        let (_, state) = fleet_enumeration_fixture();
+        let mut old = state.fleets.as_slice()[0].clone();
+        old.order = Some(LivingFleetOrderV2 {
+            kind: LivingFleetOrderKindV2::Explore,
+            target_world: Some(eid(5)),
+            not_before_tick: LivingTickV2(51),
+            lane_path: vec![eid(7); 513],
+        });
+        let mut changed = old.clone();
+        changed.order.as_mut().unwrap().lane_path[512] = eid(9);
+        let mut reserved = old.clone();
+        reserved.hulls = LivingSortedVecV2::default();
+        let before = LivingSortedVecV2::new(vec![old.clone()]).unwrap();
+        let mut measured = None;
+        for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+            let proposed = LivingSortedVecV2::new(vec![changed.clone()]).unwrap();
+            let pointer = proposed.as_slice()[0]
+                .order
+                .as_ref()
+                .unwrap()
+                .lane_path
+                .as_ptr();
+            let current = LivingSortedVecV2::new(vec![reserved.clone()]).unwrap();
+            let mut job = IntentReservationDomain::begin(proposed, current);
+            let mut visits = 0;
+            while !job.ready() {
+                job.visit(&before).unwrap();
+                visits += 1;
+                assert!(visits < 10000);
+            }
+            assert!(job.conflict);
+            assert!(visits > 513);
+            assert_eq!(
+                job.proposal_row
+                    .as_ref()
+                    .unwrap()
+                    .order
+                    .as_ref()
+                    .unwrap()
+                    .lane_path
+                    .as_ptr(),
+                pointer
+            );
+            let retirement = rules_retirement_drain(job, budgets);
+            if let Some(expected) = measured {
+                assert_eq!((visits, retirement), expected);
+            } else {
+                measured = Some((visits, retirement));
+            }
+        }
+    }
+
+    #[test]
+    fn due_intent_reservation_conflict_fallback_uses_common_snapshot() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+            let mut job = due_intent_job(&authority, &state);
+            while job.stage != IntentStage::Actor || !job.retirement.is_empty() {
+                job.poll(1).unwrap();
+            }
+            let first = &job.batches.as_slice()[0].economy.as_ref().unwrap().ranked[0].1;
+            let mut reserved = state.clone();
+            match first.action {
+                LivingEconomicActionV2::Construction { world, .. }
+                | LivingEconomicActionV2::Hull { world, .. } => {
+                    reserved.worlds.find_mut(&world).unwrap().inventory.alloy += 1
+                }
+                LivingEconomicActionV2::Supply {
+                    existing_route: Some(id),
+                    ..
+                } => reserved.routes.find_mut(&id).unwrap().batch_size += 1,
+                _ => panic!("fixture must exercise a changed original row"),
+            }
+            job.reserved = Some(std::sync::Arc::new(reserved));
+            let mut polls = 0;
+            while job.poll(budgets[polls % budgets.len()]).unwrap() != Progress::Ready {
+                polls += 1;
+            }
+            let (_, events) = job.take_ready_result().unwrap();
+            assert!(events.decisions.iter().any(|d|d.reasons.iter().any(|r|matches!(r,LivingDecisionReasonV2::InvalidTarget{rule,..} if rule.as_str()=="reservation_conflict"))));
+            assert!(
+                events
+                    .decisions
+                    .iter()
+                    .any(|d| d.outcome == LivingDecisionOutcomeV2::Accepted)
+            );
+            let digest = living_decision_snapshot_digest_v2(&state, LivingTickV2(50)).unwrap();
+            let mut ordinals = std::collections::BTreeMap::new();
+            for decision in &events.decisions {
+                assert_eq!(decision.snapshot_digest, digest);
+                let next = ordinals.entry(decision.actor).or_insert(0);
+                assert_eq!(decision.ordinal, *next);
+                *next += 1;
+            }
+            rules_retirement_drain(job, budgets);
+        }
+    }
+    #[test]
+    fn due_intent_dense_lower_rank_remaps_actual_original_ordinals() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        let (_, reference) = due_intent_reference(&authority, &state, Default::default());
+        let mut first = reference.decisions[0].clone();
+        first.phase = LivingPhaseV2::UpdateDiplomacy;
+        first.ordinal = 11;
+        let mut second = first.clone();
+        second.ordinal = 29;
+        second.reasons.push(LivingDecisionReasonV2::LowerRank {
+            winning_actor: first.actor,
+            winning_ordinal: 11,
+        });
+        let mut events = super::super::receipt::LivingPendingEventsV2::new();
+        events.decisions = vec![second, first];
+        let (expected, expected_events) = due_intent_reference(&authority, &state, events.clone());
+        for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+            let mut job = due_intent_job(&authority, &state);
+            job.events = events.clone();
+            let mut polls = 0;
+            while job.poll(budgets[polls % budgets.len()]).unwrap() != Progress::Ready {
+                polls += 1;
+            }
+            let (actual, actual_events) = job.take_ready_result().unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(actual_events.decisions, expected_events.decisions);
+            assert!(
+                actual_events
+                    .decisions
+                    .iter()
+                    .flat_map(|d| &d.reasons)
+                    .any(|r| matches!(
+                        r,
+                        LivingDecisionReasonV2::LowerRank {
+                            winning_ordinal: 0,
+                            ..
+                        }
+                    ))
+            );
+            rules_retirement_drain(job, budgets);
+        }
+    }
+    #[test]
+    fn due_intent_genuine_storage_capacity_and_arithmetic_failure_are_sticky() {
+        use super::super::step_job::LivingLifecycleJobErrorV2 as Error;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        let mut job = due_intent_job(&authority, &state);
+        while !job.worlds.as_ref().is_some_and(|d| d.storage.is_some()) {
+            job.poll(1).unwrap();
+        }
+        let pointer = job.worlds.as_ref().unwrap().proposed.as_slice().as_ptr();
+        assert!(
+            job.worlds
+                .as_mut()
+                .unwrap()
+                .storage
+                .as_mut()
+                .unwrap()
+                .inject_structural_empty_capacity_failure()
+        );
+        assert_eq!(job.poll(1), Err(Error::PreparationCapacity));
+        assert_eq!(job.last_poll_visits, 1);
+        assert_eq!(
+            job.worlds.as_ref().unwrap().proposed.as_slice().as_ptr(),
+            pointer
+        );
+        assert_eq!(**job.source, state);
+        for budget in [1, 64, 1024] {
+            assert_eq!(job.poll(budget), Err(Error::PreparationCapacity));
+            assert_eq!(job.last_poll_visits, 0);
+        }
+        assert!(matches!(
+            job.take_ready_result(),
+            Err(Error::PreparationCapacity)
+        ));
+        rules_retirement_drain(job, RULES_MIXED);
+        let mut state = state;
+        state.tick = LivingTickV2(u64::MAX - 1);
+        let mut reference = state.clone();
+        let mut events = super::super::receipt::LivingPendingEventsV2::new();
+        let mut ctx = LivingStepContextV2 {
+            catalog: authority.catalog(),
+            genesis_seed: [0; 32],
+            branch: authority.branch(),
+            tick: LivingTickV2(u64::MAX),
+            state: &mut reference,
+            events: &mut events,
+            arrivals: Vec::new(),
+            repair_exclusions: Default::default(),
+        };
+        assert_eq!(
+            generate_and_reserve_intents_with_disclosure(&mut ctx, false),
+            Err(LivingDeterministicFaultV2::Arithmetic)
+        );
+        let mut job = due_intent_job(&authority, &state);
+        let error = loop {
+            if let Err(error) = job.poll(64) {
+                break error;
+            }
+        };
+        assert_eq!(error, Error::Fault(LivingDeterministicFaultV2::Arithmetic));
+        for budget in [1, 64, 1024] {
+            assert_eq!(job.poll(budget), Err(error.clone()));
+            assert_eq!(job.last_poll_visits, 0);
+        }
+        assert_eq!(**job.source, state);
+        rules_retirement_drain(job, RULES_MIXED);
+    }
+    #[test]
+    fn due_intent_domain_literal_retirement_counts_and_original_paths() {
+        use super::super::step_job::RetirementStep;
+        let (_, state) = fleet_enumeration_fixture();
+        for paths in [0, 1, 17, 513] {
+            for hulls in [0, 1, 3] {
+                for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+                    let mut fleet = state.fleets.as_slice()[0].clone();
+                    fleet.order = Some(LivingFleetOrderV2 {
+                        kind: LivingFleetOrderKindV2::Explore,
+                        target_world: Some(eid(5)),
+                        not_before_tick: LivingTickV2(51),
+                        lane_path: vec![eid(7); paths],
+                    });
+                    fleet.hulls = LivingSortedVecV2::new(
+                        (0..hulls)
+                            .map(|i| hull(eid(100 + i as u8), "scout", false).unwrap())
+                            .collect(),
+                    )
+                    .unwrap();
+                    let proposed = LivingSortedVecV2::new(vec![fleet.clone()]).unwrap();
+                    let current = LivingSortedVecV2::new(vec![fleet]).unwrap();
+                    let job = IntentReservationDomain::begin(proposed, current);
+                    // Seven domain fields: 15 tree visits plus empty lane7,
+                    // fresh optional storage25, two iterators1 each, two None1,
+                    // sorted output4. Each fleet adds path+hulls+7 visits.
+                    assert_eq!(
+                        rules_retirement_drain(job, budgets),
+                        69 + 2 * (paths + hulls) as u64
+                    );
+                }
+            }
+        }
+        let mut fleet = state.fleets.as_slice()[0].clone();
+        fleet.order = Some(LivingFleetOrderV2 {
+            kind: LivingFleetOrderKindV2::Explore,
+            target_world: Some(eid(5)),
+            not_before_tick: LivingTickV2(51),
+            lane_path: vec![eid(7); 513],
+        });
+        let path = fleet.order.as_ref().unwrap().lane_path.as_ptr() as usize;
+        let job = IntentReservationDomain::begin(
+            LivingSortedVecV2::new(vec![fleet]).unwrap(),
+            LivingSortedVecV2::default(),
+        );
+        let mut node = retirement_node(job, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut last = 513;
+        let mut removed = false;
+        loop {
+            let mut owners = Vec::new();
+            node.creator_allocations(&mut owners);
+            let tail = owners
+                .iter()
+                .find(|(pointer, _, _, size)| {
+                    *size == std::mem::size_of::<LivingEntityIdV2>()
+                        && *pointer >= path
+                        && *pointer <= path + 513 * size
+                })
+                .map(|(_, len, _, _)| *len);
+            if let Some(len) = tail {
+                assert!(!removed);
+                assert!(len <= last && last - len <= 1);
+                last = len;
+            } else {
+                assert!(last <= 1);
+                removed = true;
+            }
+            if matches!(node.retirement_step(), RetirementStep::Done) {
+                break;
+            }
+        }
+        assert!(removed);
+    }
+
+    #[test]
+    fn due_intent_prospective_capacity_rejects_trial_then_falls_back() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        let mut job = due_intent_job(&authority, &state);
+        while job.stage != IntentStage::Reserve || job.domain != 6 || !job.retirement.is_empty() {
+            job.poll(1).unwrap();
+        }
+        let trial = job.trial.as_mut().unwrap();
+        let world = trial.facilities.as_slice()[0].world;
+        for i in 0..7 {
+            put(
+                &mut trial.facilities,
+                facility(eid(230 + i), world, "extractor", Some(LivingTickV2(60))).unwrap(),
+            )
+            .unwrap();
+        }
+        let mut observed = false;
+        loop {
+            let progress = job.poll(1).unwrap();
+            observed |= job.stage == IntentStage::CapacityReason;
+            if progress == Progress::Ready {
+                break;
+            }
+        }
+        assert!(observed);
+        let (actual, events) = job.take_ready_result().unwrap();
+        assert!(events.decisions.iter().any(|d| {
+            d.outcome == LivingDecisionOutcomeV2::Rejected
+                && d.reasons
+                    .iter()
+                    .any(|r| matches!(r, LivingDecisionReasonV2::QueueCapacity { .. }))
+        }));
+        assert!(
+            events
+                .decisions
+                .iter()
+                .any(|d| d.outcome == LivingDecisionOutcomeV2::Accepted)
+        );
+        assert!(
+            !actual
+                .facilities
+                .as_slice()
+                .iter()
+                .any(|row| (230..237).any(|n| row.id == eid(n)))
+        );
+        assert_eq!(**job.source, state);
+        rules_retirement_drain(job, RULES_MIXED);
+    }
+    #[test]
+    fn due_intent_invalid_trial_fault_preserves_original_authority_and_owners() {
+        use super::super::step_job::LivingLifecycleJobErrorV2 as Error;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        let mut job = due_intent_job(&authority, &state);
+        while job.stage != IntentStage::Reserve || job.domain != 6 || !job.retirement.is_empty() {
+            job.poll(1).unwrap();
+        }
+        job.trial
+            .as_mut()
+            .unwrap()
+            .worlds
+            .record_at_mut(0)
+            .unwrap()
+            .inventory
+            .alloy = u32::MAX;
+        let error = loop {
+            if let Err(error) = job.poll(1) {
+                break error;
+            }
+        };
+        assert!(matches!(
+            error,
+            Error::Fault(LivingDeterministicFaultV2::Validation(_))
+        ));
+        let pointer = job
+            .validation_source
+            .as_ref()
+            .unwrap()
+            .worlds
+            .as_slice()
+            .as_ptr();
+        for budget in [1, 64, 1024] {
+            assert_eq!(job.poll(budget), Err(error.clone()));
+            assert_eq!(job.last_poll_visits, 0);
+        }
+        assert_eq!(
+            job.validation_source
+                .as_ref()
+                .unwrap()
+                .worlds
+                .as_slice()
+                .as_ptr(),
+            pointer
+        );
+        assert_eq!(**job.source, state);
+        rules_retirement_drain(job, RULES_MIXED);
+    }
+    #[test]
+    fn due_intent_positive_cross_system_supply_and_funding() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = due_intent_cross_system_state();
+        state.validate(authority.catalog()).unwrap();
+        let mut job = due_intent_job(&authority, &state);
+        while job.poll(64).unwrap() != Progress::Ready {}
+        let (actual, events) = job.take_ready_result().unwrap();
+        let route = actual
+            .routes
+            .as_slice()
+            .iter()
+            .find(|r| r.id == eid(90))
+            .unwrap();
+        assert!(!route.suspended);
+        assert_eq!(route.source_reserve, 20);
+        assert_eq!(route.next_due, LivingTickV2(77));
+        assert!(
+            events
+                .decisions
+                .iter()
+                .any(|d| d.outcome == LivingDecisionOutcomeV2::Accepted
+                    && matches!(d.action, LivingIntentActionV2::Route { .. }))
+        );
+        let original_alloy: u64 = state
+            .worlds
+            .as_slice()
+            .iter()
+            .map(|r| u64::from(r.inventory.alloy))
+            .sum();
+        let final_alloy: u64 = actual
+            .worlds
+            .as_slice()
+            .iter()
+            .map(|r| u64::from(r.inventory.alloy))
+            .sum();
+        let jobs = actual
+            .hull_jobs
+            .as_slice()
+            .iter()
+            .filter(|r| !state.hull_jobs.as_slice().iter().any(|o| o.id == r.id))
+            .map(|r| u64::from(r.paid_alloy))
+            .sum::<u64>()
+            + actual
+                .construction_jobs
+                .as_slice()
+                .iter()
+                .filter(|r| {
+                    !state
+                        .construction_jobs
+                        .as_slice()
+                        .iter()
+                        .any(|o| o.id == r.id)
+                })
+                .map(|r| u64::from(r.paid_alloy))
+                .sum::<u64>();
+        assert_eq!(original_alloy, final_alloy + jobs);
+        rules_retirement_drain(job, RULES_MIXED);
+    }
+
+    #[test]
+    fn due_intent_positive_paid_construction_hull_and_emergency() {
+        use super::super::step_job::LivingLifecycleProgressV2 as Progress;
+        for (policy, emergency, definition) in [
+            ("neutral", false, "foundry"),
+            ("guardian", false, "escort"),
+            ("guardian", true, "solar_array"),
+        ] {
+            // The existing independent ranking regression establishes these
+            // concrete winners. Reuse its gameplay state, not a private cursor edit.
+            let mut authority = builtin_first_expansion_v2().unwrap();
+            for _ in 0..49 {
+                authority.step().unwrap();
+            }
+            let mut state = authority.state().clone();
+            let actor = state.civilizations.as_slice()[0].id;
+            let home = state.colonies.as_slice()[0].world;
+            state.civilizations.find_mut(&actor).unwrap().policy =
+                LivingPolicyV2(slug(policy).unwrap());
+            remove_key(
+                &mut state.fleets.find_mut(&eid(11)).unwrap().hulls,
+                &eid(14),
+            )
+            .unwrap();
+            if emergency {
+                remove_key(&mut state.facilities, &eid(8)).unwrap();
+                state.worlds.find_mut(&home).unwrap().inventory.energy = 0;
+                let hull = state
+                    .fleets
+                    .find_mut(&eid(11))
+                    .unwrap()
+                    .hulls
+                    .find_mut(&eid(13))
+                    .unwrap();
+                hull.hit_points = 1;
+                hull.next_repair = Some(LivingTickV2(50));
+            }
+            let mut ignored = super::super::receipt::LivingPendingEventsV2::new();
+            let ctx = LivingStepContextV2 {
+                catalog: authority.catalog(),
+                genesis_seed: [0; 32],
+                branch: authority.branch(),
+                tick: LivingTickV2(50),
+                state: &mut state,
+                events: &mut ignored,
+                arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
+            };
+            for target in [home, eid(5)] {
+                let observation = observe_world(&ctx, actor, target, ctx.tick).unwrap();
+                put(&mut ctx.state.observations, observation).unwrap();
+            }
+            let (expected, expected_events) =
+                due_intent_reference(&authority, &state, Default::default());
+            for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+                let mut job = due_intent_job(&authority, &state);
+                let mut calls = 0;
+                loop {
+                    let budget = budgets[calls % budgets.len()];
+                    calls += 1;
+                    if job.poll(budget).unwrap() == Progress::Ready {
+                        break;
+                    }
+                }
+                let (actual, events) = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(events.decisions, expected_events.decisions);
+                let jobs: Vec<_> = actual
+                    .construction_jobs
+                    .as_slice()
+                    .iter()
+                    .filter(|r| r.owner == actor)
+                    .map(|r| (r.definition.as_str(), r.paid_alloy))
+                    .chain(
+                        actual
+                            .hull_jobs
+                            .as_slice()
+                            .iter()
+                            .filter(|r| r.owner == actor)
+                            .map(|r| (r.definition.as_str(), r.paid_alloy)),
+                    )
+                    .collect();
+                assert_eq!(jobs.len(), 1);
+                assert_eq!(jobs[0].0, definition);
+                assert!(jobs[0].1 > 0);
+                let alloy = |s: &LivingGalaxyStateV2| {
+                    s.worlds
+                        .as_slice()
+                        .iter()
+                        .map(|r| u64::from(r.inventory.alloy))
+                        .sum::<u64>()
+                };
+                assert_eq!(alloy(&state) - alloy(&actual), u64::from(jobs[0].1));
+                assert_eq!(
+                    events
+                        .decisions
+                        .iter()
+                        .filter(|d| d.actor == actor
+                            && d.outcome == LivingDecisionOutcomeV2::Accepted
+                            && matches!(
+                                d.action,
+                                LivingIntentActionV2::Construction { .. }
+                                    | LivingIntentActionV2::Hull { .. }
+                            ))
+                        .count(),
+                    1
+                );
+                rules_retirement_drain(job, budgets);
+            }
+        }
+    }
+
+    #[test]
+    fn due_intent_full_colony_replacement_and_original_facility_retirement() {
+        use super::super::step_job::{LivingLifecycleProgressV2 as Progress, RetirementStep};
+        let authority = builtin_first_expansion_v2().unwrap();
+        for stock in [0, 200] {
+            let mut state = authority.state().clone();
+            state.tick = LivingTickV2(49);
+            remove_key(&mut state.facilities, &eid(10)).unwrap();
+            for offset in 0..4 {
+                let mut row = facility(
+                    eid(60 + offset),
+                    eid(4),
+                    "solar_array",
+                    Some(LivingTickV2(60)),
+                )
+                .unwrap();
+                if offset == 0 {
+                    row.disabled = true;
+                    row.status = LivingFacilityStatusV2::Blocked;
+                    row.blocked_reasons =
+                        LivingSortedVecV2::new(vec![LivingBlockedReasonV2::Disabled]).unwrap();
+                }
+                put(&mut state.facilities, row).unwrap();
+            }
+            state.worlds.find_mut(&eid(4)).unwrap().inventory = LivingInventoryV2 {
+                energy: LIVING_RESOURCE_STORAGE_LIMIT_V2,
+                ore: LIVING_RESOURCE_STORAGE_LIMIT_V2,
+                alloy: stock,
+            };
+            let mut ignored = super::super::receipt::LivingPendingEventsV2::new();
+            let ctx = LivingStepContextV2 {
+                catalog: authority.catalog(),
+                genesis_seed: [0; 32],
+                branch: authority.branch(),
+                tick: LivingTickV2(50),
+                state: &mut state,
+                events: &mut ignored,
+                arrivals: Vec::new(),
+                repair_exclusions: Default::default(),
+            };
+            let observation = observe_world(&ctx, eid(3), eid(5), ctx.tick).unwrap();
+            put(&mut ctx.state.observations, observation).unwrap();
+            let (expected, expected_events) =
+                due_intent_reference(&authority, &state, Default::default());
+            for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+                let mut job = due_intent_job(&authority, &state);
+                let mut calls = 0;
+                loop {
+                    let budget = budgets[calls % budgets.len()];
+                    calls += 1;
+                    if job.poll(budget).unwrap() == Progress::Ready {
+                        break;
+                    }
+                }
+                let (actual, events) = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(events.decisions, expected_events.decisions);
+                if stock == 0 {
+                    assert_eq!(actual.facilities, state.facilities);
+                    assert!(actual.construction_jobs.as_slice().is_empty());
+                } else {
+                    // At full Energy, solar eid(8) is forecast-idle and is
+                    // the smallest eligible duplicate, before disabled eid(60).
+                    assert_eq!(actual.facilities.as_slice().len(), 5);
+                    assert!(!actual.facilities.as_slice().iter().any(|r| r.id == eid(8)));
+                    let paid = actual.construction_jobs.as_slice();
+                    assert_eq!(paid.len(), 1);
+                    assert_eq!(paid[0].definition.as_str(), "shipyard");
+                    assert_eq!(
+                        state
+                            .worlds
+                            .as_slice()
+                            .iter()
+                            .find(|r| r.id == eid(4))
+                            .unwrap()
+                            .inventory
+                            .alloy
+                            - actual
+                                .worlds
+                                .as_slice()
+                                .iter()
+                                .find(|r| r.id == eid(4))
+                                .unwrap()
+                                .inventory
+                                .alloy,
+                        paid[0].paid_alloy
+                    );
+                }
+                rules_retirement_drain(job, budgets);
+            }
+            if stock != 0 {
+                let mut job = due_intent_job(&authority, &state);
+                while job.facility_remove.is_none() {
+                    job.poll(1).unwrap();
+                }
+                let mut original = Vec::new();
+                job.facility_remove.creator_allocations(&mut original);
+                let nested = original
+                    .iter()
+                    .find(|(_, n, _, size)| {
+                        *n == 1 && *size == std::mem::size_of::<LivingBlockedReasonV2>()
+                    })
+                    .copied()
+                    .expect("original blocked-reason allocation");
+                job.cancel();
+                assert_eq!(
+                    job.poll(1),
+                    Err(super::super::step_job::LivingLifecycleJobErrorV2::Cancelled)
+                );
+                // Exercise the actual parent field edge, retaining its original
+                // filter and nested reason allocation while the owner drains.
+                let mut node = job
+                    .retirement_child(28, LivingStateRetirementPolicyV2::ReleaseHandle)
+                    .unwrap();
+                let mut saw_original = false;
+                let mut remaining = nested.1;
+                loop {
+                    let mut held = Vec::new();
+                    node.creator_allocations(&mut held);
+                    if let Some(row) = held.iter().find(|r| {
+                        r.3 == nested.3 && r.0 >= nested.0 && r.0 <= nested.0 + nested.1 * nested.3
+                    }) {
+                        assert!(row.1 <= remaining && remaining - row.1 <= 1);
+                        if let Some(capacity) = row.2 {
+                            assert_eq!(Some(capacity), nested.2);
+                        }
+                        remaining = row.1;
+                        saw_original = true;
+                    } else {
+                        assert!(remaining <= 1);
+                    }
+                    if matches!(node.retirement_step(), RetirementStep::Done) {
+                        break;
+                    }
+                }
+                assert!(saw_original);
+                assert_eq!(**job.source, state);
+                rules_retirement_drain(job, RULES_MIXED);
+            }
+        }
+    }
+
+    #[test]
+    fn due_intent_reason_storage_growth_capacity_and_recursive_diagnostic_retention() {
+        use super::super::step_job::LivingLifecycleJobErrorV2 as Error;
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        for fail in [false, true] {
+            let mut job = due_intent_job(&authority, &state);
+            while job.reason_storage.is_none() {
+                job.poll(1).unwrap();
+            }
+            let mut original = Vec::new();
+            job.reason_storage.creator_allocations(&mut original);
+            let original = original
+                .into_iter()
+                .find(|(_, len, _, size)| {
+                    *len > 0 && *size == std::mem::size_of::<LivingDecisionReasonV2>()
+                })
+                .unwrap();
+            if fail {
+                assert!(
+                    job.reason_storage
+                        .as_mut()
+                        .unwrap()
+                        .inject_structural_growth_capacity_failure()
+                );
+                assert_eq!(job.poll(1), Err(Error::PreparationCapacity));
+                assert_eq!(job.last_poll_visits, 1);
+                let mut held = Vec::new();
+                job.reason_storage.creator_allocations(&mut held);
+                assert!(held.contains(&original));
+                for budget in [1, 64, 1024] {
+                    assert_eq!(job.poll(budget), Err(Error::PreparationCapacity));
+                    assert_eq!(job.last_poll_visits, 0);
+                }
+            } else {
+                while job.stage == IntentStage::Reasons || !job.retirement.is_empty() {
+                    job.poll(1).unwrap();
+                }
+                let reasons = &job.decision.as_ref().unwrap().reasons;
+                assert!(reasons.capacity() > reasons.len());
+                let prepared = reasons.as_ptr();
+                let len = reasons.len();
+                while job.stage != IntentStage::DecisionStore {
+                    job.poll(1).unwrap();
+                }
+                let reasons = &job.decision.as_ref().unwrap().reasons;
+                assert_eq!(reasons.as_ptr(), prepared);
+                assert_eq!(reasons.len(), len + 1);
+                job.cancel();
+            }
+            assert_eq!(**job.source, state);
+            rules_retirement_drain(job, RULES_MIXED);
+        }
+        // Unreachable from due-intent children, but a recursively owned injected
+        // diagnostic must never be recursively cloned by terminal reporting.
+        let mut job = due_intent_job(&authority, &state);
+        let mut fault = LivingDeterministicFaultV2::Invariant;
+        for _ in 0..513 {
+            fault = LivingDeterministicFaultV2::Replay {
+                accepted_sequence: 1,
+                reason: Box::new(super::super::simulation::LivingCommandRejectionV2::Seal(
+                    fault,
+                )),
+            };
+        }
+        job.fault = Some(Error::Fault(fault));
+        for budget in [1, 64, 1024] {
+            assert_eq!(
+                job.poll(budget),
+                Err(Error::Fault(LivingDeterministicFaultV2::Invariant))
+            );
+            assert_eq!(job.last_poll_visits, 0);
+        }
+        assert!(matches!(
+            job.take_ready_result(),
+            Err(Error::Fault(LivingDeterministicFaultV2::Invariant))
+        ));
+        rules_retirement_drain(job, RULES_MIXED);
+    }
+
+    #[test]
+    fn due_intent_facility_and_batch_literal_nested_retirement_counts() {
+        let authority = builtin_living_sandbox_v2().unwrap();
+        let state = route_adjustment_state();
+        let (_, events) = due_intent_reference(&authority, &state, Default::default());
+        for n in [0, 1, 7, 65] {
+            for reasons in [0, 1, 3] {
+                for budgets in [&[1][..], &[64][..], &[1024][..], RULES_MIXED] {
+                    let mut row = state.facilities.as_slice()[0].clone();
+                    let entries = vec![
+                        LivingBlockedReasonV2::Disabled,
+                        LivingBlockedReasonV2::MissingDeposit {
+                            required: 1,
+                            available: 0,
+                        },
+                        LivingBlockedReasonV2::MissingInput {
+                            resource: LivingResourceV2::Energy,
+                            required: 1,
+                            available: 0,
+                        },
+                    ];
+                    row.blocked_reasons =
+                        LivingSortedVecV2::new(entries.into_iter().take(reasons).collect())
+                            .unwrap();
+                    let domain = IntentReservationDomain::begin(
+                        LivingSortedVecV2::new(vec![row.clone()]).unwrap(),
+                        LivingSortedVecV2::new(vec![row]).unwrap(),
+                    );
+                    assert_eq!(
+                        rules_retirement_drain(domain, budgets),
+                        65 + 2 * reasons as u64
+                    );
+                    let batches = (0..n)
+                        .map(|_| {
+                            let mut decision = events.decisions[0].clone();
+                            decision.reasons = (0..reasons)
+                                .map(|_| LivingDecisionReasonV2::Accepted {
+                                    rule: slug("atomic_reservation").unwrap(),
+                                })
+                                .collect();
+                            LivingFleetBatchV2 {
+                                actor: decision.actor,
+                                economy: Some(LivingEconomicBatchV2 {
+                                    actor: decision.actor,
+                                    economic_count: 1,
+                                    ranked: vec![(
+                                        0,
+                                        LivingEconomicCandidateV2 {
+                                            tier: 1,
+                                            score: 1,
+                                            target: eid(5),
+                                            action: LivingEconomicActionV2::Hull {
+                                                world: eid(5),
+                                                definition: "scout",
+                                            },
+                                        },
+                                    )],
+                                    explanations: vec![decision],
+                                }),
+                                fleets: Vec::with_capacity(7),
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    // Each batch: outer roots/edges18, one scalar candidate3,
+                    // one decision6 plus three visits per reason; Vec root1.
+                    assert_eq!(
+                        rules_retirement_drain(batches, budgets),
+                        1 + n as u64 * (27 + 3 * reasons as u64)
+                    );
+                }
+            }
+        }
+    }
+
     const RULES_MIXED: &[usize] = &[1, 64, 7, 1024, 3];
     fn rules_retirement_drain<T: RetirementFields<'static>>(owner: T, budgets: &[usize]) -> u64 {
         use super::super::step_job::{
@@ -15366,13 +16395,6 @@ impl<'a> LivingScheduledForecastJobV2<'a> {
 
 impl LivingScheduledForecastJobV2<'static> {
     /// Move catalog and source owners without scanning or cloning their records.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Owned forecast composition is a subsequent V2 slice."
-        )
-    )]
     fn begin_owned(
         catalog: std::sync::Arc<ValidatedLivingCatalogPackV2>,
         source: std::sync::Arc<LivingGalaxyStateV2>,
@@ -15433,13 +16455,6 @@ fn forecast_scheduled_economy_with_explanations(
 }
 
 // Private decision-input composition; later intent slices consume this output.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private intent composition precedes reservation integration."
-    )
-)]
 struct LivingIntentInputsV2 {
     snapshot: RulesOwner<std::sync::Arc<LivingGalaxyStateV2>>,
     digest: super::ids::LivingStateDigestV2,
@@ -15450,13 +16465,6 @@ struct LivingIntentInputsV2 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private intent composition precedes reservation integration."
-    )
-)]
 enum IntentInputsStage {
     Copy,
     Hash,
@@ -15471,13 +16479,6 @@ enum IntentInputsStage {
     Ready,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private intent composition precedes reservation integration."
-    )
-)]
 struct LivingIntentInputsJobV2 {
     retirement: super::step_job::PhaseRetirementLane<'static>,
     catalog: RulesOwner<std::sync::Arc<ValidatedLivingCatalogPackV2>>,
@@ -15504,13 +16505,6 @@ struct LivingIntentInputsJobV2 {
     total_visits: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private intent composition precedes reservation integration."
-    )
-)]
 impl LivingIntentInputsJobV2 {
     fn begin(
         catalog: std::sync::Arc<ValidatedLivingCatalogPackV2>,
@@ -15555,6 +16549,7 @@ impl LivingIntentInputsJobV2 {
         }
     }
 
+    #[cfg(test)]
     fn cancel(&mut self) {
         // Retain partial copy/hash/forecast owners. The parent retires this job.
         self.cancelled = true;
@@ -15802,26 +16797,12 @@ impl LivingIntentInputsJobV2 {
 }
 
 // Private bounded enumeration. The reference above remains the parity oracle.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private enumeration precedes reservation integration."
-    )
-)]
 struct LivingEconomicBatchV2 {
     actor: LivingEntityIdV2,
     economic_count: usize,
     ranked: Vec<(u16, LivingEconomicCandidateV2)>,
     explanations: Vec<LivingIntentDecisionV2>,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private enumeration precedes reservation integration."
-    )
-)]
 struct LivingEconomicEnumerationV2 {
     catalog: RulesOwner<std::sync::Arc<ValidatedLivingCatalogPackV2>>,
     inputs: RulesOwner<LivingIntentInputsV2>,
@@ -15830,13 +16811,6 @@ struct LivingEconomicEnumerationV2 {
     batches: Vec<LivingEconomicBatchV2>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private enumeration precedes reservation integration."
-    )
-)]
 enum EconomicEnumerationStage {
     Worlds,
     Systems,
@@ -15900,13 +16874,6 @@ type EconomicRankingKey = (
     &'static str,
     u16,
 );
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private enumeration precedes reservation integration."
-    )
-)]
 struct LivingEconomicEnumerationJobV2 {
     retirement: super::step_job::PhaseRetirementLane<'static>,
     catalog: RulesOwner<std::sync::Arc<ValidatedLivingCatalogPackV2>>,
@@ -15971,13 +16938,6 @@ struct LivingEconomicEnumerationJobV2 {
     last_poll_visits: usize,
     total_visits: u64,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private enumeration precedes reservation integration."
-    )
-)]
 impl LivingEconomicEnumerationJobV2 {
     fn begin(
         catalog: std::sync::Arc<ValidatedLivingCatalogPackV2>,
@@ -16055,6 +17015,7 @@ impl LivingEconomicEnumerationJobV2 {
             total_visits: 0,
         }
     }
+    #[cfg(test)]
     fn cancel(&mut self) {
         self.cancelled = true;
     }
@@ -17673,38 +18634,17 @@ struct FleetEnumerationSummary {
     escort_cost: u32,
     scout: Option<LivingEntityIdV2>,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private fleet enumeration precedes reservation integration."
-    )
-)]
 struct LivingFleetCandidateV2 {
     state: Box<LivingGalaxyStateV2>,
     decision: LivingIntentDecisionV2,
     action_bytes: Vec<u8>,
     deltas: Vec<LivingFleetDeltaV2>,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private fleet enumeration precedes reservation integration."
-    )
-)]
 struct LivingFleetBatchV2 {
     actor: LivingEntityIdV2,
     economy: Option<LivingEconomicBatchV2>,
     fleets: Vec<LivingFleetCandidateV2>,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private fleet enumeration precedes reservation integration."
-    )
-)]
 struct LivingFleetEnumerationV2 {
     economics: RulesOwner<LivingEconomicEnumerationV2>,
     graph: RulesOwner<std::sync::Arc<super::step_job::RetreatGraph>>,
@@ -17751,13 +18691,6 @@ type FleetRankingKey = (
     Option<LivingEntityIdV2>,
     FleetCanonicalKey,
 );
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private fleet enumeration precedes reservation integration."
-    )
-)]
 struct LivingFleetEnumerationJobV2 {
     retirement: super::step_job::PhaseRetirementLane<'static>,
     economics: Option<LivingEconomicEnumerationV2>,
@@ -17814,13 +18747,6 @@ struct LivingFleetEnumerationJobV2 {
     last_poll_visits: usize,
     total_visits: u64,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Private fleet enumeration precedes reservation integration."
-    )
-)]
 impl LivingFleetEnumerationJobV2 {
     fn begin(
         mut economics: LivingEconomicEnumerationV2,
@@ -17907,6 +18833,7 @@ impl LivingFleetEnumerationJobV2 {
         self.index = 0;
         self.nested = 0;
     }
+    #[cfg(test)]
     fn cancel(&mut self) {
         self.cancelled = true;
     }
@@ -20087,5 +21014,1615 @@ mod general_production_forecast_tests {
             }
             assert_eq!(r.poll(1).unwrap(), Progress::Ready);
         }
+    }
+}
+
+// Due-intent reservation compares nested rows without cloning their payloads.
+trait IntentReservationRow: LivingKeyedV2<Key = LivingEntityIdV2> {
+    /// None means another nested record remains; Some is the completed equality.
+    fn equal_visit(&self, other: &Self, index: usize) -> Option<bool>;
+}
+macro_rules! intent_flat_rows {
+    ($($ty:ty),* $(,)?) => {$(impl IntentReservationRow for $ty {
+        fn equal_visit(&self, other: &Self, _: usize) -> Option<bool> { Some(self == other) }
+    })*};
+}
+intent_flat_rows!(
+    LivingWorldV2,
+    LivingHullJobV2,
+    LivingConstructionJobV2,
+    LivingFreightRouteV2
+);
+impl IntentReservationRow for LivingFacilityV2 {
+    fn equal_visit(&self, other: &Self, index: usize) -> Option<bool> {
+        if index == 0 {
+            return (self.id != other.id
+                || self.world != other.world
+                || self.definition != other.definition
+                || self.status != other.status
+                || self.paid_alloy != other.paid_alloy
+                || self.hit_points != other.hit_points
+                || self.next_due != other.next_due
+                || self.next_repair != other.next_repair
+                || self.disabled != other.disabled
+                || self.blocked_reasons.as_slice().len()
+                    != other.blocked_reasons.as_slice().len())
+            .then_some(false);
+        }
+        match (
+            self.blocked_reasons.as_slice().get(index - 1),
+            other.blocked_reasons.as_slice().get(index - 1),
+        ) {
+            (Some(a), Some(b)) if a == b => None,
+            (None, None) => Some(true),
+            _ => Some(false),
+        }
+    }
+}
+impl IntentReservationRow for LivingFleetV2 {
+    fn equal_visit(&self, other: &Self, index: usize) -> Option<bool> {
+        let header = |f: &Self| {
+            f.order
+                .as_ref()
+                .map(|o| (o.kind, o.target_world, o.not_before_tick, o.lane_path.len()))
+        };
+        if index == 0 {
+            return (self.id != other.id
+                || self.owner != other.owner
+                || self.location != other.location
+                || header(self) != header(other)
+                || self.hulls.as_slice().len() != other.hulls.as_slice().len())
+            .then_some(false);
+        }
+        let paths = self.order.as_ref().map_or(0, |o| o.lane_path.len());
+        if index <= paths {
+            return (self.order.as_ref().unwrap().lane_path[index - 1]
+                != other.order.as_ref().unwrap().lane_path[index - 1])
+                .then_some(false);
+        }
+        match (
+            self.hulls.as_slice().get(index - paths - 1),
+            other.hulls.as_slice().get(index - paths - 1),
+        ) {
+            (Some(a), Some(b)) if a == b => None,
+            (None, None) => Some(true),
+            _ => Some(false),
+        }
+    }
+}
+
+/// Merge a proposal delta into an owned trial. Original input iterators, held
+/// rows and displaced nested rows remain owned until counted retirement.
+struct IntentReservationDomain<T: IntentReservationRow + RetirementFields<'static>> {
+    proposed: std::vec::IntoIter<T>,
+    current: std::vec::IntoIter<T>,
+    proposal_row: Option<T>,
+    current_row: Option<T>,
+    output: LivingSortedVecV2<T>,
+    storage: Option<super::step_job::LivingSortedStorageJobV2<'static, T>>,
+    retirement: super::step_job::PhaseRetirementLane<'static>,
+    before: usize,
+    key: Option<LivingEntityIdV2>,
+    stage: u8,
+    nested: usize,
+    conflict: bool,
+}
+impl<T: IntentReservationRow + RetirementFields<'static>> IntentReservationDomain<T> {
+    fn begin(proposed: LivingSortedVecV2<T>, current: LivingSortedVecV2<T>) -> Self {
+        let count = proposed
+            .as_slice()
+            .len()
+            .saturating_add(current.as_slice().len());
+        Self {
+            proposed: proposed.into_vec().into_iter(),
+            current: current.into_vec().into_iter(),
+            proposal_row: None,
+            current_row: None,
+            output: Default::default(),
+            storage: Some(super::step_job::LivingSortedStorageJobV2::begin_empty(
+                count,
+            )),
+            retirement: Default::default(),
+            before: 0,
+            key: None,
+            stage: 0,
+            nested: 0,
+            conflict: false,
+        }
+    }
+    fn compare(a: Option<&T>, b: Option<&T>, nested: usize) -> Option<bool> {
+        match (a, b) {
+            (Some(a), Some(b)) => a.equal_visit(b, nested),
+            (None, None) => Some(true),
+            _ => Some(false),
+        }
+    }
+    fn visit(
+        &mut self,
+        snapshot: &LivingSortedVecV2<T>,
+    ) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        if self.retirement.visit() {
+            return Ok(());
+        }
+        match self.stage {
+            0 => {
+                let storage = self.storage.as_mut().unwrap();
+                if !storage.ready() {
+                    storage.poll(1).map_err(|_| Error::PreparationCapacity)?;
+                } else {
+                    self.output = storage
+                        .take_ready_result()
+                        .map_err(|_| Error::PreparationCapacity)?;
+                    self.retirement.start(self.storage.take());
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.proposal_row.is_none() {
+                    self.proposal_row = self.proposed.next();
+                }
+                self.stage = 2;
+            }
+            2 => {
+                if self.current_row.is_none() {
+                    self.current_row = self.current.next();
+                }
+                self.stage = 3;
+            }
+            3 => {
+                self.key = [
+                    self.proposal_row.as_ref().map(LivingKeyedV2::living_key),
+                    self.current_row.as_ref().map(LivingKeyedV2::living_key),
+                    snapshot
+                        .as_slice()
+                        .get(self.before)
+                        .map(LivingKeyedV2::living_key),
+                ]
+                .into_iter()
+                .flatten()
+                .min();
+                self.stage = if self.key.is_none() { 9 } else { 4 };
+                self.nested = 0;
+            }
+            4 | 5 => {
+                let key = self.key.unwrap();
+                let before = snapshot
+                    .as_slice()
+                    .get(self.before)
+                    .filter(|r| r.living_key() == key);
+                let other = if self.stage == 4 {
+                    self.proposal_row.as_ref()
+                } else {
+                    self.current_row.as_ref()
+                }
+                .filter(|r| r.living_key() == key);
+                if let Some(equal) = Self::compare(before, other, self.nested) {
+                    if self.stage == 4 {
+                        self.stage = if equal { 6 } else { 5 };
+                    } else if equal {
+                        self.stage = 7;
+                    } else {
+                        self.conflict = true;
+                        self.stage = 9;
+                    }
+                    self.nested = 0;
+                } else {
+                    self.nested += 1;
+                }
+            }
+            6 | 7 => {
+                let key = self.key.unwrap();
+                let (selected, discarded) = if self.stage == 6 {
+                    (&mut self.current_row, &mut self.proposal_row)
+                } else {
+                    (&mut self.proposal_row, &mut self.current_row)
+                };
+                if selected.as_ref().is_some_and(|r| r.living_key() == key) {
+                    self.output
+                        .push_sorted_retained(selected)
+                        .map_err(|e| Error::Fault(e.into()))?;
+                }
+                if discarded.as_ref().is_some_and(|r| r.living_key() == key) {
+                    self.retirement.start(discarded.take());
+                }
+                self.stage = 8;
+            }
+            8 => {
+                if snapshot
+                    .as_slice()
+                    .get(self.before)
+                    .is_some_and(|r| Some(r.living_key()) == self.key)
+                {
+                    self.before += 1;
+                }
+                self.stage = 1;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn ready(&self) -> bool {
+        self.stage == 9 && self.retirement.is_empty()
+    }
+}
+impl<'a, T: IntentReservationRow + RetirementFields<'static>> RetirementFields<'a>
+    for IntentReservationDomain<T>
+{
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.proposed.creator_allocations(out);
+        self.current.creator_allocations(out);
+        self.proposal_row.creator_allocations(out);
+        self.current_row.creator_allocations(out);
+        self.output.creator_allocations(out);
+        self.storage.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+    }
+
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            proposed: _,
+            current: _,
+            proposal_row: _,
+            current_row: _,
+            output: _,
+            storage: _,
+            retirement: _,
+            before: _,
+            key: _,
+            stage: _,
+            nested: _,
+            conflict: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
+            1 => Some(retirement_node(self.storage.take(), policy)),
+            2 => Some(retirement_node(
+                std::mem::replace(&mut self.proposed, Vec::new().into_iter()),
+                policy,
+            )),
+            3 => Some(retirement_node(
+                std::mem::replace(&mut self.current, Vec::new().into_iter()),
+                policy,
+            )),
+            4 => Some(retirement_node(self.proposal_row.take(), policy)),
+            5 => Some(retirement_node(self.current_row.take(), policy)),
+            6 => Some(retirement_node(std::mem::take(&mut self.output), policy)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IntentStage {
+    Inputs,
+    Economics,
+    Fleets,
+    GraphSystems,
+    GraphLanes,
+    Actor,
+    Economy,
+    Fleet,
+    Reasons,
+    ProposalCopy,
+    Apply,
+    TrialCopy,
+    Reserve,
+    Validate,
+    CapacityReason,
+    Attempt,
+    DecisionStore,
+    AttemptCleanup,
+    Sort,
+    Dense,
+    Remap,
+    FinalCopy,
+    Ready,
+}
+
+/// Private transactional due-intent phase. Enumeration always reads `source`;
+/// only successful, prospectively validated trials replace `reserved`.
+pub(crate) struct LivingDueIntentsJobV2 {
+    catalog: RulesOwner<std::sync::Arc<ValidatedLivingCatalogPackV2>>,
+    source: RulesOwner<std::sync::Arc<LivingGalaxyStateV2>>,
+    reserved: Option<std::sync::Arc<LivingGalaxyStateV2>>,
+    inputs: Option<LivingIntentInputsJobV2>,
+    economics: Option<LivingEconomicEnumerationJobV2>,
+    fleets: Option<LivingFleetEnumerationJobV2>,
+    enumeration: Option<LivingFleetEnumerationV2>,
+    batches: std::vec::IntoIter<LivingFleetBatchV2>,
+    batch: Option<LivingFleetBatchV2>,
+    economic_rows: std::vec::IntoIter<(u16, LivingEconomicCandidateV2)>,
+    explanations: std::vec::IntoIter<LivingIntentDecisionV2>,
+    fleet_rows: std::vec::IntoIter<LivingFleetCandidateV2>,
+    economic: Option<LivingEconomicCandidateV2>,
+    decision: Option<LivingIntentDecisionV2>,
+    reason_storage: Option<super::step_job::LivingVecStorageJobV2<'static, LivingDecisionReasonV2>>,
+    copy: Option<super::step_job::LivingStateCopyJobV2>,
+    proposal: Option<LivingGalaxyStateV2>,
+    trial: Option<LivingGalaxyStateV2>,
+    validation_source: Option<std::sync::Arc<LivingGalaxyStateV2>>,
+    validation: Option<super::step_job::LivingStateValidationJobV2>,
+    validation_capacity: Option<LivingValidationErrorV2>,
+    worlds: Option<IntentReservationDomain<LivingWorldV2>>,
+    hull_jobs: Option<IntentReservationDomain<LivingHullJobV2>>,
+    construction_jobs: Option<IntentReservationDomain<LivingConstructionJobV2>>,
+    facilities: Option<IntentReservationDomain<LivingFacilityV2>>,
+    fleet_delta: Option<IntentReservationDomain<LivingFleetV2>>,
+    routes: Option<IntentReservationDomain<LivingFreightRouteV2>>,
+    hull_insert: Option<super::step_job::LivingSortedInsertionJobV2<LivingHullJobV2>>,
+    construction_insert:
+        Option<super::step_job::LivingSortedInsertionJobV2<LivingConstructionJobV2>>,
+    route_insert: Option<super::step_job::LivingSortedInsertionJobV2<LivingFreightRouteV2>>,
+    facility_remove: Option<super::step_job::LivingPlannedFilterJobV2<LivingFacilityV2>>,
+    path: Option<super::step_job::RetreatPathJob>,
+    events: super::receipt::LivingPendingEventsV2,
+    decisions: std::collections::BTreeMap<(u16, LivingEntityIdV2, u16), LivingIntentDecisionV2>,
+    old_decisions: std::vec::IntoIter<LivingIntentDecisionV2>,
+    decision_storage:
+        Option<super::step_job::LivingVecStorageJobV2<'static, LivingIntentDecisionV2>>,
+    remap: std::collections::BTreeMap<(u16, LivingEntityIdV2, u16), u16>,
+    retirement: super::step_job::PhaseRetirementLane<'static>,
+    tick: LivingTickV2,
+    seed: [u8; 32],
+    branch: super::ids::LivingBranchIdV2,
+    stage: IntentStage,
+    apply_stage: u8,
+    domain: u8,
+    index: usize,
+    nested: usize,
+    colony_index: usize,
+    source_system: Option<LivingEntityIdV2>,
+    destination_system: Option<LivingEntityIdV2>,
+    permission: bool,
+    war: bool,
+    adjacent: bool,
+    accepted_economy: bool,
+    accepted_fleet: bool,
+    is_economy: bool,
+    accepted: bool,
+    previous: Option<(u16, LivingEntityIdV2)>,
+    next: u32,
+    fault: Option<super::step_job::LivingLifecycleJobErrorV2>,
+    cancelled: bool,
+    delivered: bool,
+    last_poll_visits: usize,
+    total_visits: u64,
+}
+impl LivingDueIntentsJobV2 {
+    pub(crate) fn begin(
+        catalog: std::sync::Arc<ValidatedLivingCatalogPackV2>,
+        state: LivingGalaxyStateV2,
+        events: super::receipt::LivingPendingEventsV2,
+        tick: LivingTickV2,
+        seed: [u8; 32],
+        branch: super::ids::LivingBranchIdV2,
+    ) -> Self {
+        let source = std::sync::Arc::new(state);
+        Self {
+            inputs: Some(LivingIntentInputsJobV2::begin(
+                catalog.clone(),
+                source.clone(),
+                tick,
+                seed,
+                branch,
+            )),
+            catalog: catalog.into(),
+            source: source.clone().into(),
+            reserved: Some(source),
+            economics: None,
+            fleets: None,
+            enumeration: None,
+            batches: Vec::new().into_iter(),
+            batch: None,
+            economic_rows: Vec::new().into_iter(),
+            explanations: Vec::new().into_iter(),
+            fleet_rows: Vec::new().into_iter(),
+            economic: None,
+            decision: None,
+            reason_storage: None,
+            copy: None,
+            proposal: None,
+            trial: None,
+            validation_source: None,
+            validation: None,
+            validation_capacity: None,
+            worlds: None,
+            hull_jobs: None,
+            construction_jobs: None,
+            facilities: None,
+            fleet_delta: None,
+            routes: None,
+            hull_insert: None,
+            construction_insert: None,
+            route_insert: None,
+            facility_remove: None,
+            path: None,
+            events,
+            decisions: Default::default(),
+            old_decisions: Vec::new().into_iter(),
+            decision_storage: None,
+            remap: Default::default(),
+            retirement: Default::default(),
+            tick,
+            seed,
+            branch,
+            stage: IntentStage::Inputs,
+            apply_stage: 0,
+            domain: 0,
+            index: 0,
+            nested: 0,
+            colony_index: 0,
+            source_system: None,
+            destination_system: None,
+            permission: false,
+            war: false,
+            adjacent: false,
+            accepted_economy: false,
+            accepted_fleet: false,
+            is_economy: false,
+            accepted: false,
+            previous: None,
+            next: 0,
+            fault: None,
+            cancelled: false,
+            delivered: false,
+            last_poll_visits: 0,
+            total_visits: 0,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn test_stage_key(&self) -> (u8, bool) {
+        (
+            match self.stage {
+                IntentStage::Apply => 100 + self.apply_stage.min(30),
+                IntentStage::Reserve => 140 + self.domain,
+                _ => self.stage as u8,
+            },
+            !self.retirement.is_empty(),
+        )
+    }
+    // Enumeration, copy, storage, path and prospective validation produce
+    // finite diagnostics. Replay belongs to creator replay, outside this phase;
+    // preserve an unexpected recursive owner for retirement without cloning it.
+    fn reported_error(
+        error: &super::step_job::LivingLifecycleJobErrorV2,
+    ) -> super::step_job::LivingLifecycleJobErrorV2 {
+        use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        use LivingDeterministicFaultV2 as Fault;
+        match error {
+            Error::Budget => Error::Budget,
+            Error::Cancelled => Error::Cancelled,
+            Error::NotReady => Error::NotReady,
+            Error::PreparationCapacity => Error::PreparationCapacity,
+            Error::Fault(Fault::Replay { .. }) => Error::Fault(Fault::Invariant),
+            Error::Fault(
+                fault @ (Fault::ViewingHistory
+                | Fault::Invariant
+                | Fault::Capacity
+                | Fault::Arithmetic
+                | Fault::Validation(_)
+                | Fault::Wire(_)
+                | Fault::Receipt(_)
+                | Fault::Decision(_)
+                | Fault::EventFacts(_)),
+            ) => Error::Fault(fault.clone()),
+        }
+    }
+    pub(crate) fn last_poll_visits(&self) -> usize {
+        self.last_poll_visits
+    }
+    #[cfg(test)]
+    fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+    pub(crate) fn poll(
+        &mut self,
+        budget: usize,
+    ) -> Result<
+        super::step_job::LivingLifecycleProgressV2,
+        super::step_job::LivingLifecycleJobErrorV2,
+    > {
+        use super::step_job::{
+            LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+        };
+        self.last_poll_visits = 0;
+        if budget == 0 || budget > 1024 {
+            return Err(Error::Budget);
+        }
+        if let Some(error) = &self.fault {
+            return Err(Self::reported_error(error));
+        }
+        if self.cancelled {
+            return Err(Error::Cancelled);
+        }
+        while self.last_poll_visits < budget
+            && (self.stage != IntentStage::Ready || !self.retirement.is_empty())
+        {
+            if self.retirement.visit() {
+                self.last_poll_visits += 1;
+                self.total_visits += 1;
+                continue;
+            }
+            let remaining = budget - self.last_poll_visits;
+            let child = match self.stage {
+                IntentStage::Inputs => {
+                    let j = self.inputs.as_mut().unwrap();
+                    Some((j.poll(remaining), j.last_poll_visits))
+                }
+                IntentStage::Economics => {
+                    let j = self.economics.as_mut().unwrap();
+                    Some((j.poll(remaining), j.last_poll_visits))
+                }
+                IntentStage::Fleets => {
+                    let j = self.fleets.as_mut().unwrap();
+                    Some((j.poll(remaining), j.last_poll_visits))
+                }
+                IntentStage::Reasons => {
+                    let j = self.reason_storage.as_mut().unwrap();
+                    Some((
+                        j.poll(remaining).map_err(|_| Error::PreparationCapacity),
+                        j.last_poll_visits(),
+                    ))
+                }
+                IntentStage::ProposalCopy | IntentStage::TrialCopy | IntentStage::FinalCopy => {
+                    let j = self.copy.as_mut().unwrap();
+                    Some((j.poll(remaining), j.last_poll_visits()))
+                }
+                IntentStage::Validate => {
+                    let j = self.validation.as_mut().unwrap();
+                    Some((j.poll(remaining), j.last_poll_visits()))
+                }
+                _ => None,
+            };
+            if let Some((result, visits)) = child {
+                self.last_poll_visits += visits;
+                self.total_visits += visits as u64;
+                match result {
+                    Ok(Progress::Pending) => continue,
+                    Ok(Progress::Ready) => {
+                        if self.last_poll_visits == budget {
+                            break;
+                        }
+                    }
+                    Err(Error::Fault(LivingDeterministicFaultV2::Validation(
+                        LivingValidationErrorV2::Capacity {
+                            collection,
+                            limit,
+                            found,
+                        },
+                    ))) if self.stage == IntentStage::Validate => {
+                        self.validation_capacity = Some(LivingValidationErrorV2::Capacity {
+                            collection,
+                            limit,
+                            found,
+                        });
+                        self.stage = IntentStage::CapacityReason;
+                        continue;
+                    }
+                    Err(error) => {
+                        let reported = Self::reported_error(&error);
+                        self.fault = Some(error);
+                        return Err(reported);
+                    }
+                }
+            }
+            self.last_poll_visits += 1;
+            self.total_visits += 1;
+            if let Err(error) = self.visit() {
+                let reported = Self::reported_error(&error);
+                self.fault = Some(error);
+                return Err(reported);
+            }
+        }
+        Ok(
+            if self.stage == IntentStage::Ready && self.retirement.is_empty() {
+                Progress::Ready
+            } else {
+                Progress::Pending
+            },
+        )
+    }
+    fn visit(&mut self) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        use IntentStage::*;
+        match self.stage {
+            Inputs => {
+                let inputs = self.inputs.as_mut().unwrap().finish()?;
+                self.economics = Some(LivingEconomicEnumerationJobV2::begin(
+                    self.catalog.clone(),
+                    inputs,
+                    self.tick,
+                ));
+                self.retirement.start(self.inputs.take());
+                self.stage = Economics;
+            }
+            Economics => {
+                let economics = self.economics.as_mut().unwrap().finish()?;
+                self.fleets = Some(LivingFleetEnumerationJobV2::begin(
+                    economics,
+                    self.tick,
+                    self.seed,
+                    self.branch,
+                ));
+                self.retirement.start(self.economics.take());
+                self.stage = Fleets;
+            }
+            Fleets => {
+                let mut enumeration = self.fleets.as_mut().unwrap().finish()?;
+                self.batches = std::mem::take(&mut enumeration.batches).into_iter();
+                self.enumeration = Some(enumeration);
+                self.retirement.start(self.fleets.take());
+                self.index = 0;
+                self.stage = GraphSystems;
+            }
+            GraphSystems => {
+                let graph = std::sync::Arc::get_mut(&mut self.enumeration.as_mut().unwrap().graph)
+                    .expect("retired enumerator releases graph handle");
+                if let Some(row) = self.source.systems.as_slice().get(self.index) {
+                    // Reuse the enumerator's original, now-empty allocation.
+                    if graph.systems.len() == graph.systems.capacity() {
+                        return Err(Error::PreparationCapacity);
+                    }
+                    graph.systems.push(row.id);
+                    self.index += 1;
+                } else {
+                    self.index = 0;
+                    self.stage = GraphLanes;
+                }
+            }
+            GraphLanes => {
+                let graph = std::sync::Arc::get_mut(&mut self.enumeration.as_mut().unwrap().graph)
+                    .expect("private graph");
+                if let Some(row) = self.source.lanes.as_slice().get(self.index) {
+                    if graph.lanes.len() == graph.lanes.capacity() {
+                        return Err(Error::PreparationCapacity);
+                    }
+                    graph
+                        .lanes
+                        .push((row.id, row.system_a, row.system_b, row.distance_units));
+                    self.index += 1;
+                } else {
+                    self.stage = Actor;
+                }
+            }
+            Actor => {
+                if let Some(mut batch) = self.batches.next() {
+                    self.fleet_rows = std::mem::take(&mut batch.fleets).into_iter();
+                    if let Some(economy) = &mut batch.economy {
+                        self.economic_rows = std::mem::take(&mut economy.ranked).into_iter();
+                        self.explanations = std::mem::take(&mut economy.explanations).into_iter();
+                    }
+                    self.batch = Some(batch);
+                    self.accepted_economy = false;
+                    self.accepted_fleet = false;
+                    self.stage = Economy;
+                } else {
+                    self.old_decisions = std::mem::take(&mut self.events.decisions).into_iter();
+                    self.stage = Sort;
+                }
+            }
+            Economy => {
+                if self.accepted_economy {
+                    self.retirement.start((
+                        std::mem::replace(&mut self.economic_rows, Vec::new().into_iter()),
+                        std::mem::replace(&mut self.explanations, Vec::new().into_iter()),
+                    ));
+                    self.stage = Fleet;
+                } else if let Some((_, candidate)) = self.economic_rows.next() {
+                    self.economic = Some(candidate);
+                    self.decision = self.explanations.next();
+                    if self.decision.is_none() {
+                        return Err(Error::Fault(LivingDeterministicFaultV2::Invariant));
+                    }
+                    if self.decision.as_ref().unwrap().actor != self.batch.as_ref().unwrap().actor {
+                        return Err(Error::Fault(LivingDeterministicFaultV2::Invariant));
+                    }
+                    self.is_economy = true;
+                    self.begin_reasons();
+                } else {
+                    self.retirement.start((
+                        std::mem::replace(&mut self.economic_rows, Vec::new().into_iter()),
+                        std::mem::replace(&mut self.explanations, Vec::new().into_iter()),
+                    ));
+                    self.stage = Fleet;
+                }
+            }
+            Fleet => {
+                if self.accepted_fleet {
+                    self.retirement.start((
+                        std::mem::replace(&mut self.fleet_rows, Vec::new().into_iter()),
+                        self.batch.take(),
+                    ));
+                    self.stage = Actor;
+                } else if let Some(candidate) = self.fleet_rows.next() {
+                    let LivingFleetCandidateV2 {
+                        mut state,
+                        decision,
+                        action_bytes,
+                        deltas,
+                    } = candidate;
+                    self.proposal = Some(std::mem::take(&mut *state));
+                    self.decision = Some(decision);
+                    self.is_economy = false;
+                    self.retirement
+                        .start((Some(state), (RulesByteBuffer(action_bytes), deltas)));
+                    self.begin_reasons();
+                } else {
+                    self.retirement.start((
+                        std::mem::replace(&mut self.fleet_rows, Vec::new().into_iter()),
+                        self.batch.take(),
+                    ));
+                    self.stage = Actor;
+                }
+            }
+            Reasons => {
+                self.decision.as_mut().unwrap().reasons = self
+                    .reason_storage
+                    .as_mut()
+                    .unwrap()
+                    .take_ready_result()
+                    .map_err(|_| Error::PreparationCapacity)?;
+                self.retirement.start(self.reason_storage.take());
+                if self.is_economy {
+                    self.copy = Some(super::step_job::LivingStateCopyJobV2::begin(
+                        self.source.clone(),
+                    ));
+                    self.stage = ProposalCopy;
+                } else {
+                    self.begin_trial();
+                }
+            }
+            ProposalCopy => {
+                self.proposal = Some(self.copy.as_mut().unwrap().take_ready_result()?);
+                self.retirement.start(self.copy.take());
+                self.apply_stage = 0;
+                self.index = 0;
+                self.nested = 0;
+                self.colony_index = 0;
+                self.source_system = None;
+                self.destination_system = None;
+                self.permission = false;
+                self.war = false;
+                self.adjacent = false;
+                self.stage = Apply;
+            }
+            Apply => self.apply_visit()?,
+            TrialCopy => {
+                self.trial = Some(self.copy.as_mut().unwrap().take_ready_result()?);
+                self.retirement.start(self.copy.take());
+                self.domain = 0;
+                self.stage = Reserve;
+            }
+            Reserve => self.reserve_visit()?,
+            Validate => {
+                self.accepted = true;
+                self.stage = Attempt;
+            }
+            CapacityReason => {
+                let LivingValidationErrorV2::Capacity {
+                    collection,
+                    limit,
+                    found,
+                } = self.validation_capacity.take().expect("capacity failure")
+                else {
+                    unreachable!()
+                };
+                // Validate the static label bound before allocating replacement text.
+                if collection.len() > 64 {
+                    return Err(Error::Fault(LivingDeterministicFaultV2::Invariant));
+                }
+                let decision = self.decision.as_mut().unwrap();
+                decision
+                    .reasons
+                    .push(LivingDecisionReasonV2::QueueCapacity {
+                        world: decision.target.unwrap_or(decision.actor),
+                        queue: slug(&collection.replace(' ', "_"))
+                            .map_err(|_| Error::Fault(LivingDeterministicFaultV2::Invariant))?,
+                        limit: u32::try_from(limit)
+                            .map_err(|_| Error::Fault(LivingDeterministicFaultV2::Arithmetic))?,
+                        reserved: u32::try_from(found)
+                            .map_err(|_| Error::Fault(LivingDeterministicFaultV2::Arithmetic))?,
+                    });
+                self.accepted = false;
+                self.stage = Attempt;
+            }
+            Attempt => {
+                if self.accepted {
+                    let decision = self.decision.as_mut().unwrap();
+                    decision.outcome = LivingDecisionOutcomeV2::Accepted;
+                    decision.reasons.push(LivingDecisionReasonV2::Accepted {
+                        rule: slug("atomic_reservation")
+                            .map_err(|_| Error::Fault(LivingDeterministicFaultV2::Invariant))?,
+                    });
+                    self.retirement
+                        .start((self.validation.take(), self.reserved.take()));
+                    self.reserved = self.validation_source.take();
+                    if self.is_economy {
+                        self.accepted_economy = true;
+                    } else {
+                        self.accepted_fleet = true;
+                    }
+                } else {
+                    self.retirement
+                        .start((self.validation.take(), self.validation_source.take()));
+                }
+                self.stage = DecisionStore;
+            }
+            DecisionStore => {
+                let decision = self.decision.take().unwrap();
+                self.decisions.insert(
+                    (decision.phase.ordinal(), decision.actor, decision.ordinal),
+                    decision,
+                );
+                self.stage = AttemptCleanup;
+            }
+            AttemptCleanup => {
+                // No successor begins while a rejected trial or proposal owns records.
+                self.retirement.start((
+                    self.proposal.take(),
+                    (self.trial.take(), self.economic.take()),
+                ));
+                self.stage = if self.is_economy { Economy } else { Fleet };
+            }
+            Sort => {
+                if let Some(decision) = self.old_decisions.next() {
+                    self.decisions.insert(
+                        (decision.phase.ordinal(), decision.actor, decision.ordinal),
+                        decision,
+                    );
+                } else {
+                    self.decision_storage = Some(
+                        super::step_job::LivingVecStorageJobV2::begin_empty(self.decisions.len()),
+                    );
+                    self.stage = Dense;
+                }
+            }
+            Dense => {
+                if let Some(storage) = &mut self.decision_storage {
+                    if !storage.ready() {
+                        storage.poll(1).map_err(|_| Error::PreparationCapacity)?;
+                    } else {
+                        self.events.decisions = storage
+                            .take_ready_result()
+                            .map_err(|_| Error::PreparationCapacity)?;
+                        self.retirement.start(self.decision_storage.take());
+                    }
+                } else if let Some(((_, actor, ordinal), mut decision)) = self.decisions.pop_first()
+                {
+                    let group = (decision.phase.ordinal(), actor);
+                    if self.previous != Some(group) {
+                        self.next = 0;
+                        self.previous = Some(group);
+                    }
+                    let dense = u16::try_from(self.next)
+                        .map_err(|_| Error::Fault(LivingDeterministicFaultV2::Arithmetic))?;
+                    self.remap.insert((group.0, actor, ordinal), dense);
+                    decision.ordinal = dense;
+                    self.next += 1;
+                    self.events.decisions.push(decision);
+                } else {
+                    self.index = 0;
+                    self.nested = 0;
+                    self.stage = Remap;
+                }
+            }
+            Remap => {
+                if let Some(decision) = self.events.decisions.get_mut(self.index) {
+                    if let Some(reason) = decision.reasons.get_mut(self.nested) {
+                        if let LivingDecisionReasonV2::LowerRank {
+                            winning_actor,
+                            winning_ordinal,
+                        } = reason
+                        {
+                            *winning_ordinal = *self
+                                .remap
+                                .get(&(decision.phase.ordinal(), *winning_actor, *winning_ordinal))
+                                .ok_or(Error::Fault(LivingDeterministicFaultV2::Invariant))?;
+                        }
+                        self.nested += 1;
+                    } else {
+                        self.index += 1;
+                        self.nested = 0;
+                    }
+                } else {
+                    self.copy = Some(super::step_job::LivingStateCopyJobV2::begin(
+                        self.reserved.as_ref().unwrap().clone(),
+                    ));
+                    self.stage = FinalCopy;
+                }
+            }
+            FinalCopy => {
+                self.trial = Some(self.copy.as_mut().unwrap().take_ready_result()?);
+                self.retirement.start(self.copy.take());
+                self.stage = Ready;
+            }
+            Ready => {}
+        }
+        Ok(())
+    }
+    fn begin_reasons(&mut self) {
+        // Exactly one terminal reason is appended to each attempted decision.
+        // Preserve and move the original reason allocation through counted
+        // preparation; terminal pushes cannot reallocate populated storage.
+        self.reason_storage = Some(super::step_job::LivingVecStorageJobV2::begin(
+            std::mem::take(&mut self.decision.as_mut().unwrap().reasons),
+            1,
+        ));
+        self.stage = IntentStage::Reasons;
+    }
+    fn begin_trial(&mut self) {
+        self.copy = Some(super::step_job::LivingStateCopyJobV2::begin(
+            self.reserved.as_ref().unwrap().clone(),
+        ));
+        self.stage = IntentStage::TrialCopy;
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Result<
+        (LivingGalaxyStateV2, super::receipt::LivingPendingEventsV2),
+        super::step_job::LivingLifecycleJobErrorV2,
+    > {
+        use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        if let Some(error) = &self.fault {
+            return Err(Self::reported_error(error));
+        }
+        if self.cancelled {
+            return Err(Error::Cancelled);
+        }
+        if self.stage != IntentStage::Ready || !self.retirement.is_empty() || self.delivered {
+            return Err(Error::NotReady);
+        }
+        self.delivered = true;
+        Ok((
+            self.trial.take().ok_or(Error::NotReady)?,
+            std::mem::take(&mut self.events),
+        ))
+    }
+}
+impl LivingDueIntentsJobV2 {
+    fn economic_id(&self, kind: LivingEntityKindV2) -> LivingEntityIdV2 {
+        let ordinal = match self.economic.as_ref().unwrap().action {
+            LivingEconomicActionV2::Supply { .. } => 1,
+            LivingEconomicActionV2::Construction { definition, .. } => match definition {
+                "extractor" => 2,
+                "foundry" => 3,
+                "solar_array" => 6,
+                "shipyard" => 8,
+                "defense_battery" => 9,
+                _ => 16,
+            },
+            LivingEconomicActionV2::Hull { definition, .. } => match definition {
+                "colony_ark" => 4,
+                "escort" => 5,
+                "scout" => 7,
+                _ => 16,
+            },
+        };
+        autonomous_entity_id_v2(&LivingAutonomousEntityInputsV2 {
+            catalog_hash: self.catalog.catalog_hash(),
+            genesis_seed: self.seed,
+            branch: self.branch,
+            tick: self.tick,
+            phase: LivingPhaseV2::GenerateIntents.ordinal(),
+            actor: self.decision.as_ref().unwrap().actor,
+            intent_ordinal: ordinal,
+            entity_kind: kind.ordinal(),
+            local_id: 0,
+        })
+    }
+    fn apply_visit(&mut self) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::{
+            LivingLifecycleJobErrorV2 as Error, LivingLifecycleProgressV2 as Progress,
+        };
+        let invariant = || Error::Fault(LivingDeterministicFaultV2::Invariant);
+        let actor = self.decision.as_ref().unwrap().actor;
+        let action = self.economic.as_ref().unwrap().action.clone(); // fixed scalar descriptor
+        match self.apply_stage {
+            0 => {
+                if let LivingEconomicActionV2::Construction {
+                    scrap: Some(key), ..
+                } = action
+                {
+                    let proposed = self.proposal.as_mut().unwrap();
+                    let mut plan = std::collections::BTreeSet::new();
+                    if let Ok(index) = proposed
+                        .facilities
+                        .as_slice()
+                        .binary_search_by_key(&key, |r| r.id)
+                    {
+                        plan.insert(index);
+                    }
+                    self.facility_remove = Some(super::step_job::LivingPlannedFilterJobV2::begin(
+                        std::mem::take(&mut proposed.facilities),
+                        plan,
+                    ));
+                    self.apply_stage = 1;
+                } else {
+                    self.apply_stage = 2;
+                }
+            }
+            1 => {
+                let job = self.facility_remove.as_mut().unwrap();
+                if job.ready() {
+                    self.proposal.as_mut().unwrap().facilities = job.take_ready_result()?;
+                    self.retirement.start(self.facility_remove.take());
+                    self.apply_stage = 2;
+                } else {
+                    job.visit()?;
+                }
+            }
+            2 => match action {
+                LivingEconomicActionV2::Construction {
+                    world, definition, ..
+                } => {
+                    let pack = &self.catalog.industries()[self
+                        .catalog
+                        .industries()
+                        .binary_search_by(|row| row.id.as_str().cmp(definition))
+                        .map_err(|_| invariant())?];
+                    let row = LivingConstructionJobV2 {
+                        id: self.economic_id(LivingEntityKindV2::ConstructionJob),
+                        world,
+                        owner: actor,
+                        definition: pack.id.clone(),
+                        accepted_tick: self.tick,
+                        completion_tick: add_ticks(self.tick, u64::from(pack.build_ticks))
+                            .map_err(Error::Fault)?,
+                        paid_alloy: pack.alloy_cost,
+                    };
+                    let proposed = self.proposal.as_mut().unwrap();
+                    let world = proposed.worlds.find_mut(&world).ok_or_else(invariant)?;
+                    world.inventory.alloy = world
+                        .inventory
+                        .alloy
+                        .checked_sub(pack.alloy_cost)
+                        .ok_or_else(invariant)?;
+                    self.construction_insert = Some(
+                        super::step_job::LivingSortedInsertionJobV2::begin_replacement(
+                            std::mem::take(&mut proposed.construction_jobs),
+                            row,
+                        ),
+                    );
+                    self.apply_stage = 3;
+                }
+                LivingEconomicActionV2::Hull { world, definition } => {
+                    let pack = &self.catalog.hulls()[self
+                        .catalog
+                        .hulls()
+                        .binary_search_by(|row| row.id.as_str().cmp(definition))
+                        .map_err(|_| invariant())?];
+                    let row = LivingHullJobV2 {
+                        id: self.economic_id(LivingEntityKindV2::HullJob),
+                        world,
+                        owner: actor,
+                        definition: pack.id.clone(),
+                        accepted_tick: self.tick,
+                        completion_tick: add_ticks(self.tick, u64::from(pack.build_ticks))
+                            .map_err(Error::Fault)?,
+                        paid_alloy: pack.alloy_cost,
+                        target_fleet: None,
+                    };
+                    let proposed = self.proposal.as_mut().unwrap();
+                    let world = proposed.worlds.find_mut(&world).ok_or_else(invariant)?;
+                    world.inventory.alloy = world
+                        .inventory
+                        .alloy
+                        .checked_sub(pack.alloy_cost)
+                        .ok_or_else(invariant)?;
+                    self.hull_insert = Some(
+                        super::step_job::LivingSortedInsertionJobV2::begin_replacement(
+                            std::mem::take(&mut proposed.hull_jobs),
+                            row,
+                        ),
+                    );
+                    self.apply_stage = 3;
+                }
+                LivingEconomicActionV2::Supply {
+                    source,
+                    destination,
+                    receiver,
+                    kind,
+                    ..
+                } => {
+                    let get = |key| {
+                        self.source
+                            .worlds
+                            .as_slice()
+                            .binary_search_by_key(&key, |r| r.id)
+                            .ok()
+                            .map(|i| &self.source.worlds.as_slice()[i])
+                    };
+                    let from = get(source).ok_or_else(invariant)?;
+                    let to = get(destination).ok_or_else(invariant)?;
+                    if from.owner != Some(actor) || to.owner != Some(receiver) {
+                        return Err(invariant());
+                    }
+                    self.permission = kind == LivingRouteKindV2::Internal && receiver == actor;
+                    if from.system == to.system {
+                        self.apply_stage = 5;
+                    } else {
+                        self.path = Some(super::step_job::RetreatPathJob::begin(
+                            self.enumeration.as_ref().unwrap().graph.clone(),
+                            from.system,
+                            to.system,
+                        ));
+                        self.apply_stage = 4;
+                    }
+                }
+            },
+            3 => {
+                if let Some(job) = &mut self.construction_insert {
+                    if job.ready() {
+                        self.proposal.as_mut().unwrap().construction_jobs =
+                            job.take_ready_result()?;
+                        self.retirement.start(self.construction_insert.take());
+                        self.begin_trial();
+                    } else {
+                        job.visit()?;
+                    }
+                } else if let Some(job) = &mut self.hull_insert {
+                    if job.ready() {
+                        self.proposal.as_mut().unwrap().hull_jobs = job.take_ready_result()?;
+                        self.retirement.start(self.hull_insert.take());
+                        self.begin_trial();
+                    } else {
+                        job.visit()?;
+                    }
+                }
+            }
+            4 => {
+                let job = self.path.as_mut().unwrap();
+                if job.poll(1)? == Progress::Ready {
+                    // Extraction is a separate transition after the final path visit.
+                    self.apply_stage = 14;
+                }
+            }
+            14 => {
+                let (_, path) = self
+                    .path
+                    .as_mut()
+                    .unwrap()
+                    .take_ready_result()?
+                    .ok_or_else(invariant)?;
+                self.retirement.start((self.path.take(), path));
+                self.apply_stage = 5;
+            }
+            5..=9 => {
+                let LivingEconomicActionV2::Supply {
+                    destination,
+                    receiver,
+                    kind,
+                    ..
+                } = action
+                else {
+                    return Err(invariant());
+                };
+                let pair = ordered_pair(actor, receiver);
+                match self.apply_stage {
+                    5 => {
+                        if let Some(row) = self.source.agreements.as_slice().get(self.index) {
+                            self.index += 1;
+                            if kind == LivingRouteKindV2::Trade
+                                && row.kind == LivingAgreementKindV2::Trade
+                                && (row.participant_a, row.participant_b) == pair
+                                && active_interval(row.start_tick, row.end_tick, self.tick)
+                            {
+                                self.permission = true;
+                            }
+                        } else {
+                            self.index = 0;
+                            self.apply_stage = 6;
+                        }
+                    }
+                    6 => {
+                        if let Some(row) = self.source.wars.as_slice().get(self.index) {
+                            self.index += 1;
+                            if (row.participant_a, row.participant_b) == pair
+                                && active_interval(row.start_tick, row.end_tick, self.tick)
+                            {
+                                self.war = true;
+                            }
+                        } else {
+                            self.index = 0;
+                            self.apply_stage = 7;
+                        }
+                    }
+                    7 => {
+                        if kind != LivingRouteKindV2::Aid {
+                            self.apply_stage = 10;
+                        } else {
+                            let trader = self
+                                .source
+                                .civilizations
+                                .as_slice()
+                                .binary_search_by_key(&actor, |r| r.id)
+                                .ok()
+                                .is_some_and(|i| {
+                                    self.source.civilizations.as_slice()[i].policy.0.as_str()
+                                        == "trader"
+                                });
+                            if !trader || self.war {
+                                return Err(invariant());
+                            }
+                            self.apply_stage = 8;
+                        }
+                    }
+                    8 => {
+                        if let Some(colony) = self.source.colonies.as_slice().get(self.colony_index)
+                        {
+                            self.colony_index += 1;
+                            if colony.owner == actor {
+                                let worlds = self.source.worlds.as_slice();
+                                let home = worlds
+                                    .binary_search_by_key(&colony.world, |r| r.id)
+                                    .ok()
+                                    .map(|i| worlds[i].system);
+                                let target = worlds
+                                    .binary_search_by_key(&destination, |r| r.id)
+                                    .ok()
+                                    .map(|i| worlds[i].system);
+                                self.source_system = home;
+                                self.destination_system = target;
+                                if home.is_some() && home == target {
+                                    self.adjacent = true;
+                                }
+                                self.index = 0;
+                                self.apply_stage = 9;
+                            }
+                        } else {
+                            self.permission = self.adjacent;
+                            self.apply_stage = 10;
+                        }
+                    }
+                    9 => {
+                        if let Some(lane) = self.source.lanes.as_slice().get(self.index) {
+                            self.index += 1;
+                            if (Some(lane.system_a) == self.source_system
+                                && Some(lane.system_b) == self.destination_system)
+                                || (Some(lane.system_b) == self.source_system
+                                    && Some(lane.system_a) == self.destination_system)
+                            {
+                                self.adjacent = true;
+                            }
+                        } else {
+                            self.apply_stage = 8;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            10 => {
+                if !self.permission {
+                    return Err(invariant());
+                }
+                let LivingEconomicActionV2::Supply {
+                    source,
+                    destination,
+                    resource,
+                    kind,
+                    receiver,
+                    batch_size,
+                    existing_route,
+                } = action
+                else {
+                    return Err(invariant());
+                };
+                let (id, next_due) = if let Some(id) = existing_route {
+                    let i = self
+                        .source
+                        .routes
+                        .as_slice()
+                        .binary_search_by_key(&id, |r| r.id)
+                        .map_err(|_| invariant())?;
+                    let route = &self.source.routes.as_slice()[i];
+                    if route.source_world != source
+                        || route.destination_world != destination
+                        || route.resource != resource
+                    {
+                        return Err(invariant());
+                    }
+                    (id, route.next_due)
+                } else {
+                    (
+                        self.economic_id(LivingEntityKindV2::Route),
+                        add_ticks(self.tick, 10).map_err(Error::Fault)?,
+                    )
+                };
+                let row = LivingFreightRouteV2 {
+                    id,
+                    kind,
+                    source_world: source,
+                    destination_world: destination,
+                    resource,
+                    batch_size,
+                    cadence_ticks: 10,
+                    source_reserve: 20,
+                    source_owner: actor,
+                    receiver_owner: receiver,
+                    next_due,
+                    suspended: false,
+                };
+                self.route_insert = Some(
+                    super::step_job::LivingSortedInsertionJobV2::begin_replacement(
+                        std::mem::take(&mut self.proposal.as_mut().unwrap().routes),
+                        row,
+                    ),
+                );
+                self.apply_stage = 11;
+            }
+            11 => {
+                let job = self.route_insert.as_mut().unwrap();
+                if job.ready() {
+                    self.proposal.as_mut().unwrap().routes = job.take_ready_result()?;
+                    self.retirement.start(self.route_insert.take());
+                    self.begin_trial();
+                } else {
+                    job.visit()?;
+                }
+            }
+            _ => return Err(invariant()),
+        }
+        Ok(())
+    }
+    fn reserve_visit(&mut self) -> Result<(), super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::LivingLifecycleJobErrorV2 as Error;
+        macro_rules! domain {
+            ($job:ident,$field:ident) => {{
+                if let Some(job) = &mut self.$job {
+                    if !job.ready() {
+                        job.visit(&self.source.$field)?;
+                    } else if job.conflict {
+                        self.retirement.start(self.$job.take());
+                        let decision = self.decision.as_mut().unwrap();
+                        decision
+                            .reasons
+                            .push(LivingDecisionReasonV2::InvalidTarget {
+                                target: decision.target.unwrap_or(decision.actor),
+                                rule: slug("reservation_conflict").map_err(|_| {
+                                    Error::Fault(LivingDeterministicFaultV2::Invariant)
+                                })?,
+                            });
+                        self.accepted = false;
+                        self.stage = IntentStage::Attempt;
+                    } else {
+                        self.trial.as_mut().unwrap().$field = std::mem::take(&mut job.output);
+                        self.retirement.start(self.$job.take());
+                        self.domain += 1;
+                    }
+                } else {
+                    self.$job = Some(IntentReservationDomain::begin(
+                        std::mem::take(&mut self.proposal.as_mut().unwrap().$field),
+                        std::mem::take(&mut self.trial.as_mut().unwrap().$field),
+                    ));
+                }
+            }};
+        }
+        match self.domain {
+            0 => domain!(worlds, worlds),
+            1 => domain!(hull_jobs, hull_jobs),
+            2 => domain!(construction_jobs, construction_jobs),
+            3 => domain!(facilities, facilities),
+            4 => domain!(fleet_delta, fleets),
+            5 => domain!(routes, routes),
+            _ => {
+                let trial = std::sync::Arc::new(self.trial.take().unwrap());
+                self.validation = Some(super::step_job::LivingStateValidationJobV2::begin_at_tick(
+                    self.catalog.clone(),
+                    trial.clone(),
+                    self.tick,
+                ));
+                self.validation_source = Some(trial);
+                self.stage = IntentStage::Validate;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a> RetirementFields<'a> for LivingDueIntentsJobV2 {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self {
+            catalog: _,
+            source: _,
+            reserved: _,
+            inputs: _,
+            economics: _,
+            fleets: _,
+            enumeration: _,
+            batches: _,
+            batch: _,
+            economic_rows: _,
+            explanations: _,
+            fleet_rows: _,
+            economic: _,
+            decision: _,
+            reason_storage: _,
+            copy: _,
+            proposal: _,
+            trial: _,
+            validation_source: _,
+            validation: _,
+            validation_capacity: _,
+            worlds: _,
+            hull_jobs: _,
+            construction_jobs: _,
+            facilities: _,
+            fleet_delta: _,
+            routes: _,
+            hull_insert: _,
+            construction_insert: _,
+            route_insert: _,
+            facility_remove: _,
+            path: _,
+            events: _,
+            decisions: _,
+            old_decisions: _,
+            decision_storage: _,
+            remap: _,
+            retirement: _,
+            tick: _,
+            seed: _,
+            branch: _,
+            stage: _,
+            apply_stage: _,
+            domain: _,
+            index: _,
+            nested: _,
+            colony_index: _,
+            source_system: _,
+            destination_system: _,
+            permission: _,
+            war: _,
+            adjacent: _,
+            accepted_economy: _,
+            accepted_fleet: _,
+            is_economy: _,
+            accepted: _,
+            previous: _,
+            next: _,
+            fault: _,
+            cancelled: _,
+            delivered: _,
+            last_poll_visits: _,
+            total_visits: _,
+        } = self;
+        match index {
+            0 => Some(retirement_node(
+                self.catalog
+                    .0
+                    .take()
+                    .map(super::step_job::LivingPhaseCatalogV2::Owned),
+                policy,
+            )),
+            1 => Some(retirement_node(self.source.0.take(), policy)),
+            2 => Some(retirement_node(std::mem::take(&mut self.reserved), policy)),
+            3 => Some(retirement_node(std::mem::take(&mut self.inputs), policy)),
+            4 => Some(retirement_node(std::mem::take(&mut self.economics), policy)),
+            5 => Some(retirement_node(std::mem::take(&mut self.fleets), policy)),
+            6 => Some(retirement_node(
+                std::mem::take(&mut self.enumeration),
+                policy,
+            )),
+            7 => Some(retirement_node(
+                std::mem::replace(&mut self.batches, Vec::new().into_iter()),
+                policy,
+            )),
+            8 => Some(retirement_node(std::mem::take(&mut self.batch), policy)),
+            9 => Some(retirement_node(
+                std::mem::replace(&mut self.economic_rows, Vec::new().into_iter()),
+                policy,
+            )),
+            10 => Some(retirement_node(
+                std::mem::replace(&mut self.explanations, Vec::new().into_iter()),
+                policy,
+            )),
+            11 => Some(retirement_node(
+                std::mem::replace(&mut self.fleet_rows, Vec::new().into_iter()),
+                policy,
+            )),
+            12 => Some(retirement_node(std::mem::take(&mut self.economic), policy)),
+            13 => Some(retirement_node(std::mem::take(&mut self.decision), policy)),
+            14 => Some(retirement_node(std::mem::take(&mut self.copy), policy)),
+            15 => Some(retirement_node(std::mem::take(&mut self.proposal), policy)),
+            16 => Some(retirement_node(std::mem::take(&mut self.trial), policy)),
+            17 => Some(retirement_node(
+                std::mem::take(&mut self.validation_source),
+                policy,
+            )),
+            18 => Some(retirement_node(
+                std::mem::take(&mut self.validation),
+                policy,
+            )),
+            19 => Some(retirement_node(std::mem::take(&mut self.worlds), policy)),
+            20 => Some(retirement_node(std::mem::take(&mut self.hull_jobs), policy)),
+            21 => Some(retirement_node(
+                std::mem::take(&mut self.construction_jobs),
+                policy,
+            )),
+            22 => Some(retirement_node(
+                std::mem::take(&mut self.facilities),
+                policy,
+            )),
+            23 => Some(retirement_node(
+                std::mem::take(&mut self.fleet_delta),
+                policy,
+            )),
+            24 => Some(retirement_node(std::mem::take(&mut self.routes), policy)),
+            25 => Some(retirement_node(
+                std::mem::take(&mut self.hull_insert),
+                policy,
+            )),
+            26 => Some(retirement_node(
+                std::mem::take(&mut self.construction_insert),
+                policy,
+            )),
+            27 => Some(retirement_node(
+                std::mem::take(&mut self.route_insert),
+                policy,
+            )),
+            28 => Some(retirement_node(
+                std::mem::take(&mut self.facility_remove),
+                policy,
+            )),
+            29 => Some(retirement_node(std::mem::take(&mut self.path), policy)),
+            30 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
+            31 => Some(retirement_node(std::mem::take(&mut self.decisions), policy)),
+            32 => Some(retirement_node(
+                std::mem::replace(&mut self.old_decisions, Vec::new().into_iter()),
+                policy,
+            )),
+            33 => Some(retirement_node(
+                std::mem::take(&mut self.decision_storage),
+                policy,
+            )),
+            34 => Some(retirement_node(std::mem::take(&mut self.remap), policy)),
+            35 => Some(retirement_node(
+                std::mem::take(&mut self.retirement),
+                policy,
+            )),
+            36 => Some(retirement_node(
+                IntentFailureOwner(self.fault.take()),
+                policy,
+            )),
+            37 => Some(retirement_node(self.reason_storage.take(), policy)),
+            _ => None,
+        }
+    }
+}
+impl<'a> RetirementFields<'a> for Box<LivingDueIntentsJobV2> {
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        (**self).retirement_child(index, policy)
+    }
+}
+
+struct IntentFailureOwner(Option<super::step_job::LivingLifecycleJobErrorV2>);
+impl<'a> RetirementFields<'a> for IntentFailureOwner {
+    fn retirement_child(
+        &mut self,
+        _: usize,
+        _: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Some(super::step_job::LivingLifecycleJobErrorV2::Fault(fault)) = self.0.take() else {
+            return None;
+        };
+        let job = super::simulation::LivingPublicationRetirementJobV2::begin_fault(fault);
+        Some(Box::new(job))
     }
 }

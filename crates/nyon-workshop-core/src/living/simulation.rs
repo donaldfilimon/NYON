@@ -555,12 +555,13 @@ enum LivingCompletedStepPhasesV2 {
     Scheduled { arrivals: Vec<LivingEntityIdV2> },
     ObservationsComplete,
     DiplomacyComplete,
+    IntentsComplete,
     DispatchComplete,
 }
 
 /// Partial staged executor: bounded copying, hashing, supported creator edits,
-/// and scheduled phases through diplomacy, plus dispatch on non-intent ticks.
-/// Due intents and final sealing use an explicitly synchronous completion API.
+/// and scheduled phases through due intents and dispatch.
+/// Final sealing uses an explicitly synchronous completion API.
 /// Resident transport polls this job; the synchronous suffix remains explicit.
 pub struct LivingStepJobV2 {
     capture: OwnerSlot<LivingBoundaryCaptureV2>,
@@ -575,6 +576,7 @@ pub struct LivingStepJobV2 {
     observation: Option<Box<super::step_job::LivingObservationJobV2>>,
     observation_events: Option<LivingPendingEventsV2>,
     diplomacy: Option<Box<super::step_job::LivingDiplomacyJobV2>>,
+    intents: Option<Box<super::rules::LivingDueIntentsJobV2>>,
     dispatch: Option<Box<super::step_job::LivingDispatchJobV2<'static>>>,
     completed_output: Option<
         Box<(
@@ -608,8 +610,6 @@ impl LivingStepJobV2 {
             && self.retirement.is_empty()
             && self.completed_output.as_ref().is_some_and(|output| {
                 matches!(output.2, LivingCompletedStepPhasesV2::DispatchComplete)
-                    || (matches!(output.2, LivingCompletedStepPhasesV2::DiplomacyComplete)
-                        && (self.capture.state.tick.0 + 1).is_multiple_of(INTENT_PERIOD_TICKS))
             })
     }
     fn install_production_from_conflict(&mut self) -> Result<(), LivingStepJobErrorV2> {
@@ -662,8 +662,8 @@ impl LivingStepJobV2 {
         self.total_visits
     }
     /// Poll private preparation and supported creator/lifecycle/arrival phases
-    /// under one shared record budget, through diplomacy and non-intent dispatch.
-    /// Due intents and final sealing remain explicitly synchronous.
+    /// under one shared record budget, through due intents and dispatch.
+    /// Final sealing remains explicitly synchronous.
     pub fn poll(&mut self, budget: usize) -> Result<LivingStepProgressV2, LivingStepJobErrorV2> {
         use super::step_job::{LivingLifecycleJobErrorV2, LivingLifecycleProgressV2};
         self.last_poll_visits = 0;
@@ -752,27 +752,45 @@ impl LivingStepJobV2 {
             }
             if let Some(output) = &mut self.completed_output {
                 let tick = LivingTickV2(self.capture.state.tick.0 + 1);
-                if !matches!(output.2, LivingCompletedStepPhasesV2::DiplomacyComplete)
+                if matches!(output.2, LivingCompletedStepPhasesV2::ObservationsComplete)
                     && !tick.0.is_multiple_of(DIPLOMACY_PERIOD_TICKS)
                 {
                     output.2 = LivingCompletedStepPhasesV2::DiplomacyComplete;
+                } else if matches!(output.2, LivingCompletedStepPhasesV2::DiplomacyComplete)
+                    && !tick.0.is_multiple_of(INTENT_PERIOD_TICKS)
+                {
+                    output.2 = LivingCompletedStepPhasesV2::IntentsComplete;
                 } else {
                     let state = std::mem::take(&mut output.0);
                     let events = std::mem::take(&mut output.1);
-                    if matches!(output.2, LivingCompletedStepPhasesV2::DiplomacyComplete) {
-                        self.dispatch =
-                            Some(Box::new(super::step_job::LivingDispatchJobV2::begin_owned(
-                                Arc::clone(&self.capture.catalog),
-                                state,
-                                events,
-                                tick,
-                                self.capture.genesis_seed,
-                                self.capture.branch,
-                            )));
-                    } else {
-                        self.diplomacy = Some(Box::new(
-                            super::step_job::LivingDiplomacyJobV2::begin(state, events, tick),
-                        ));
+                    match output.2 {
+                        LivingCompletedStepPhasesV2::IntentsComplete => {
+                            self.dispatch =
+                                Some(Box::new(super::step_job::LivingDispatchJobV2::begin_owned(
+                                    Arc::clone(&self.capture.catalog),
+                                    state,
+                                    events,
+                                    tick,
+                                    self.capture.genesis_seed,
+                                    self.capture.branch,
+                                )));
+                        }
+                        LivingCompletedStepPhasesV2::DiplomacyComplete => {
+                            self.intents =
+                                Some(Box::new(super::rules::LivingDueIntentsJobV2::begin(
+                                    Arc::clone(&self.capture.catalog),
+                                    state,
+                                    events,
+                                    tick,
+                                    self.capture.genesis_seed,
+                                    self.capture.branch,
+                                )));
+                        }
+                        _ => {
+                            self.diplomacy = Some(Box::new(
+                                super::step_job::LivingDiplomacyJobV2::begin(state, events, tick),
+                            ));
+                        }
                     }
                     self.retirement.start(self.completed_output.take());
                 }
@@ -795,6 +813,8 @@ impl LivingStepJobV2 {
                 (observation.poll(remaining), observation.last_poll_visits())
             } else if let Some(diplomacy) = &mut self.diplomacy {
                 (diplomacy.poll(remaining), diplomacy.last_poll_visits())
+            } else if let Some(intents) = &mut self.intents {
+                (intents.poll(remaining), intents.last_poll_visits())
             } else if let Some(dispatch) = &mut self.dispatch {
                 (dispatch.poll(remaining), dispatch.last_poll_visits())
             } else {
@@ -974,6 +994,16 @@ impl LivingStepJobV2 {
                 )));
 
                 self.retirement.start(self.diplomacy.take());
+            } else if let Some(intents) = &mut self.intents {
+                let (state, events) = intents.take_ready_result().map_err(|_| {
+                    LivingStepJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
+                })?;
+                self.completed_output = Some(Box::new((
+                    state,
+                    events,
+                    LivingCompletedStepPhasesV2::IntentsComplete,
+                )));
+                self.retirement.start(self.intents.take());
             } else if let Some(dispatch) = &mut self.dispatch {
                 let (state, events) = dispatch.take_ready_result().map_err(|_| {
                     LivingStepJobErrorV2::Fault(LivingDeterministicFaultV2::Invariant)
@@ -1087,6 +1117,7 @@ impl LivingStepJobV2 {
             if !matches!(
                 completed,
                 LivingCompletedStepPhasesV2::DiplomacyComplete
+                    | LivingCompletedStepPhasesV2::IntentsComplete
                     | LivingCompletedStepPhasesV2::DispatchComplete
             ) {
                 return Err(LivingStepJobErrorV2::NotReady);
@@ -6457,6 +6488,7 @@ impl LivingGalaxyAuthorityV2 {
             observation: None,
             observation_events: None,
             diplomacy: None,
+            intents: None,
             dispatch: None,
             completed_output: None,
             applied_revisions: None,
@@ -7617,6 +7649,7 @@ impl LivingGalaxyAuthorityV2 {
             Some(
                 LivingCompletedStepPhasesV2::ObservationsComplete
                     | LivingCompletedStepPhasesV2::DiplomacyComplete
+                    | LivingCompletedStepPhasesV2::IntentsComplete
                     | LivingCompletedStepPhasesV2::DispatchComplete
             )
         );
@@ -7624,6 +7657,14 @@ impl LivingGalaxyAuthorityV2 {
             completed_phases,
             Some(
                 LivingCompletedStepPhasesV2::DiplomacyComplete
+                    | LivingCompletedStepPhasesV2::IntentsComplete
+                    | LivingCompletedStepPhasesV2::DispatchComplete
+            )
+        );
+        let intents_applied = matches!(
+            completed_phases,
+            Some(
+                LivingCompletedStepPhasesV2::IntentsComplete
                     | LivingCompletedStepPhasesV2::DispatchComplete
             )
         );
@@ -7684,7 +7725,7 @@ impl LivingGalaxyAuthorityV2 {
                     }
                 }
                 LivingPhaseV2::GenerateIntents => {
-                    if !dispatch_applied && tick.0.is_multiple_of(INTENT_PERIOD_TICKS) {
+                    if !intents_applied && tick.0.is_multiple_of(INTENT_PERIOD_TICKS) {
                         generate_and_reserve_intents(&mut context)?;
                     }
                 }
@@ -9819,17 +9860,10 @@ pub(crate) mod tests {
                 if budgets == [1] {
                     assert_eq!(observed_diplomacy, due);
                 }
-                if (before_tick + 1).is_multiple_of(INTENT_PERIOD_TICKS) {
-                    assert!(matches!(
-                        job.completed_output.as_ref().unwrap().2,
-                        LivingCompletedStepPhasesV2::DiplomacyComplete
-                    ));
-                } else {
-                    assert!(matches!(
-                        job.completed_output.as_ref().unwrap().2,
-                        LivingCompletedStepPhasesV2::DispatchComplete
-                    ));
-                }
+                assert!(matches!(
+                    job.completed_output.as_ref().unwrap().2,
+                    LivingCompletedStepPhasesV2::DispatchComplete
+                ));
                 if let Some(total) = total {
                     assert_eq!(job.total_visits(), total);
                 } else {
@@ -9907,6 +9941,59 @@ pub(crate) mod tests {
         }
     }
     #[test]
+    fn due_intent_step_every_reached_stage_cancel_stale_and_authority_atomicity() {
+        let base = diplomacy_staged_fixture(99);
+        let mut probe = base.begin_step().unwrap();
+        let mut cuts = std::collections::BTreeMap::new();
+        let mut calls = 0;
+        loop {
+            if let Some(intents) = &probe.intents {
+                cuts.entry(intents.test_stage_key()).or_insert(calls);
+            }
+            if probe.poll(1).unwrap() == LivingStepProgressV2::NeedsSynchronousCompletion {
+                break;
+            }
+            calls += 1;
+        }
+        assert!(cuts.len() > 15);
+        for (_, cut) in cuts {
+            for stale in [false, true] {
+                let mut authority = base.clone();
+                let mut job = authority.begin_step().unwrap();
+                for _ in 0..cut {
+                    job.poll(1).unwrap();
+                }
+                let source = authority.state.clone();
+                if stale {
+                    submit(&mut authority, vec![system("Tail during intents")]);
+                    let current = authority.capture_boundary().unwrap();
+                    assert!(!job.is_current(&authority));
+                    assert!(matches!(
+                        job.take_synchronous_preparation(&authority),
+                        Err(LivingStepJobErrorV2::Stale)
+                    ));
+                    assert!(authority.boundary_capture_is_current(&current));
+                    assert_eq!(authority.queue.len(), 1);
+                } else {
+                    job.cancel();
+                    for budget in [1, 64, 1024] {
+                        assert_eq!(job.poll(budget), Err(LivingStepJobErrorV2::Cancelled));
+                        assert_eq!(job.last_poll_visits(), 0);
+                    }
+                    assert!(matches!(
+                        job.take_synchronous_preparation(&authority),
+                        Err(LivingStepJobErrorV2::Cancelled)
+                    ));
+                }
+                assert_eq!(*authority.state, *source);
+                assert!(authority.fault.is_none());
+                let mut retired =
+                    job.into_retirement(LivingPublicationRetirementPolicyV2::ReleaseHandle);
+                while retired.poll(64).unwrap() != LivingPublicationRetirementProgressV2::Ready {}
+            }
+        }
+    }
+    #[test]
     fn staged_step_empty_due_diplomacy_completion_marker_matches_reference() {
         let mut base = authority();
         for _ in 0..99 {
@@ -9926,7 +10013,7 @@ pub(crate) mod tests {
             }
             assert!(matches!(
                 job.completed_output.as_ref().unwrap().2,
-                LivingCompletedStepPhasesV2::DiplomacyComplete
+                LivingCompletedStepPhasesV2::DispatchComplete
             ));
             let LivingStepPreparationV2::Ready(prepared) =
                 job.finish_synchronously(&staged).unwrap()

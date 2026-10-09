@@ -1,8 +1,10 @@
 # Living completion ledger — 2026-10-08
 
-Status: **Partial**. This milestone strengthens V2 preparation, storage recovery
-and player transport. Due-intent execution and boundary sealing still have a
-synchronous suffix. No V3 mechanics are approved or implemented by this milestone.
+Status: **Partial**. The committed prerequisite `57c4d87` strengthens V2
+preparation, storage recovery and player transport. The following due-intent
+candidate completes bounded intent composition through dispatch; boundary sealing
+still has a synchronous suffix. Broader candidate qualification is running.
+No V3 authority or player mechanics have been implemented.
 
 ## Implemented and reviewed
 
@@ -31,7 +33,7 @@ synchronous suffix. No V3 mechanics are approved or implemented by this mileston
   save/replay assertions with a 120-second deadlock guard. That guard is not a
   latency acceptance threshold.
 
-## Automated evidence — Current
+## Automated evidence — committed prerequisite `57c4d87`
 
 Final source candidate passed all documented native gates: formatting, strict
 workspace/all-target/all-feature Clippy, **1,805 workspace tests** across 101
@@ -51,7 +53,7 @@ are retained locally under the ignored execution ledger
 `.superpowers/sdd/2026-10-02-living-sealing-and-replay/`. Compilation and tests are
 distinct from the live observations below.
 
-## Browser evidence — Current within this scope
+## Browser evidence — committed prerequisite `57c4d87`
 
 Fresh isolated origins on port 18767 loaded the final rebuilt artifacts. A real
 IndexedDB `put` callback was instrumented to throw `QuotaExceededError` at the
@@ -79,11 +81,13 @@ independent encoder oracle. Screenshots were inspected:
 [quota feedback](2026-10-08/living-quota-feedback.png),
 [WebGPU tick 100](2026-10-08/living-webgpu-tick100.png), and
 [WebGL2 Low tick 100](2026-10-08/living-webgl2-tick100.png).
-Their different background colors are not a claim of rendering parity.
+The WebGPU run used Low graphics after its optional High scene pipelines failed;
+High graphics remain unqualified. Different background colors are not a claim
+of rendering parity.
 Keyboard focus plus Enter exercised Step and Save, without qualifying complete
 Tab navigation, screen-reader behavior, touch or pinch.
 
-## Native evidence — Current within this scope
+## Native evidence — committed prerequisite `57c4d87`
 
 The exact final release binary ran in a uniquely identified local qualification
 app wrapper with an isolated absolute profile. Metal initialized on Apple M5 and
@@ -99,11 +103,12 @@ pointer activation do not qualify the full native input/accessibility surface.
 
 ## Remaining work — Partial or Proposed
 
-**V2 engine Partial:** bounded due-intent composition/reservations, candidate
-validation, hashing, receipt/journal sealing, terminal Ready and borrowed
+**V2 engine Partial:** complete-boundary candidate validation and hashing,
+receipt/journal sealing, terminal Ready and borrowed
 exactly-once extraction, shared stepping/replay/restore/fork/comparison execution,
 durable cleanup, and the fully shared 1,024-visit update budget remain open.
-The next production slice is complete due-intent composition wired into Step,
+Due-intent composition is now implemented and reviewed in the candidate below.
+The next production slice is counted boundary sealing and journal preparation,
 preserving the independent synchronous orchestration oracle.
 
 **Player qualification Partial:** all-tool cancel/stale/durable fresh-Continue
@@ -115,13 +120,63 @@ these runs do not establish performance acceptance. No service worker was
 registered in the earlier inspected browser profile; offline reopening remains
 unverified.
 
-**V3 Proposed:** the dated repair-eligibility clarification preserves the
-original proposal. Its independent transition fixture, remaining initialization
-and corpus coverage, complete-rules review and explicit rules approval precede
-separate V3 implementation. No implicit V2 conversion is approved.
+**V3 rules approval / implementation pending:** at 19:32 EDT on 2026-10-08,
+Donald instructed “continue and approve all and finish all.” This supplies
+approval of the current proposed rules; it does not create corpus or review
+evidence. The repair transition fixture, remaining initialization and corpus
+coverage, integrated independent review and coherent immutable package freeze
+still precede separate V3 implementation. No implicit V2 conversion is approved.
 
 ## Delivery
 
-This verified prerequisite milestone is prepared for a local commit on canonical
-`main`. Whole-program completion is not claimed. Push remains unauthorized;
-remote CI has not qualified this candidate.
+The prior verified prerequisite is committed locally as `57c4d87` on canonical
+`main`. The due-intent candidate passed the broader automated gates and is completing
+fresh live qualification and is ready for its local commit. Whole-program completion is not claimed.
+Push remains unauthorized; remote CI has not qualified either candidate.
+
+## Due-intent candidate — reviewed core evidence
+
+The production Step executor now composes common immutable proposal inputs,
+economic and fleet enumeration, counted economic application and six ordered
+reservation domains, prospective validation and fallback, canonical decision
+storage and ordinal remapping, followed by dispatch. Original nested owners
+remain in counted cleanup. Terminal reason appends use prepared storage. The
+synchronous scheduler oracle remains byte-identical to its first-touch baseline.
+Public Step still has synchronous sealing; this does not close engine Task 1.
+
+The reviewed fix1 passed **927 core tests** across 27 summaries, including all
+16 due-intent regressions, plus strict core Clippy and formatting. The first
+covering run exposed 23 literal-accounting failures from an empty optional
+retirement edge. Independent review derived its three added visits; the
+correction preserves the prior tail when no intent owner exists. Every old
+literal expectation is unchanged, and all four owner-presence combinations pass.
+The original failure log, source identities and review are preserved separately.
+
+Isolated fleet, facility and batch retirement formulas and original nested
+allocation witnesses are independent scoped evidence. Whole-parent cut counts
+use the shared traversal and do not establish a complete independent literal
+formula. Reached-stage cancellation/stale controls and injected conflict/capacity
+faults are distinguished from authentic positive paid and cross-system cases.
+The current candidate passed formatting, strict workspace/all-target/all-feature
+Clippy and **1,821 workspace tests** across 101 summaries, with zero failures or
+ignored tests. All 15 current automated gates passed: release, separate fuzz
+formatting/locked Clippy (compilation only), paired WebGPU/WebGL2 artifacts,
+root/core wasm checks, wasm Clippy, Workshop checks, vertex layout, independent
+V2 vectors, static cross-build fingerprint and Python tool tests.
+
+Fresh isolated Chromium WebGPU exercised real IndexedDB with a browser-enforced
+one-byte origin quota. Save returned `QuotaExceededError`; resident tick 3
+remained usable while the saved tick 2 head (generation 6), archive and entire
+Living record-store hash remained unchanged. Restoring quota and retrying Save
+committed tick 3, and a fresh reload reopened that exact snapshot. No IndexedDB
+API patch supplied this failure. This is browser-enforced quota evidence, not
+physical disk-exhaustion qualification. Raw receipts remain in the ignored
+milestone ledger.
+
+The current native release launched and rendered on Metal/Apple M5 in an
+isolated profile. Its transport/save/reopen journey remains unqualified because
+focus interference prevented a reliable run; prior native journey evidence
+belongs to the earlier commit. Fresh WebGPU and forced WebGL2 Low each saved/reopened tick 100 with all
+15,088 archive bytes equal to the current native pure-authority harness. This
+uses the production encoder, not an independent serialization oracle; WebGPU
+High, renderer parity and performance acceptance remain unqualified.
