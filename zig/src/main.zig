@@ -11,6 +11,23 @@ pub fn main(init: std.process.Init) !void {
     const out = &output.interface;
     if (args.len == 1 or (args.len == 2 and std.mem.eql(u8, args[1], "help"))) {
         try out.writeAll("NYON Zig authority\n  trace SEED_HEX TICKS [scripted]\n  play [SEED_HEX]\n  scenario-store-load PROFILE_DIR\n  scenario-store-save PROFILE_DIR SCENARIO_JSON\n  preferences-store-load PROFILE_DIR\n  preferences-store-save PROFILE_DIR PREFERENCES_JSON\n\nPROFILE_DIR must be nonempty and absolute; store probes are explicit replacement requests.\nPlay commands: state, step [TICKS], launch SOURCE TARGET,\n  tune WORLD atmosphere|hydrosphere|topology increase|decrease, quit\n");
+        try out.writeAll("  surface-neighbors SIDE CELL_ID (east west north south IDs)\n");
+        try out.writeAll("  planet-economy-demo [--seed 2] [--side 4] [--budget 1..4096] [--story combined|creator|ruler-start|policy-replay]\n");
+    } else if (std.mem.eql(u8, args[1], "surface-neighbors")) {
+        if (args.len != 4) return error.InvalidArguments;
+        const topology = try nyon.surface.Topology.init(try std.fmt.parseInt(u16, args[2], 10));
+        const cell = try topology.fromId(try std.fmt.parseInt(u64, args[3], 10));
+        try out.print("{d}\t{d}\t{d}\t{d}\n", .{
+            try topology.cellId(try topology.neighbor(cell, .east)),
+            try topology.cellId(try topology.neighbor(cell, .west)),
+            try topology.cellId(try topology.neighbor(cell, .north)),
+            try topology.cellId(try topology.neighbor(cell, .south)),
+        });
+    } else if (std.mem.eql(u8, args[1], "planet-economy-demo")) {
+        nyon.planet_economy_cli.run(init.gpa, args[2..], out) catch |failure| {
+            try out.flush();
+            return failure;
+        };
     } else if (isStoreProbe(args[1])) {
         storeProbe(init.io, init.gpa, out, args[1..]) catch |failure| {
             if (failure == error.OutOfMemory) try out.writeAll("ERR\tRESOURCE\tOutOfMemory\n");

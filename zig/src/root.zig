@@ -1,4 +1,8 @@
 pub const model = @import("model.zig");
+pub const play_role = @import("play_role.zig");
+pub const planet_economy = @import("planet_economy/root.zig");
+pub const coordinated_galaxy = @import("coordinated_galaxy/root.zig");
+pub const planet_economy_cli = @import("planet_economy_cli.zig");
 pub const generator = @import("generator.zig");
 pub const economy = @import("economy.zig");
 pub const navigation = @import("navigation.zig");
@@ -48,6 +52,8 @@ pub const retained_text = @import("retained_text.zig");
 pub const retained_atlas = @import("retained_atlas.zig");
 
 test {
+    _ = play_role;
+    _ = surface;
     _ = @import("classic_interaction_tests.zig");
     _ = @import("classic_input_tests.zig");
     _ = @import("classic_guide_tests.zig");
@@ -85,4 +91,10 @@ test {
     _ = @import("classic_onboarding_tests.zig");
     _ = @import("classic_settings_tests.zig");
     _ = @import("classic_session_tests.zig");
+}
+pub const surface = @import("surface.zig");
+
+test {
+    _ = @import("planet_economy_tests.zig");
+    _ = @import("coordinated_galaxy_tests.zig");
 }

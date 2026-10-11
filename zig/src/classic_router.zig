@@ -44,7 +44,16 @@ pub const ContextKey = struct {
                 if (self.world > 6) return error.InvalidContext;
             } else if (self.world != none) return error.InvalidContext;
         }
-        return .{ 'C', '|', switch (self.base) { .playing => 'P', .settings => 'S', .editor => 'E' }, '|', switch (self.section) { .none => '-', .worlds => 'W', .rules => 'R', .validation => 'V' }, '|', if (self.world == none) '-' else '0' + self.world, '|', if (self.confirmation == none) '-' else '0' + self.confirmation, '|', if (self.guide) '1' else '0', '|', if (self.surface == .leaving_classic) '1' else '0' };
+        return .{ 'C', '|', switch (self.base) {
+            .playing => 'P',
+            .settings => 'S',
+            .editor => 'E',
+        }, '|', switch (self.section) {
+            .none => '-',
+            .worlds => 'W',
+            .rules => 'R',
+            .validation => 'V',
+        }, '|', if (self.world == none) '-' else '0' + self.world, '|', if (self.confirmation == none) '-' else '0' + self.confirmation, '|', if (self.guide) '1' else '0', '|', if (self.surface == .leaving_classic) '1' else '0' };
     }
 };
 pub const ShellEffect = enum { none, return_to_main_menu };
@@ -67,7 +76,11 @@ comptime {
 }
 fn domainOf(key: ContextKey) FocusDomain {
     if (key.guide) return .guide;
-    return switch (key.base) { .playing => .hud, .settings => .settings, .editor => .editor };
+    return switch (key.base) {
+        .playing => .hud,
+        .settings => .settings,
+        .editor => .editor,
+    };
 }
 fn catalogId(domain: FocusDomain, code: u8) error{InvalidFocusSnapshot}!H1.ActionId {
     const bytes = switch (domain) {
@@ -80,7 +93,12 @@ fn catalogId(domain: FocusDomain, code: u8) error{InvalidFocusSnapshot}!H1.Actio
 }
 fn codeOf(domain: FocusDomain, id: ?H1.ActionId) error{InvalidFocusSnapshot}!u8 {
     const value = id orelse return none;
-    const length: usize = switch (domain) { .hud => 24, .settings => 11, .editor => 109, .guide => 4 };
+    const length: usize = switch (domain) {
+        .hud => 24,
+        .settings => 11,
+        .editor => 109,
+        .guide => 4,
+    };
     for (0..length) |i| if (std.mem.eql(u8, value.bytes, (try catalogId(domain, @intCast(i))).bytes)) return @intCast(i);
     return error.InvalidFocusSnapshot;
 }
@@ -90,17 +108,23 @@ fn optionalId(domain: FocusDomain, code: u8) error{InvalidFocusSnapshot}!?H1.Act
 fn editorKey(code: u8) error{InvalidFocusSnapshot}!?Layout.FocusKey {
     if (code == none) return null;
     if (code >= 109) return error.InvalidFocusSnapshot;
-    return switch (EditorUI.catalog[code].target) { .field => |id| .{ .field = id }, .action => |action| .{ .action = action } };
+    return switch (EditorUI.catalog[code].target) {
+        .field => |id| .{ .field = id },
+        .action => |action| .{ .action = action },
+    };
 }
 fn keyCode(key: ?Layout.FocusKey) error{InvalidFocusSnapshot}!u8 {
     const k = key orelse return none;
-    const target: EditorUI.Target = switch (k) { .field => |id| .{ .field = id }, .action => |a| .{ .action = a } };
+    const target: EditorUI.Target = switch (k) {
+        .field => |id| .{ .field = id },
+        .action => |a| .{ .action = a },
+    };
     for (EditorUI.catalog, 0..) |entry, i| if (std.meta.eql(entry.target, target)) return @intCast(i);
     return error.InvalidFocusSnapshot;
 }
 fn snapshot(domain: FocusDomain, focus: H1.FocusSpec) error{InvalidFocusSnapshot}!FocusSnapshot {
     if (focus.base.len > 28) return error.InvalidFocusSnapshot;
-    var result = FocusSnapshot{ .domain = @intFromEnum(domain), .base_len = @intCast(focus.base.len), .focused = try codeOf(domain, focus.focused), .restore = try codeOf(domain, focus.restore) };
+    var result = FocusSnapshot{ .domain = @backingInt(domain), .base_len = @intCast(focus.base.len), .focused = try codeOf(domain, focus.focused), .restore = try codeOf(domain, focus.restore) };
     for (focus.base, 0..) |id, i| {
         const code = try codeOf(domain, id);
         if (domain == .editor and code >= 107) return error.InvalidFocusSnapshot;
@@ -121,7 +145,9 @@ fn snapshot(domain: FocusDomain, focus: H1.FocusSpec) error{InvalidFocusSnapshot
     const active = if (result.modal_present == 1) result.modal[0..result.modal_len] else result.base[0..result.base_len];
     if (result.focused != none) {
         var found = false;
-        for (active) |code| if (code == result.focused) { found = true; };
+        for (active) |code| if (code == result.focused) {
+            found = true;
+        };
         if (!found) return error.InvalidFocusSnapshot;
     }
     return result;
@@ -202,11 +228,15 @@ pub const Coordinator = struct {
         const ticket = try self.registry.reserve(purpose);
         // Read-only measurement, not a mutation API into the registry.
         var live: usize = 0;
-        for (self.registry.entries) |entry| if (entry.state != .free) { live += 1; };
+        for (self.registry.entries) |entry| if (entry.state != .free) {
+            live += 1;
+        };
         self.reference_peak = @max(self.reference_peak, live);
         return ticket;
     }
-    fn mark(self: *Coordinator, ticket: Input.SlotTicket) void { self.registry.markOwned(ticket) catch unreachable; }
+    fn mark(self: *Coordinator, ticket: Input.SlotTicket) void {
+        self.registry.markOwned(ticket) catch unreachable;
+    }
     fn reserveTickets(self: *Coordinator, purpose: Input.SlotPurpose, draft: bool) RouterError!Tickets {
         var result = Tickets{ .resident = try self.reserve(purpose) };
         errdefer self.cancelTickets(&result);
@@ -246,13 +276,21 @@ pub const Coordinator = struct {
         self.leased = true;
     }
     fn sourceKey(self: *const Coordinator) RouterError!ContextKey {
-        var source_key = ContextKey{ .base = switch (self.session.core.mode()) { .playing => .playing, .settings => .settings, .editing_scenario => .editor } };
+        var source_key = ContextKey{ .base = switch (self.session.core.mode()) {
+            .playing => .playing,
+            .settings => .settings,
+            .editing_scenario => .editor,
+        } };
         if (source_key.base == .editor) {
             const editor = self.session.editor.session orelse return error.NoEditor;
             if (editor.selected_world > 6) return error.InvalidContext;
-            source_key.section = switch (editor.section) { .worlds => .worlds, .rules => .rules, .validation => .validation };
+            source_key.section = switch (editor.section) {
+                .worlds => .worlds,
+                .rules => .rules,
+                .validation => .validation,
+            };
             if (editor.section == .worlds) source_key.world = @intCast(editor.selected_world);
-            if (editor.modal.kind) |kind| source_key.confirmation = @intCast(@intFromEnum(kind));
+            if (editor.modal.kind) |kind| source_key.confirmation = @intCast(@backingInt(kind));
         }
         _ = try source_key.encode();
         return source_key;
@@ -264,10 +302,17 @@ pub const Coordinator = struct {
                 for (hud_actions, 0..) |action, i| if (std.meta.eql(value, action)) break :blk @intCast(i);
                 return error.InvalidFocusSnapshot;
             },
-            .settings => blk: { const index = self.session.settings.focusIndex(); if (index > 10) return error.InvalidFocusSnapshot; break :blk @intCast(index); },
+            .settings => blk: {
+                const index = self.session.settings.focusIndex();
+                if (index > 10) return error.InvalidFocusSnapshot;
+                break :blk @intCast(index);
+            },
             .editor => blk: {
                 const editor = self.session.editor.session orelse return error.NoEditor;
-                const focus_key: ?Layout.FocusKey = if (editor.focus) |f| switch (f) { .field => |id| .{ .field = id }, .action => |a| .{ .action = a } } else null;
+                const focus_key: ?Layout.FocusKey = if (editor.focus) |f| switch (f) {
+                    .field => |id| .{ .field = id },
+                    .action => |a| .{ .action = a },
+                } else null;
                 break :blk try keyCode(focus_key);
             },
         };
@@ -282,7 +327,10 @@ pub const Coordinator = struct {
         if ((self.session.editor.session != null) != (self.roots.draft != null)) return error.SourceChanged;
     }
     fn validateSource(self: *Coordinator) RouterError!void {
-        self.checkSource() catch |failure| { self.projection = .stale; return failure; };
+        self.checkSource() catch |failure| {
+            self.projection = .stale;
+            return failure;
+        };
     }
     pub fn current(self: *const Coordinator) Input.CurrentView {
         std.debug.assert(!self.closed);
@@ -299,16 +347,34 @@ pub const Coordinator = struct {
         const focus_key = try editorKey(self.source_focus);
         const layout = try Layout.layout(.{ .viewport = .{ viewport_value.x, viewport_value.y }, .section = editor.section, .selected_world = @intCast(editor.selected_world), .focused = focus_key, .scroll = editor.scroll, .modal = null, .can_apply = !editor.hasParseErrors() and report.isValid(), .has_store_status = self.session.editor.status != .none, .issue_count = report.len }, self.workspace);
         defer Layout.releaseView(self.workspace);
-        self.focus = .{ .domain = @intFromEnum(FocusDomain.editor), .modal_present = 1, .modal_len = 2, .modal = .{ 107, 108 }, .restore = self.source_focus };
+        self.focus = .{ .domain = @backingInt(FocusDomain.editor), .modal_present = 1, .modal_len = 2, .modal = .{ 107, 108 }, .restore = self.source_focus };
         for (layout.widgets) |d| if (d.enabled and d.focusable) {
-            const k: ?Layout.FocusKey = switch (d.key) { .section => |s| .{ .action = .{ .select_section = s } }, .world_choice => |w| .{ .action = .{ .select_world = w } }, .field => |f| .{ .field = f }, .footer => |f| .{ .action = switch (f) { .revert => .revert, .factory_defaults => .factory_defaults, .regenerate_from_seed => .regenerate_from_seed, .load => .load, .save => .save, .cancel => .cancel, .apply_and_restart => .apply_and_restart } }, else => null };
-            if (k != null) { if (self.focus.base_len == 28) return error.InvalidFocusSnapshot; self.focus.base[self.focus.base_len] = try keyCode(k); self.focus.base_len += 1; }
+            const k: ?Layout.FocusKey = switch (d.key) {
+                .section => |s| .{ .action = .{ .select_section = s } },
+                .world_choice => |w| .{ .action = .{ .select_world = w } },
+                .field => |f| .{ .field = f },
+                .footer => |f| .{ .action = switch (f) {
+                    .revert => .revert,
+                    .factory_defaults => .factory_defaults,
+                    .regenerate_from_seed => .regenerate_from_seed,
+                    .load => .load,
+                    .save => .save,
+                    .cancel => .cancel,
+                    .apply_and_restart => .apply_and_restart,
+                } },
+                else => null,
+            };
+            if (k != null) {
+                if (self.focus.base_len == 28) return error.InvalidFocusSnapshot;
+                self.focus.base[self.focus.base_len] = try keyCode(k);
+                self.focus.base_len += 1;
+            }
         };
     }
     fn editorFocus(self: *Coordinator) RouterError!EditorUI.FocusInput {
         const history = if (self.saved_present) self.saved_focus else self.focus;
         if (self.context_key.confirmation == none) return .{ .current = try editorKey(if (self.saved_present) self.saved_source_focus else self.source_focus) };
-        if (history.domain != @intFromEnum(FocusDomain.editor) or history.modal_present != 1 or history.base_len > 28) return error.InvalidFocusSnapshot;
+        if (history.domain != @backingInt(FocusDomain.editor) or history.modal_present != 1 or history.base_len > 28) return error.InvalidFocusSnapshot;
         for (history.base[0..history.base_len], 0..) |code, i| self.editor_scratch[i] = (try editorKey(code)).?;
         return .{ .current = try editorKey(history.focused), .saved_base = .{ .order = self.editor_scratch[0..history.base_len], .restore = try editorKey(history.restore) } };
     }
@@ -337,8 +403,14 @@ pub const Coordinator = struct {
         }
     }
     fn project(self: *Coordinator) RouterError!void {
-        self.checkSource() catch |failure| { self.projection = .stale; return failure; };
-        self.projectOnce() catch |failure| { self.projection = .stale; return failure; };
+        self.checkSource() catch |failure| {
+            self.projection = .stale;
+            return failure;
+        };
+        self.projectOnce() catch |failure| {
+            self.projection = .stale;
+            return failure;
+        };
     }
     fn projectOnce(self: *Coordinator) RouterError!void {
         const current_value = self.current();
@@ -347,7 +419,9 @@ pub const Coordinator = struct {
         defer if (header_owned) self.releaseTickets(&header_tickets) else self.cancelTickets(&header_tickets);
         if (self.guide_state) |state| {
             var prepared = try Guide.prepareGuide(self.allocator, &self.preparation, .{ .source = .{ .location = state.location, .viewport = self.session.core.viewport(), .high_contrast = self.session.core.preferences().high_contrast, .focused = try optionalId(.guide, self.source_focus) }, .current = .{ .revision = current_value.revision, .owner = current_value.owner } });
-            self.mark(header_tickets.resident.?); if (header_tickets.draft) |ticket| self.mark(ticket); header_owned = true;
+            self.mark(header_tickets.resident.?);
+            if (header_tickets.draft) |ticket| self.mark(ticket);
+            header_owned = true;
             defer prepared.deinit();
             const next_focus = try snapshot(.guide, (try prepared.input()).focus);
             const geometry_value = try prepared.geometry();
@@ -359,7 +433,9 @@ pub const Coordinator = struct {
             self.published(&candidate, next_focus, null);
         } else if (self.context_key.base == .editor) {
             var prepared = try EditorUI.prepareEditorFromSession(self.allocator, &self.preparation, self.workspace, self.session, try self.editorFocus(), .{ .revision = current_value.revision, .owner = current_value.owner });
-            self.mark(header_tickets.resident.?); if (header_tickets.draft) |ticket| self.mark(ticket); header_owned = true;
+            self.mark(header_tickets.resident.?);
+            if (header_tickets.draft) |ticket| self.mark(ticket);
+            header_owned = true;
             defer prepared.deinit();
             const next_focus = try snapshot(.editor, (try prepared.input()).focus);
             var candidate = try self.reserveTickets(.staged_frame, true);
@@ -369,7 +445,8 @@ pub const Coordinator = struct {
             self.published(&candidate, next_focus, null);
         } else {
             var prepared = try UI.prepareHudSettingsFromSession(self.allocator, &self.preparation, self.session, null, .{ .revision = current_value.revision, .owner = current_value.owner });
-            self.mark(header_tickets.resident.?); header_owned = true;
+            self.mark(header_tickets.resident.?);
+            header_owned = true;
             defer prepared.deinit();
             if (self.context_key.base == .playing) {
                 var hud: Marker.BorrowedHudSnapshot = undefined;
@@ -380,7 +457,13 @@ pub const Coordinator = struct {
                 const code = if (self.saved_present) self.saved_source_focus else self.source_focus;
                 const wanted = try optionalId(.hud, code);
                 var present: ?H1.ActionId = null;
-                { const input_value = prepared.input(); if (wanted) |id| for (input_value.focus.base) |entry| if (std.mem.eql(u8, id.bytes, entry.bytes)) { present = entry; break; }; }
+                {
+                    const input_value = prepared.input();
+                    if (wanted) |id| for (input_value.focus.base) |entry| if (std.mem.eql(u8, id.bytes, entry.bytes)) {
+                        present = entry;
+                        break;
+                    };
+                }
                 try prepared.setHudPublishedFocus(present);
             }
             const next_focus = try snapshot(domainOf(self.context_key), prepared.input().focus);
@@ -393,11 +476,15 @@ pub const Coordinator = struct {
         }
     }
     pub fn guide(self: *Coordinator, request: GuideRequest) RouterError!RouteResult {
-        try self.enter(); defer self.leased = false;
+        try self.enter();
+        defer self.leased = false;
         try self.validateSource();
         switch (request) {
             .open => {
-                if (self.guide_state != null) { self.baseline = null; return .{ .handled = true }; }
+                if (self.guide_state != null) {
+                    self.baseline = null;
+                    return .{ .handled = true };
+                }
                 if (self.projection != .current) return error.StaleProjection;
                 const revision = try self.clock.next();
                 const current_value = self.current();
@@ -416,13 +503,17 @@ pub const Coordinator = struct {
                 self.context_key.guide = true;
                 self.context = try self.context_key.encode();
                 self.source_focus = none;
-                self.input.clearAll(); self.contacts.cancel();
+                self.input.clearAll();
+                self.contacts.cancel();
                 self.baseline = null;
                 try self.clock.commit(self.clock.value, revision);
             },
             .show => |location| {
                 if (self.guide_state == null) return .{};
-                if (std.meta.eql(self.guide_state.?.location, location)) { self.baseline = null; return .{ .handled = true }; }
+                if (std.meta.eql(self.guide_state.?.location, location)) {
+                    self.baseline = null;
+                    return .{ .handled = true };
+                }
                 return self.showGuide(location);
             },
             .close, .main_menu => {
@@ -456,7 +547,9 @@ pub const Coordinator = struct {
         var owned = false;
         defer if (owned) self.releaseTickets(&header_tickets) else self.cancelTickets(&header_tickets);
         var prepared = try Guide.prepareGuide(self.allocator, &self.preparation, .{ .source = .{ .location = location, .viewport = self.session.core.viewport(), .high_contrast = self.session.core.preferences().high_contrast, .focused = try optionalId(.guide, self.source_focus) }, .current = .{ .revision = revision, .owner = owner } });
-        self.mark(header_tickets.resident.?); if (header_tickets.draft) |ticket| self.mark(ticket); owned = true;
+        self.mark(header_tickets.resident.?);
+        if (header_tickets.draft) |ticket| self.mark(ticket);
+        owned = true;
         defer prepared.deinit();
         const geometry_value = try prepared.geometry();
         const next_focus = try snapshot(.guide, (try prepared.input()).focus);
@@ -481,12 +574,14 @@ pub const Coordinator = struct {
         const now = self.current();
         if (stamp.revision != now.revision or !stamp.owner.matches(now.owner)) return error.StaleProjection;
         if (operation == .close_current_guide) return self.guide(.close);
-        try self.enter(); defer self.leased = false;
+        try self.enter();
+        defer self.leased = false;
         try self.project();
         return .{ .handled = true, .projection = .current };
     }
     pub fn viewport(self: *Coordinator, value: Math.Vec2) RouterError!void {
-        try self.enter(); defer self.leased = false;
+        try self.enter();
+        defer self.leased = false;
         try self.validateSource();
         if (!value.isFinite()) return error.NonFinite;
         const normalized = Math.Vec2{ .x = @max(value.x, 0), .y = @max(value.y, 0) };
@@ -497,7 +592,8 @@ pub const Coordinator = struct {
         try self.project();
     }
     pub fn redraw(self: *Coordinator, now_ns: u128) RouterError!Redraw {
-        try self.enter(); defer self.leased = false;
+        try self.enter();
+        defer self.leased = false;
         try self.validateSource();
         if (self.guide_state != null) {
             self.baseline = now_ns;
@@ -519,19 +615,29 @@ pub const Coordinator = struct {
         }
         return .{ .held = false, .stale = self.projection == .stale, .outcome = outcome, .permit_advisory_poll_submit = self.projection == .current };
     }
-    pub fn key(_: *Coordinator, _: Input.NormalizedKeyEvent, _: Store.RawStore) error{PendingSlice}!RouteResult { return error.PendingSlice; }
-    pub fn ime(_: *Coordinator, _: Input.NormalizedIme) error{PendingSlice}!RouteResult { return error.PendingSlice; }
-    pub fn drain(_: *Coordinator, _: Store.RawStore) error{PendingSlice}!RouteResult { return error.PendingSlice; }
+    pub fn key(_: *Coordinator, _: Input.NormalizedKeyEvent, _: Store.RawStore) error{PendingSlice}!RouteResult {
+        return error.PendingSlice;
+    }
+    pub fn ime(_: *Coordinator, _: Input.NormalizedIme) error{PendingSlice}!RouteResult {
+        return error.PendingSlice;
+    }
+    pub fn drain(_: *Coordinator, _: Store.RawStore) error{PendingSlice}!RouteResult {
+        return error.PendingSlice;
+    }
     pub fn deinit(self: *Coordinator) void {
         if (self.closed) return;
         self.queue.deinit();
-        self.contacts.cancel(); self.input.clearAll();
+        self.contacts.cancel();
+        self.input.clearAll();
         self.frame.deinit();
         self.releaseTickets(&self.frame_tickets);
         self.destroyPair(&self.saved_owners);
         self.destroyPair(&self.roots);
         self.guide_publication = .{};
-        self.clock.deinit(); self.registry.deinit(); self.preparation.deinit(); self.tokens.deinit();
+        self.clock.deinit();
+        self.registry.deinit();
+        self.preparation.deinit();
+        self.tokens.deinit();
         self.closed = true;
     }
 };

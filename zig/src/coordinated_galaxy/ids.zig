@@ -1,0 +1,14 @@
+pub const SystemId = enum(u32) { _ };
+pub const PlanetId = enum(u32) { _ };
+pub const SettlementId = enum(u64) { _ };
+pub const BuildingId = enum(u64) { _ };
+pub const ShipmentId = enum(u64) { _ };
+pub const Tick = enum(u64) { _ };
+pub const Revision = enum(u64) { _ };
+pub const CommandSequence = enum(u64) { _ };
+pub const JobId = enum(u64) { _ };
+pub const DescriptorGeneration = enum(u64) { _ };
+pub const CellId = struct { planet: PlanetId, local: u64 };
+pub const SettlementRef = struct { planet: PlanetId, local: SettlementId };
+pub const BuildingRef = struct { planet: PlanetId, local: BuildingId };
+pub const ShipmentRef = struct { planet: PlanetId, local: ShipmentId };

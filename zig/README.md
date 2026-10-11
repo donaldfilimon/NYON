@@ -1,6 +1,27 @@
 # NYON in Zig
 
-The game migration is in progress on Zig `0.18.0-dev.120+9fe22a29b`.
+The game rewrite is in progress on Zig `0.18.0-dev.146+35accc06e`.
+Run `./tools/check.sh` here for the required Zig gate. It blocks Rust commands
+on PATH and checks Debug/ReleaseSafe tests, release compilation, filesystem
+CLI behavior, planet economy stories, freestanding wasm compilation and independent surface seam vectors. Historical Rust parity
+scripts are optional migration references, outside this gate.
+
+The in-memory `planet_economy` authority has its own `nyon.planet-economy.v0`
+identity. `zig build run -- planet-economy-demo --seed 2 --side 4 --budget 256`
+drives the combined acceptance story through the real runner. `--story creator`,
+`ruler-start`, or `policy-replay` selects the other fixed scripts. The command
+prints published receipt bytes and observed tick rows (including freight transit,
+delivery and absence derived from published shipment/route data), acknowledges each tick,
+and exits nonzero on script or argument failure. These scripts accept exactly
+seed 2 and side 4; other supported authority configurations are exercised by
+library tests. `zig build check-planet-cli` runs native process checks, while
+`zig build check-planet-wasm` only compiles a freestanding caller-memory probe.
+There is no browser execution, save adapter, or graphical host in this slice.
+
+The redesigned game's first pure modules are `surface` (integer six-face
+adjacency and cell IDs) and `play_role` (creator/ruler/combined admission).
+`zig build run -- surface-neighbors 4 71` prints east/west/north/south IDs.
+These foundations alone do not implement the economy, battles or a graphical host.
 This directory currently contains the Classic RulesV1 authority and terminal
 interaction. Full game scope and outstanding acceptance are tracked in
 [`2026-10-09-zig-migration.md`](../docs/qualification/2026-10-09-zig-migration.md).
