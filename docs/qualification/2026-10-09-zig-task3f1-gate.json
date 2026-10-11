@@ -1,0 +1,21 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791564688.981369,
+  "finished_unix": 1791565051.795541,
+  "log": "/private/tmp/nyon-zig-task3f1-gate.log",
+  "log_sha256": "7dbbe81636f722a470699bdeefa5d38ba26df48bcc616b77b61f0db19a582232",
+  "debug_tests": 221,
+  "source_identity_count": 44,
+  "source_identity_drift": [],
+  "review": "task-3f1-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3f1-full-gate.log",
+  "review_sha256": "18d470531d4da3a4df038a541b360e3580c9e8cc5146da2eed1fa086cae78580",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "pure advisory F1 only; controller/per-step/GPU/host pending",
+  "minor_deferred": "optional multiple-Union minimum-distance fixture classic_advisory_reference_tests.zig:84",
+  "runner_diagnostic": "intentional inherited test stderr; actual terminal0 and focused three-mode9/9 separately retained"
+}

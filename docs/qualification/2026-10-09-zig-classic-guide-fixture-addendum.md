@@ -1,0 +1,18 @@
+# H3d fixture and acceptance addendum
+
+2026-10-09. Proposed preparation correction only. Original source/correction/report/reviews immutable. This supersedes the correction's unsupported mandatory900000 guide overlap failure, and updates H3a acceptance status. No implementation authorization or host acceptance is inferred.
+
+The five enumerated guide transition bounds are82800,132272,452384,136976,719136; retaining old guide Header adds32768 to closing transitions, giving169744/751904. All are below900000. Therefore discard the expectation that900000 must fail any of these populations. One-Header lifetime restriction is a distinct caller invariant, not a budget capacity failure. Test its rejection separately with the future adapter's explicit typed lifecycle error, without manufacturing allocation charges (`task-3h3d-guide-dispatch-correction-review.md`, Minor M2).
+
+For named HUD->guide transition, independently instrument every actual allocator request and pending/committed charge, including preexisting resident, any other live shared populations, Header, candidate, DFS and focus. Let P be the maximum actual shared requested charge total during the deterministic successful fixture, not the conservative132272 bound. Construct the exact same fixture with fresh stable budget limitP: require acceptance and matching measured request trace. With limitP-1 require actual H1 LimitExceeded before the otherwise peak-reaching request, with original frame/backing/GuidePublication/source intact and balanced unwind. P must be measured independently of implementation constants and include ALL live actual charges; unrelated extra charges may not be silently excluded. The deterministic fixture must establish positive P and identical request ordering. Same boundary method may cover the other named transitions once their actual implementations exist. No exact numeric P or test result is claimed here.
+
+Parent now approves the operational proposal: trusted fixed GuidePublication revision/previous/next committed after slot replacement; failure rollback; canonical focus/error unions/rawq5; stable shared1179648 profile and five transition bounds. Candidate/Header local caps remain unchanged. Actual target record/layout assertions, measured requests/ordinal failures, API qualification and immutable caller contracts remain Pending. Session complete saved focus/guide state, whole Core.advance/advisory hold and host Main menu destination remain later integration prerequisites. H3b retained editor UI is not implemented by this acceptance; its pure layout worker is separately active.
+
+Parent reports H3a accepted after final independent review; read artifact evidence records ./zig/tools/check.sh terminal_exit0,358 Debug tests,65 source identities and empty drift (`task-3h3a-aggregate-gate.json`). This is existing gate evidence, not a command run by this preparation. Exact accepted H3a source rebind:
+
+- `zig/src/classic_ui.zig` SHA `26779e9ff238611fae6aaf1e786aa1b422bf6edcf823d963a6886fd4b66e4736`.
+- `zig/src/classic_ui_tests.zig` SHA `12484dc907cc0930e205dbc8c226647eb21ca8838af6a029499d9e8245d951c2`.
+- `zig/src/root.zig` SHA `50d30c2cc80bb352b4614deabbda2accaee888cc4f20cdddbe3a6dfaf138f7c2`.
+- `zig/README.md` SHA `c716bb290f24345de198a84ddea80445ad745b468cad08569d8e939d614df107`.
+
+Independent H3a review SHA `bb0b1e1790338ba26a04572295c79267c226ad1fde5d76ed618b36d0eb69eac7`. Read-only live comparison of all four final-source entries matches frozen hashes. Later guide worker must re-read actual accepted callable exports before dispatch; this addendum qualifies identities, not a guessed interface. No compiler/test/gate/source mutations here. Fresh scoped final review remains required.

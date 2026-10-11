@@ -1,0 +1,21 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791568882.566679,
+  "finished_unix": 1791569170.9523242,
+  "log": "/private/tmp/nyon-zig-task3g2-gate.log",
+  "log_sha256": "24e1a4032efa0d954584114a8137318b246bf22dfac56129b5b68f3e3a682f50",
+  "debug_tests": 268,
+  "source_identity_count": 55,
+  "source_identity_drift": [],
+  "review": "task-3g2-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3g2-full-gate.log",
+  "review_sha256": "e40b07f25c9cc2250303e07e0e2d3f7165b0717b0463a00a0e9270046f1c37cd",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "owned synchronous scene extraction only; composition renderer host performance pending",
+  "tdd_provenance": "Partial: initial sector behavior RED to GREEN; expanded tests followed complete implementation",
+  "minor_deferred": "signed-zero alpha fixture does not discriminate sign; reviewed clamp source correct"
+}

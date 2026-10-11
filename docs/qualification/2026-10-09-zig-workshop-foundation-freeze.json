@@ -1,0 +1,231 @@
+{
+  "date": "2026-10-09",
+  "status": "Current finite initial4A expected-input freeze only",
+  "manifest": "docs/qualification/fixtures/2026-10-09-workshop-foundation-v1/manifest.json",
+  "manifest_sha256": "ecc2f925e1f3c958dc3655a5bd6d8f4cd8593ad38b651716e8e093cba402e424",
+  "review": "docs/qualification/2026-10-09-zig-workshop-foundation-freeze-review.md",
+  "review_sha256": "dddf003477844f3fe14046e3a0759991162793d5666650ecfb178717d34fe0bc",
+  "output_identities": {
+    "README.md": {
+      "bytes": 1204,
+      "sha256": "f9ba21c86ef16bc03f52128fdfcfea8e568bd41eaa4a4cf9fa212bcc6cb8b735"
+    },
+    "manifest.json": {
+      "bytes": 53564,
+      "sha256": "ecc2f925e1f3c958dc3655a5bd6d8f4cd8593ad38b651716e8e093cba402e424"
+    },
+    "payloads/STATE_RAW_ENERGY_ABSENT.json": {
+      "bytes": 2587,
+      "sha256": "f3629e56f9f28854e6e50de626acaa2f1f9d42d7dbb5eee6e0aeb2d6f3000f9a"
+    },
+    "payloads/INVENTORY_ENERGY_ABSENT.json": {
+      "bytes": 9,
+      "sha256": "a1c986ea1c7a43a6351581e418625d26d6157b0dd523904211b056f233ebf5aa"
+    },
+    "payloads/DV_TICK_ONLY.json": {
+      "bytes": 1951,
+      "sha256": "8ed2a62410c0c2f257545e40388057a5c14d789dfe3f5c6c0acb14c836cf7223"
+    },
+    "payloads/HAZARD_NOT_CANCELLED.json": {
+      "bytes": 120,
+      "sha256": "ffd31f8b65f699e3a39ef5dac1151364c878d4d7cc4adc10c832d414cb988ebc"
+    },
+    "payloads/INDUSTRY_NULL_FALSE.json": {
+      "bytes": 112,
+      "sha256": "612d59084b3aee539e4eb40216cba0829374df90fe53fcb0a329d087aa7322af"
+    },
+    "payloads/STATE_ALL_RECORDS_RAW.json": {
+      "bytes": 1970,
+      "sha256": "ea9a7d3bc5b1d59cb641780b32cf73c6e6888191f18ff199add5239d54ddd63f"
+    },
+    "payloads/INVENTORY_ENERGY_ZERO.json": {
+      "bytes": 20,
+      "sha256": "6b6c33783ed7bbbce5e55ad265fa48fcf74eddb031992c90d9835feea4401b90"
+    },
+    "payloads/DV_IDENTITY.json": {
+      "bytes": 1970,
+      "sha256": "ea9a7d3bc5b1d59cb641780b32cf73c6e6888191f18ff199add5239d54ddd63f"
+    },
+    "payloads/STATE_VALID_POST_BATCH.json": {
+      "bytes": 2329,
+      "sha256": "05199dc9e7b499dbc94f55a222017d74816790883466e22fedf1ba6687197646"
+    },
+    "payloads/FACTION_ENDIAN_ORDER.json": {
+      "bytes": 143,
+      "sha256": "08fe9ef48b7a3fb1e1c60d45a13e2da54a2f8dc3e9644be7b24e30bd9ab6a4a2"
+    },
+    "payloads/OWNERS_ENDIAN_ORDER.json": {
+      "bytes": 141,
+      "sha256": "5bd7dc06b3592226c27dfc8a1778b5ca9d99d830a88f4247206b1793d8571b0a"
+    },
+    "payloads/DV_ALL_EMPTY.json": {
+      "bytes": 1189,
+      "sha256": "1b9cdd3cd1f52bb46e68fe9c56e0b359baaf080ec41007f01dffea149d6f74a1"
+    },
+    "payloads/DV_WORLDS_EMPTY.json": {
+      "bytes": 1621,
+      "sha256": "172f2b3a10d32c0dc20c0ee1744b867438bad2c3ad14f88b045298c1b63c06b0"
+    },
+    "payloads/DV_STATIC_CHANGED.json": {
+      "bytes": 1966,
+      "sha256": "afed83859a9b010c506d52ae0b16c0d71d47a8f8d8fe9446b0f674c732680c73"
+    },
+    "payloads/STATE_RAW_CROSS_KIND_DUPLICATE.json": {
+      "bytes": 292,
+      "sha256": "67ce0c5c3a2f8659e8ff8313b28b1f70fa6b6e83f19f6770eed28ae39211fa39"
+    },
+    "payloads/STATE_RAW_129_STORED_128_COUNTED.json": {
+      "bytes": 22298,
+      "sha256": "1e702076d32f7795b63a7b0267d124b43e90fdeb270c8791374438bca3faf1c2"
+    },
+    "payloads/STATE_VALID_AFTER_TICK_1.json": {
+      "bytes": 2598,
+      "sha256": "5f9a536a103501838c184314d07ae138f3268412a0006cafed173c09c0d2f1b3"
+    },
+    "payloads/STATE_VALID_AFTER_TICK_0.json": {
+      "bytes": 2588,
+      "sha256": "f064cd4c05f4d7220ae7cefaa23c6c634d2a9c2d063763ec1aea44be422920b7"
+    },
+    "payloads/DV_SHIPMENTS_EMPTY.json": {
+      "bytes": 1693,
+      "sha256": "49c98362b860d2c92c7cf2aa016e81e812d444f0161ec95204a8fc921d7096b7"
+    },
+    "payloads/STATE_RAW_DANGLING.json": {
+      "bytes": 474,
+      "sha256": "b4378a9abb16c79ddbd3edda8a8c9d4fba383b5b3c7c48765cdfc2005d1aaf0a"
+    },
+    "payloads/DV_DEPOSITS_EMPTY.json": {
+      "bytes": 1834,
+      "sha256": "280f8beb1c9a618b3b8597f22d2e15c76d0cbfb94b4a97c883ae0c153a4bf72f"
+    },
+    "payloads/STATE_EMPTY.json": {
+      "bytes": 153,
+      "sha256": "1b34bd28955b833518e1653fd9c5a9f899894bcbce5ef2c751b8b3f67d4f23fe"
+    },
+    "payloads/DV_DISTINCT_ALLOCATION.json": {
+      "bytes": 1970,
+      "sha256": "ea9a7d3bc5b1d59cb641780b32cf73c6e6888191f18ff199add5239d54ddd63f"
+    },
+    "payloads/DV_POISONED_RECEIVER.json": {
+      "bytes": 1970,
+      "sha256": "ea9a7d3bc5b1d59cb641780b32cf73c6e6888191f18ff199add5239d54ddd63f"
+    },
+    "descriptors/task-4a-independent-fixture-proposal-lines-17-46.md": {
+      "bytes": 4484,
+      "sha256": "82ea674783b3d5af3eeae444204a1a0a5b21fa3c29748084f4e69cf76eee563b"
+    },
+    "descriptors/task-4a-scalar-fixture-proposal-lines-183-209.md": {
+      "bytes": 4010,
+      "sha256": "fd0b42e045b9a2718c04ff2b191ecc9e08e5fa80ddeef02c1abc06c3301bdff2"
+    },
+    "descriptors/task-4a-scalar-fixture-proposal-lines-20-59.md": {
+      "bytes": 5260,
+      "sha256": "e3791c76c3b9b602d63de667ba3ca8396d25487a594f1be4b115504c5897ea01"
+    },
+    "descriptors/task-4a-scalar-fixture-proposal-lines-61-90.md": {
+      "bytes": 5769,
+      "sha256": "56e42b82e61d07d8e7f92aa7d024cbdb3523df1d79d9c2a203299a7ee43627d0"
+    },
+    "descriptors/task-4a-valid-fixture-proposal-lines-295-331.md": {
+      "bytes": 5151,
+      "sha256": "581c404220d017eafe8626ccc1e02687b8dc123aa2d4d6ce505ed7d0c920104b"
+    },
+    "descriptors/task-4a-scalar-fixture-proposal-lines-125-181.md": {
+      "bytes": 4853,
+      "sha256": "ab2aa5adfa1c52d4122aec1d2ec9e77002f20fa703621a633d07af8e4e5dcfc4"
+    },
+    "descriptors/task-4a-valid-fixture-proposal-lines-131-293.md": {
+      "bytes": 8561,
+      "sha256": "5da7930ca05a9adcf8969300051dcabbe5b37d47f3c1102190d96efd24057ceb"
+    },
+    "descriptors/task-4a-scalar-fixture-proposal-lines-92-123.md": {
+      "bytes": 6335,
+      "sha256": "0ebfad618ebc6f6274a6e3553ec171e06850aa30cc160589b14af9a3d00e6586"
+    },
+    "descriptors/task-4a-valid-fixture-proposal-lines-73-105.md": {
+      "bytes": 4102,
+      "sha256": "9d64cd310c1299e01f5c63dbf294ea0d3ccd75ed2876c1020b64754330772dba"
+    },
+    "preimages/STATE_ALL_RECORDS_RAW.bin": {
+      "bytes": 1993,
+      "sha256": "f0c1dc0c71db4253e4f3ba8b31b5f9323efe8b5d52565d46dcd0e9a643fd8da5"
+    },
+    "preimages/DV_POISONED_RECEIVER.bin": {
+      "bytes": 1993,
+      "sha256": "f0c1dc0c71db4253e4f3ba8b31b5f9323efe8b5d52565d46dcd0e9a643fd8da5"
+    },
+    "preimages/DV_IDENTITY.bin": {
+      "bytes": 1993,
+      "sha256": "f0c1dc0c71db4253e4f3ba8b31b5f9323efe8b5d52565d46dcd0e9a643fd8da5"
+    },
+    "preimages/DV_SHIPMENTS_EMPTY.bin": {
+      "bytes": 1716,
+      "sha256": "a2ce1ccdd23373291ea67f6ae7b22666e2e12ff3fae90a4acfc4ee5c745b6e97"
+    },
+    "preimages/DV_TICK_ONLY.bin": {
+      "bytes": 1974,
+      "sha256": "9b13a2d2a7e7951ed448f466c4efa5878e00a5b2d09c4a551e0c3804425421a9"
+    },
+    "preimages/STATE_EMPTY.bin": {
+      "bytes": 176,
+      "sha256": "ce4b1e272e8d13891c4f8ef175c79bb46ae8fb5ebcd23241701afab7ec654f0d"
+    },
+    "preimages/STATE_RAW_ENERGY_ABSENT.bin": {
+      "bytes": 2610,
+      "sha256": "420ffc864553d8d6a8b9c0c50e9e938f82618b36ebe8a173b728bbed0983d885"
+    },
+    "preimages/STATE_RAW_DANGLING.bin": {
+      "bytes": 497,
+      "sha256": "4bd5d8f19ea678f5107ea0b013bbcac90f11cda485e11cf6c6e97b1172242746"
+    },
+    "preimages/DV_DEPOSITS_EMPTY.bin": {
+      "bytes": 1857,
+      "sha256": "af2c2cbeecd92d05e6463532f109164c7c3f88c848d3db40641ca8fa262bb79d"
+    },
+    "preimages/STATE_VALID_POST_BATCH.bin": {
+      "bytes": 2352,
+      "sha256": "be16ba67a02e59b5d235863175066a7ffc1dc9d2a3348536467c7b9cf1e3f9b3"
+    },
+    "preimages/DV_DISTINCT_ALLOCATION.bin": {
+      "bytes": 1993,
+      "sha256": "f0c1dc0c71db4253e4f3ba8b31b5f9323efe8b5d52565d46dcd0e9a643fd8da5"
+    },
+    "preimages/STATE_RAW_129_STORED_128_COUNTED.bin": {
+      "bytes": 22321,
+      "sha256": "92bf6f358ea671639c5c5a726fbb2a03bc183cf5373fe3aeba21dc941c64bc82"
+    },
+    "preimages/STATE_VALID_AFTER_TICK_1.bin": {
+      "bytes": 2621,
+      "sha256": "d10142cc43ede9c2e94d26ba489f888e57ce878a5e46fc9f4959fd3fe4ef6465"
+    },
+    "preimages/DV_ALL_EMPTY.bin": {
+      "bytes": 1212,
+      "sha256": "ca4d56f73f7049e0551e1bbee6a7c8f7f75ab8a1362a187fe74a3bce29ec1e3e"
+    },
+    "preimages/STATE_VALID_AFTER_TICK_0.bin": {
+      "bytes": 2611,
+      "sha256": "e8e1f2ac8b0e08f81a3183ce5e86fdcf8c2e995f22dfa978d5a0aaa6f9260c6f"
+    },
+    "preimages/DV_WORLDS_EMPTY.bin": {
+      "bytes": 1644,
+      "sha256": "9e80f17c4766fbe86ecbe67c5469ae23a31903b0ec6a011599f8ee87f9e9e0a3"
+    },
+    "preimages/STATE_RAW_CROSS_KIND_DUPLICATE.bin": {
+      "bytes": 315,
+      "sha256": "380f940f29986675ca18d5602607b00263b5131d7fdf73c99605706be6e836a3"
+    },
+    "preimages/DV_STATIC_CHANGED.bin": {
+      "bytes": 1989,
+      "sha256": "d430b81c3ca9523df9954f3055acf90663d32fa3a2be933c37d33f83f076890c"
+    }
+  },
+  "scope": {
+    "payloads": 24,
+    "preimages": 18,
+    "descriptor_intervals": 9,
+    "total_files": 53
+  },
+  "implementation_runtime": "Pending",
+  "broader_Workshop_corpus": "Partial; later namespace/catalog/admission preparation and runtime remain Pending",
+  "mutation_policy": "retain v1 exact bytes; any changed expectations require independently reviewed new version, not blessing product outputs"
+}

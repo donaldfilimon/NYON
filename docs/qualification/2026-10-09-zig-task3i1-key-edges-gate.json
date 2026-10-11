@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791589496.73681,
+  "finished_unix": 1791589651.066138,
+  "log": "/private/tmp/nyon-zig-task3i1-key-edges-gate.log",
+  "log_sha256": "3ec3eed676496423a8a2614626eb6b95a80b201b0854ad64b0430c7c97d3d28f",
+  "debug_tests": 457,
+  "source_identity_count": 77,
+  "source_identity_drift": [],
+  "review": "task-3i1-key-edges-fix1-review.md"
+}

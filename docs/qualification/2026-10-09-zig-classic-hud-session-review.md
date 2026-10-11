@@ -1,0 +1,32 @@
+# Independent H3a Session adapter preparation review
+
+2026-10-09. Source-only document preparation review. Sole write this NEW review. No product, compiler, tests, gate, dependency or asset actions. Other owners preserved. Separate H3a FIX2 preparation was not read or accepted.
+
+## Verdict and rulings
+
+Zero actionable Critical/Important/Minor source-binding defects in this frozen document. Ready for parent preparation acceptance with explicit category-only recovery policy and adapter ownership ruling before dispatch. This accepts no product implementation and no whole UI/host/materialization claim.
+
+Category projection is Proposed behavior: it deliberately replaces arbitrary error detail in the display with bounded literals, while original owned Session/Store message/cause/cleanup_error remain unchanged. Parent must endorse this choice rather than presenting it as full Rust diagnostic-string parity. Synchronous mapping must not retain recovery pointers, allocate via messageAlloc, call errorName, clear failures or perform implicit recover/persist. Any alternative full-detail policy requires the separately admitted complete-string budget. This document states that distinction accurately.
+
+Pure semantic prepare/publication/freshness can qualify independently of later host3I and active H2b with explicit caller stamps/pointer and copied immutable inputs. Real host revision advancement, pointer feeds and event dispatch remain later integration obligations. Caller CurrentStamp/projectionSource/hudProjectionState names are Proposed seams, not existing Session accessors. No visible text materialization or total HUD/game acceptance follows.
+
+## Independent checks
+
+Read full exact adapter binding/report; actual Session/AppCore/commands/onboarding/settings/preferences/store source sections implementing every claimed retrieval and recovery operation; model widths/name ownership, simulation preview/error declarations, scenario admission errors, Rust viewport/tooltip builder and rejection labels. Verified all14 document source hashes against live bytes, zero drift. All12 Zig paths match by path/hash both accepted H1b3 sixty-file final manifest and current H2b preserve-identities. The two Rust references are absent from those manifests: their hashes were verified live only, not falsely promoted to accepted Zig-manifest entries. Document hashes verified:
+
+- binding0cb392284d774c6b71c697523a6a425d05714632ab82f48feaf093e0754c227e
+- reporte00b722410651b3b0aef0229595dce46199ee3de0cd8b80d0788274ee07fa733
+
+AppCore mode/viewport/preferences/speed/campaign/recoverableStatus and Session recoveryFailure/controls/focusIndex exist with claimed const/value types. Selected field/help/hovered world, onboarding/settings/hud_focus are actual named public fields; no underscore fields or nonexistent classic_controller accessor is required. Commands uses by-ID world scan, hovered-or-touch target, value-owned WorldName and literal tray/control strings. Controls owns [18]Control; items borrows it and action must be copied before local Controls dies. WorldName.asSlice similarly borrows inline name storage; complete string must be copied into Header before temporary source values disappear. CampaignView worlds are seven value records; fleet slice is borrowed and not retained. Session/AppCore live owners are never copied.
+
+previewContextualLaunch is exactly ?CommandRejection!CommandPreview. Tray launch_strength is ?Strength and Strength=u64; it is neither u32 nor float. GameSpeed multiplier returns u8. Codec ui_scale payload is u16 (five decimal digits maximum); Tick=u64 (20 digits); StoreFailure.max_bytes is usize, native64-bit bound20 digits, with no universal u64 ABI assertion. Checked formatter/future target accounting must preserve that distinction. Original scenario AdmissionError has exactly Validation/InvalidInitialState/StaleFingerprint. CommandRejection eight tags plus ModeRefused/OutOfMemory/MissingSource/MissingTarget cover DispatchError. Existing rejectionLabel matches all eight Rust literals.
+
+Recovery priority is general, any resource lane, tick, preferences. General pointers and preferences pointers borrow live Session storage; resource/tick are values. Resource lanes may coexist and fixed preference/editor/command order is explicit. PreferencesFailure codec four tags and store five FailureKind tags are exhaustively mapped; preferences record guard rejects inconsistent scenario record. Proposed JSON/editor categories cover anyerror without enumerating an open set. Existing exact too-large/version/ui-scale/oversized-slot strings are distinguished from new closed categories. Private Record.label is not called; singular preference literal is source accurate. All numeric/composite bounds fit256 formatter scratch and stated128 display admission; actual mapper literal/layout fixtures remain future evidence.
+
+controls(null) genuinely omits marker; maximal playing controls17, retained cap18 leaves one future action. HUD focusIndex retains hidden identity when absent from displayed controls. Visible focused action must use the returned index/current control, while direct hud_focus can preserve hidden identity without marking a nonexistent control; the binding explicitly preserves null display and no mutation. Settings focus is existing bounded state. Pointer and owner/revision have no invented source accessors. Viewport max1/nonfinite1x1 describes the Rust builder policy, not AppCore setter behavior. Tooltip control precedence/hovered fallback must be implemented as proposed complete projection, not described as an existing AppCore tooltip API.
+
+First-marker exclusion and64-node maximum remain a bounded first-slice proposal; common72/18 caps retain future slack. This source adapter review alone does not requalify the separate full-source H3a handoff budgets/layout. Announcement occurrence publication is explicitly Proposed and separate from persistent recovery display; no once-only consumption is introduced into Session.
+
+## Remaining gates
+
+Parent policy/ownership ruling; freeze new adapter/UI files and root ownership; separate actual H3a FIX2 acceptance; independently approved semantic/layout/literal fixtures; contemporary RED/GREEN, three modes, actual Header/formatter/caller/transitive accounting, frozen-source independent review and authorized aggregate gate. Later H2b materialization, host3I revision/event integration and H3c marker-safe-area integration each remain separate. Current checks are retrieval/hash/source evidence only.

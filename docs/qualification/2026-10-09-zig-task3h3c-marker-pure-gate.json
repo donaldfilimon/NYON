@@ -1,0 +1,14 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791584977.383112,
+  "finished_unix": 1791585131.590008,
+  "log": "/private/tmp/nyon-zig-task3h3c-marker-pure-fix1-gate.log",
+  "log_sha256": "e60ca989a3712b269d2aea4b9d71bcb937115dc6d9d9f085517035df0678170e",
+  "debug_tests": 410,
+  "source_identity_count": 71,
+  "source_identity_drift": [],
+  "review": "task-3h3c-marker-pure-fix1-review.md",
+  "review_sha256": "b8a5dc2601e9902456d3ea1e275b504c9e3f3693aa97a665886cc3897da81e71",
+  "scope": "Pure marker corrected I1; original behavioral RED ordering P1 Partial. No adapter/attachment/host/LG acceptance."
+}

@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791588710.333469,
+  "finished_unix": 1791588997.645695,
+  "log": "/private/tmp/nyon-zig-task3i1-foundation-gate.log",
+  "log_sha256": "8102400f19641ef023725ce4a00e752b672dea351c58f6a882c7aa90b9d4cbec",
+  "debug_tests": 448,
+  "source_identity_count": 77,
+  "source_identity_drift": [],
+  "review": "task-3i1-foundation-fix1-review.md"
+}

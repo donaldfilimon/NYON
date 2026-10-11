@@ -401,6 +401,12 @@ impl LivingPendingEventsV2 {
         Ok(ordinal)
     }
 
+    /// Move the original explained allocation after bounded sealing selection.
+    pub(crate) fn take_explained_for_sealing(&mut self) -> Vec<(u16, LivingEventFactsV2)> {
+        self.explained_bytes = 0;
+        std::mem::take(&mut self.explained)
+    }
+
     /// The payload entries in emission order.
     pub fn payloads(&self) -> &[LivingEventPayloadV2] {
         &self.entries
@@ -1202,6 +1208,193 @@ impl<'a> RetirementFields<'a> for LivingOrdinaryReceiptJobV2 {
     }
 }
 
+/// Non-owning ordinary verification. The caller pins the same receipt for the
+/// cursor's lifetime; no payload Vec or source-sized temporary is constructed.
+pub(crate) struct LivingOrdinaryReceiptVerificationCursorV2 {
+    stage: u8,
+    index: usize,
+    bytes: usize,
+    hasher: sha2::Sha256,
+    fault: Option<LivingReceiptErrorV2>,
+    last_visit_visits: usize,
+    #[cfg(test)]
+    max_fragment: usize,
+}
+impl LivingOrdinaryReceiptVerificationCursorV2 {
+    pub(crate) fn new() -> Self {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(super::ids::LIVING_RECEIPT_DOMAIN_V2);
+        Self {
+            stage: 0,
+            index: 1,
+            bytes: 0,
+            hasher,
+            fault: None,
+            last_visit_visits: 0,
+            #[cfg(test)]
+            max_fragment: 0,
+        }
+    }
+    pub(crate) fn assert_non_owning(&self) {
+        let Self {
+            stage: _,
+            index: _,
+            bytes: _,
+            hasher: _,
+            fault: _,
+            last_visit_visits: _,
+            #[cfg(test)]
+                max_fragment: _,
+        } = self;
+    }
+    pub(crate) fn ready(&self) -> bool {
+        self.stage == 10 && self.fault.is_none()
+    }
+    pub(crate) fn visit(
+        &mut self,
+        receipt: &LivingTickReceiptV2,
+    ) -> Result<bool, LivingReceiptErrorV2> {
+        self.last_visit_visits = 0;
+        if let Some(error) = self.fault {
+            return Err(error);
+        }
+        if self.ready() {
+            return Ok(false);
+        }
+        self.last_visit_visits = 1;
+        let result = self.visit_inner(receipt);
+        if let Err(error) = result {
+            self.fault = Some(error);
+        }
+        result.map(|()| true)
+    }
+    fn visit_inner(&mut self, receipt: &LivingTickReceiptV2) -> Result<(), LivingReceiptErrorV2> {
+        use sha2::Digest;
+        use std::io::Write;
+        fn scalar(
+            out: &mut OrdinarySealFragment,
+            value: &impl Serialize,
+        ) -> Result<(), LivingReceiptErrorV2> {
+            serde_json::to_writer(out, value).map_err(|_| LivingWireErrorV2::Json.into())
+        }
+        let mut fragment = OrdinarySealFragment {
+            bytes: [0; 256],
+            len: 0,
+        };
+        match self.stage {
+            0 => {
+                if self.index < receipt.applied_revisions.len() {
+                    if receipt.applied_revisions[self.index - 1]
+                        >= receipt.applied_revisions[self.index]
+                    {
+                        return Err(LivingReceiptErrorV2::UnsortedRevisions);
+                    }
+                    self.index += 1;
+                } else {
+                    self.stage = 1;
+                    self.index = 0;
+                }
+            }
+            1 => {
+                if receipt.events.len() > LIVING_MAX_BOUNDARY_EVENTS_V2 {
+                    return Err(LivingReceiptErrorV2::TooManyEvents {
+                        limit: LIVING_MAX_BOUNDARY_EVENTS_V2,
+                    });
+                }
+                self.stage = 2;
+            }
+            2 => {
+                fragment.write_all(b"{\"tick\":").unwrap();
+                scalar(&mut fragment, &receipt.tick)?;
+                fragment.write_all(b",\"applied_revisions\":[").unwrap();
+                self.stage = 3;
+            }
+            3 => {
+                if let Some(id) = receipt.applied_revisions.get(self.index) {
+                    if self.index != 0 {
+                        fragment.write_all(b",").unwrap();
+                    }
+                    scalar(&mut fragment, id)?;
+                    self.index += 1;
+                } else {
+                    self.stage = 4;
+                    self.index = 0;
+                }
+            }
+            4 => {
+                fragment.write_all(b"],\"event_payloads\":[").unwrap();
+                self.stage = 5;
+            }
+            5 => {
+                if let Some(event) = receipt.events.get(self.index) {
+                    if self.index != 0 {
+                        fragment.write_all(b",").unwrap();
+                    }
+                    // Closed fixed row: ordinal, closed provenance and closed kind.
+                    scalar(
+                        &mut fragment,
+                        &LivingEventPayloadV2 {
+                            ordinal: event.ordinal,
+                            provenance: event.provenance,
+                            kind: event.kind,
+                        },
+                    )?;
+                    self.index += 1;
+                } else {
+                    self.stage = 6;
+                    self.index = 0;
+                }
+            }
+            6 => {
+                fragment.write_all(b"],\"state_digest\":").unwrap();
+                scalar(&mut fragment, &receipt.state_digest)?;
+                fragment.write_all(b"}").unwrap();
+                self.stage = 7;
+            }
+            7 => {
+                if self.bytes > LIVING_MAX_ARCHIVE_BYTES_V2 {
+                    return Err(LivingWireErrorV2::TooLarge {
+                        actual: self.bytes,
+                        limit: LIVING_MAX_ARCHIVE_BYTES_V2,
+                    }
+                    .into());
+                }
+                if LivingReceiptDigestV2(self.hasher.clone().finalize().into()) != receipt.digest {
+                    return Err(LivingReceiptErrorV2::DigestMismatch);
+                }
+                self.stage = 8;
+            }
+            8 => {
+                if let Some(event) = receipt.events.get(self.index) {
+                    let ordinal = u16::try_from(self.index).map_err(|_| {
+                        LivingReceiptErrorV2::TooManyEvents {
+                            limit: LIVING_MAX_BOUNDARY_EVENTS_V2,
+                        }
+                    })?;
+                    if event.ordinal != ordinal || event.id != event_id_v2(receipt.digest, ordinal)
+                    {
+                        return Err(LivingReceiptErrorV2::EventIdentityMismatch);
+                    }
+                    self.index += 1;
+                } else {
+                    self.stage = 10;
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.bytes += fragment.len;
+        #[cfg(test)]
+        {
+            self.max_fragment = self.max_fragment.max(fragment.len);
+        }
+        if self.bytes <= LIVING_MAX_ARCHIVE_BYTES_V2 {
+            self.hasher.update(&fragment.bytes[..fragment.len]);
+        }
+        Ok(())
+    }
+}
+
 /// Seal a boundary: hash the payload, derive every event identity from that
 /// digest, then assemble the public receipt, in that order.
 pub fn seal_living_tick_receipt_v2(
@@ -1429,6 +1622,12 @@ impl<'a> RetirementFields<'a> for super::decision::LivingIntentDecisionV2 {
     }
 }
 impl<'a> RetirementFields<'a> for super::event_facts::LivingEventFactsV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.resources.creator_allocations(out);
+        self.blocked_reasons.creator_allocations(out);
+        self.affected.creator_allocations(out);
+    }
     fn retirement_child(
         &mut self,
         index: usize,
@@ -2551,6 +2750,201 @@ mod ordinary_sealing_tests {
             assert_eq!(retirement.total_visits(), 43);
             retirement.poll(budget).unwrap();
             assert_eq!(retirement.last_poll_visits(), 0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod ordinary_verification_tests {
+    use super::*;
+    fn verify(
+        receipt: &LivingTickReceiptV2,
+        schedule: &[usize],
+    ) -> (
+        Result<(), LivingReceiptErrorV2>,
+        LivingOrdinaryReceiptVerificationCursorV2,
+    ) {
+        let mut cursor = LivingOrdinaryReceiptVerificationCursorV2::new();
+        let mut poll = 0;
+        loop {
+            for _ in 0..schedule[poll % schedule.len()] {
+                match cursor.visit(receipt) {
+                    Err(error) => {
+                        assert_eq!(cursor.last_visit_visits, 1);
+                        assert_eq!(cursor.visit(receipt), Err(error));
+                        assert_eq!(cursor.last_visit_visits, 0);
+                        return (Err(error), cursor);
+                    }
+                    Ok(false) => {
+                        assert_eq!(cursor.last_visit_visits, 0);
+                        return (Ok(()), cursor);
+                    }
+                    Ok(true) => assert_eq!(cursor.last_visit_visits, 1),
+                }
+            }
+            poll += 1;
+            assert!(poll < 10_000_000);
+        }
+    }
+    fn events(n: usize) -> Vec<LivingEventV2> {
+        vec![
+            LivingEventV2 {
+                ordinal: 0,
+                id: LivingEventIdV2([0; 16]),
+                provenance: LivingEventProvenanceV2::Creator {
+                    revision: LivingRevisionIdV2([0; 32])
+                },
+                kind: LivingEventKindV2::CombatRound,
+            };
+            n
+        ]
+    }
+    #[test]
+    fn ordinary_verification_full_archive_cap_measures_actual_before_identity() {
+        // Independent schema: base134 with nonempty revisions,67 per ID;
+        // eight fixed ordinal0 creator/combat_round rows contribute8*146-1.
+        // Tick10 contributes one additional numeric byte. These constants were
+        // declared for A and are now applied directly to this separate verifier.
+        for (count, tick, bytes) in [
+            (500792usize, 1, 33_554_365usize),
+            (500793, 1, 33_554_432),
+            (500793, 10, 33_554_433),
+        ] {
+            let applied_revisions = (0..count)
+                .map(|i| {
+                    let mut id = [0; 32];
+                    id[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                    LivingRevisionIdV2(id)
+                })
+                .collect();
+            let mut receipt = LivingTickReceiptV2 {
+                tick: LivingTickV2(tick),
+                applied_revisions,
+                events: events(8),
+                state_digest: LivingStateDigestV2([0; 32]),
+                digest: LivingReceiptDigestV2([0; 32]),
+            };
+            if bytes <= LIVING_MAX_ARCHIVE_BYTES_V2 {
+                receipt.digest = receipt.payload().digest().unwrap();
+                for event in &mut receipt.events {
+                    event.id = event_id_v2(receipt.digest, event.ordinal);
+                }
+            }
+            let expected = if bytes > LIVING_MAX_ARCHIVE_BYTES_V2 {
+                Err(LivingReceiptErrorV2::Wire(LivingWireErrorV2::TooLarge {
+                    actual: bytes,
+                    limit: LIVING_MAX_ARCHIVE_BYTES_V2,
+                }))
+            } else {
+                Err(LivingReceiptErrorV2::EventIdentityMismatch)
+            };
+            assert_eq!(receipt.verify(), expected);
+            let ids = receipt.applied_revisions.as_ptr();
+            let rows = receipt.events.as_ptr();
+            for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 64, 2, 1024, 7][..]] {
+                let (actual, cursor) = verify(&receipt, schedule);
+                assert_eq!(actual, expected);
+                assert_eq!(cursor.bytes, bytes);
+                assert!(cursor.max_fragment <= 256);
+                assert_eq!(
+                    cursor.stage,
+                    if bytes > LIVING_MAX_ARCHIVE_BYTES_V2 {
+                        7
+                    } else {
+                        8
+                    }
+                );
+                assert_eq!(receipt.applied_revisions.as_ptr(), ids);
+                assert_eq!(receipt.events.as_ptr(), rows);
+            }
+        }
+    }
+    #[test]
+    fn ordinary_verification_count_and_sort_precede_wrong_hash_at_all_schedules() {
+        for n in [65_536, 65_537] {
+            let mut receipt = LivingTickReceiptV2 {
+                tick: LivingTickV2(1),
+                applied_revisions: vec![],
+                events: events(n),
+                state_digest: LivingStateDigestV2([0; 32]),
+                digest: LivingReceiptDigestV2([0; 32]),
+            };
+            for duplicate in [false, true] {
+                if duplicate {
+                    receipt.applied_revisions = vec![LivingRevisionIdV2([0; 32]); 2];
+                }
+                let expected = if duplicate {
+                    LivingReceiptErrorV2::UnsortedRevisions
+                } else if n == 65_537 {
+                    LivingReceiptErrorV2::TooManyEvents { limit: 65_536 }
+                } else {
+                    LivingReceiptErrorV2::DigestMismatch
+                };
+                assert_eq!(receipt.verify(), Err(expected));
+                for schedule in [&[1][..], &[64][..], &[1024][..], &[1, 64, 2, 1024, 7][..]] {
+                    let (actual, cursor) = verify(&receipt, schedule);
+                    assert_eq!(actual, Err(expected));
+                    assert_eq!(
+                        cursor.stage,
+                        if duplicate {
+                            0
+                        } else if n == 65_537 {
+                            1
+                        } else {
+                            7
+                        }
+                    );
+                    if duplicate || n == 65_537 {
+                        assert_eq!(cursor.bytes, 0);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn ordinary_verification_collector_flag_length_and_payload_follow_receipt() {
+        use super::super::event_facts::{
+            LivingEventFactsSealJobV2, seal_living_event_facts_receipt_v2,
+        };
+        for variant in 0..4 {
+            let mut pending = LivingPendingEventsV2::new();
+            pending
+                .record(
+                    LivingEventProvenanceV2::Autonomous {
+                        phase: super::super::ids::LivingPhaseV2::RunProduction,
+                    },
+                    LivingEventKindV2::FacilityProduced,
+                )
+                .unwrap();
+            let mut receipt = seal_living_tick_receipt_v2(
+                LivingTickV2(1),
+                vec![],
+                &pending,
+                LivingStateDigestV2([0; 32]),
+            )
+            .unwrap();
+            match variant {
+                0 => pending.explanations_enabled = false,
+                1 => {
+                    pending.entries.clear();
+                }
+                2 => pending.entries[0].kind = LivingEventKindV2::HullCompleted,
+                _ => {
+                    pending.explanations_enabled = false;
+                    receipt.digest.0[0] ^= 1;
+                }
+            }
+            let expected = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap_err();
+            let mut job = LivingEventFactsSealJobV2::begin(pending, receipt);
+            let actual = loop {
+                if let Err(error) = job.visit() {
+                    break error;
+                }
+            };
+            assert_eq!(
+                actual,
+                super::super::step_job::LivingLifecycleJobErrorV2::Fault(expected.into())
+            );
         }
     }
 }

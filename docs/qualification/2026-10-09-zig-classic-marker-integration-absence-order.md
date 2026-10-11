@@ -1,0 +1,5 @@
+# H3c integration absence-order clarification
+
+2026-10-09. Additive closure of Minor M1 in task-3h3c-marker-integration-settings-review.md (2c215e72496c69ff77f30619f7c470bf8626f7cbcde0df183593eddce0409ceb). All originals remain immutable. This wording supersedes the overbroad Settings absence statement in task-3h3c-marker-integration-settings-fix.md:13 and its report; no implementation or new branch policy.
+
+Preserve the authoritative pure dispatch contract: validate the entire Input first; a well-formed noninitial step returns absent.not_initial before the not-playing/settings branch; with the initial step, Settings returns absent.not_playing. Do not change pure branch order. The actual initial-onboarding Settings fixture correctly expects not_playing. The Settings no-onboarding fixture must expect not_initial, with eleven control zones or twelve if a pointer tooltip is present. Zone populations, ancillary admission/copying, source preservation, attach WrongProjectionMode, all caps and immutable lease prerequisites remain unchanged. No transient pure sources, compiler, tests or gate were used for this clarification.

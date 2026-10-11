@@ -1,0 +1,14 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791581320.156767,
+  "finished_unix": 1791581486.033142,
+  "log": "/private/tmp/nyon-zig-task3h3b-layout-gate.log",
+  "log_sha256": "192877b468b327b6987bb5c8e2ce283c56a2c2c1f038ce4e81146349ccf14146",
+  "debug_tests": 374,
+  "source_identity_count": 67,
+  "source_identity_drift": [],
+  "review": "task-3h3b-layout-independent-review.md",
+  "review_sha256": "b68b58381af7b8b8eb89757ffe3e67900d961dd7278b2630cff97f635c566e57",
+  "scope": "Pure editor layout/getter only; retained UI and host acceptance pending"
+}

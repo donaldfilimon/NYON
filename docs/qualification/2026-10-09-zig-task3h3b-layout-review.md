@@ -1,0 +1,32 @@
+# H3b layout/getter independent task review
+
+2026-10-09. **Spec compliance: PASS for the frozen first pure layout/getter slice. Task quality: Approved.** No Critical, Important or Minor findings. Retained editor publication, actual Header/shared-budget integration, text materialization, hosts and whole-game completion remain pending; this is not acceptance of those surfaces or the parent aggregate gate.
+
+## Scope and identity
+
+Reviewed the additive dispatch binding, original error/widget binding, prerequisites, preparation review, worker report and six-file review package against captured baselines and complete final sources. Independent read-only Python hashing verified all six captured final identities against live product files; captured existing baseline identities; all 61 protected live identities; all 246 manifest artifacts; every receipt output-log hash and all 172 existing per-run product-source copies. The original 39,834-byte editor-test prefix remains byte-identical. The patch contains exactly two new modules, the narrow getter, two appended getter tests, root export/test import and README appendix. No other product edits were attributed to this slice.
+
+Frozen layout SHA-256: cbe7c31dd70aedc9bf97d78abd718642779272b08c02512ad6e3ebb7febf323f. Frozen layout-tests SHA-256: 2be866fb02c859652ad257ec4f26a37ed7f6e442bfcf8aba3b7b79ff07c5e705. Final-source manifest SHA-256: 45bd82b9eb38baf95a570c78cdf70a8af802585891cab065d0349038e7285c77.
+
+## Verified behavior and quality
+
+- `zig/src/classic_editor_layout.zig:13-22,49-66,68-170`: one caller-owned 114-descriptor array, scalar-only input, null-destination full endpoint/count preflight, then the same strict-f32 generator replay. Input is copied and immutable; all typed errors precede workspace writes. Destination does not influence geometry/count/error decisions. No second workspace or descriptor array; explicit busy and double-release guard survives optimization. Borrowed/move lifetime is documented.
+- `zig/src/classic_editor_layout.zig:24-46,148-160`: world7/invalid focus/report/scroll reject before conversion/indexing. Thresholds cap column counts before float-to-integer conversion; Rect constructors check derived finite endpoints. `classic_editor.zig:206-212` bounds the typed world before `slot()` and reads only the existing error flag without epoch allocation or mutation.
+- `zig/src/classic_editor_layout.zig:275-356`: complete exhaustive 26-family schema/severity checks, count98/physical count checks, physical Text48/96 lengths before slicing and logical27/73/UTF-8 checks. First matching Error wins, parse flags override only after whole-report validation, Warning/global aggregate/grouped sibling exclusions remain exact. `issueText` returns the original report entry's message borrow, not a copied loop-local issue.
+- `zig/src/classic_editor_layout.zig:358-374`: checked full byte ranges reject report/flags overlap with any Workspace byte, permit read/read alias and report address-add overflow explicitly. Integration preflight obligation is explicit; the scalar layout API itself has no report/draft borrow.
+- `zig/src/classic_editor_layout.zig:68-146`: source wide/compact/footer/modal geometry and order checked against `src/editor/layout.rs:14-233,281-519`. The source 1100 cutoff, 56/44/8 constants, all section/field/footer order, full-row visibility, tiny controls and zero-size modal button policy agree. The source footer tiny-window y differs from footer_top and is preserved. Modal underlay flags disable without losing identities.
+- `zig/src/classic_editor_layout.zig:171-274`: navigation checked against `src/editor.rs:303-362,685-707`; enabled/focusable traversal includes invisible fields, absent-current first/last wraps, reverse inclusive hit respects visibility, editable field focus emits no action, and reveal preserves absent/action identities. Scroll/reveal check finite intermediates before clamp and return values without mutating source state.
+- `zig/src/classic_editor_layout_tests.zig:1-423`: handwritten literal geometry, complete 26-family target table, grouped/other-world/Warning exclusions, malformed physical lengths and UTF-8, source-backed message pointer, full workspace-byte preservation, alias boundaries, borrowed movement/reuse, tiny/zero/modal/disabled Apply, invisible navigation and overflow checks assert observable behavior. No product-generated expected values or fake allocator OOM loop. Getter tests independently check exact flags and a real subsequent allocating epoch failure.
+- `zig/src/root.zig:15,44` adds only export/test import; README appendix accurately limits this pure slice and explicitly carries future retained nonfocusable-action-null/resize obligations. Actual retained tiny-frame publication is not claimed.
+
+## Evidence checked without rerunning
+
+Archived runnable feature REDs show getter/error TestUnexpectedResult, geometry expected30/found0, navigation null-focus panic and reveal expected InvalidScroll/found finite max; each terminal1. Intermediate adversarial compile failure is transparently excluded from feature RED evidence. Final captured same-source runs report layout14/editor31 tests passing in Debug, ReleaseSafe and ReleaseFast, terminal0; frozen fmt check terminal0. Explicit double-release probe logs show the intended guard panic and terminal-6 in all three modes. These are inspected worker receipts, not independently rerun compiler results.
+
+Target measurement logs report Descriptor28, Workspace3196/overhead4, Input64, View56, Report16808, ParseFlags90, existing catalog2160, named fixture-local sum20214. These agree with asserted bounds and arithmetic; the report correctly distinguishes requested heap0 by API/source inspection from unknown full/transitive stack, future retained Header and new109 identity table. No complete-memory or allocator-OOM claim is fabricated for this allocation-free API.
+
+## Issues and remaining acceptance
+
+Critical: none. Important: none. Minor: none.
+
+Parent aggregate gate remains separately owned and unverified by this review. Retained editor Header/publication/shared1179648 allocator profile, actual action-null tiny semantic frames and resize/modal restoration, H2 materialization, host input/rendering/accessibility and complete game qualification are later scope. No compiler, test executable, build, full gate, product mutation, Git mutation or subagent was run. Only this new ignored review report was written; shared changes preserved.

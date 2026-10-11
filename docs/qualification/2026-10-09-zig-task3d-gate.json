@@ -1,0 +1,23 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791549299.445693,
+  "finished_unix": 1791549942.643975,
+  "log": "/private/tmp/nyon-zig-task3d-fix1-gate.log",
+  "log_sha256": "0cee3f932f1630eaec6b213c00dbd4ff1f6988615383e03fc0d702d31034a038",
+  "debug_tests": 185,
+  "source_identity_count": 34,
+  "source_identity_drift": [],
+  "review": "task-3d-fix1-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3d-fix1-full-gate.log",
+  "review_sha256": "1e5a20b22414253027a16906b8f701ddc1675c2e2b0ac176aa6551d1f2d6a508",
+  "scoped_counts": {
+    "release_safe_test_build_exit": 0,
+    "cli_process_checks": 57,
+    "codec_records": 323,
+    "matching_trace_rows": 144012,
+    "tick_transitions": 144000,
+    "events": 2038
+  },
+  "scope": "Headless Classic transactions and disposable native profiles only; game/GUI/browser/other-host/manual acceptance remains Pending."
+}

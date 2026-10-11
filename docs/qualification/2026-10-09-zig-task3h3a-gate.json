@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791579972.884567,
+  "finished_unix": 1791580355.8546429,
+  "log": "/private/tmp/nyon-zig-task3h3a-gate.log",
+  "log_sha256": "4c32ac468789f397101a6e4c1c607fcc13da6924d43cf5d0045995bafd543333",
+  "debug_tests": 358,
+  "source_identity_count": 65,
+  "source_identity_drift": [],
+  "review": "task-3h3a-review.md"
+}

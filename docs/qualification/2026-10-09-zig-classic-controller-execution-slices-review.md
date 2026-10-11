@@ -1,0 +1,35 @@
+# Task3I execution slices independent preparation review
+
+Status: Proposed, CHANGES REQUIRED before unqualified first-slice preparation acceptance. One Important lifecycle contract gap; no product implementation approval or host-delivery resolution. No compiler/tests/gate/product writes or transient marker integration UI/tests/adapter/root/README reads.
+
+## Frozen evidence
+
+Read complete execution slices and report, authoritative routing intake/brief/FIX1 review, consumer budget/guide contracts and stable actual H1/Core/Session API context. Independently verified assigned slices SHA256 `db78dd944b41ff15777ff67411199d076c2b93ca2659d5836e776e59c1297b60` and report `99a1c08cbf0939d938ccd6c19f59c672fb864588505400b8bd7a13e6f20fc97a`; all eight referenced document identities and eight stable source identities match. No evolving marker integration source was adopted.
+
+## Important I1 — registry tickets lack registry-lifetime binding
+
+`task-3i-execution-slices.md:36` defines SlotTicket solely as index/generation; lines 39–43 initialize each RegistryEntry generation to zero and allow a fresh ReferenceRegistry.init. Line 88 promises stale tickets cannot free reused slots, but only enforces allfree at deinit and no generation wrap within the current instance. Neither cross-registry use nor reinitialization is defined/rejected.
+
+Concrete permitted lifecycle ambiguity: initialize A; reserve and markOwned ticket t; release t, retaining an ordinary copied ticket value; deinit A succeeds because allfree. Reinitialize A at the same address, then reserve/markOwned the same first slot. Its generation sequence restarts, so old t has the same index/generation and owned state as the new ticket. release(A,t) cannot distinguish them using the declared fields. Two independently initialized registries similarly issue indistinguishable first tickets; passing one registry's ticket to the other can match. No token refcount is needed to exhibit this registry-accounting ABA.
+
+Required closure: bind tickets to the admitted registry lifetime, or explicitly constrain a single stable noncopyable/nonresettable registry lifetime and scope every ticket to that exact instance, including terminal deinit invalidation/no-reinit rules. If runtime InvalidTicket rejection across instances/reinitialization is intended, provide a nonreused lifetime discriminator; an address alone does not distinguish reuse. State how generation exhaustion is handled without resetting identity. Add independent lifecycle/cross-instance/stale-ticket fixtures appropriate to the chosen guarantee. Also bind RevisionClock to the same coordinator lifetime: do not restore/reset a clock while queued or published values can still match its owner/revision domain. This need not invent another token budget or a process-global allocator; it must make the existing noABA/monotonic claim precise before implementation.
+
+The queue's actual retained TokenRefs independently prevent allocation identity reuse while an event is alive; that correct fact does not repair registry ticket generation reuse after release/deinit. Ordinary same-instance release/reserve generation checks and checked nonwrap are otherwise coherent.
+
+## Reviewed first-slice contracts
+
+Revision next/commit are value-only checked monotonic proposals; failed expected/next validation must leave the value unchanged. CurrentView equality uses complete OwnerSpec.matches plus revision, so same-token buffer edits cannot silently remain current. Effective source mutation and publication-failure stale recovery remain explicitly caller/I3 protocol obligations; no clock can infer external mutation or reverse an already completed source effect. That separation is honest and should remain.
+
+Queue payload admission is concrete: context<=128, action<=64, total<=3840, full UTF8 before retain/copy, activate/focus empty text versus edit_utf8 complete bounded text. The remaining 3648 bytes at maximal context/action is correct. Typed EventLimit preserves producer buffers and leaves undispatched input for explicit handling; it does not authorize truncation or underlying editor/IME limits. Stable heap Header avoids movable inline-slot borrowed views, and front borrows end before queue mutation/drain. Exact retain/ticket unwind, existing event preservation, FIFO release and explicit queue/registry/token shutdown order are specified. Queue byte rollback honestly excludes temporary canceled-ticket generation bookkeeping.
+
+LiveTokenBudget actual API limits objects and pending requested bytes separately; caller registry reference slots are additional conservative accounting rather than duplicate retains or a nonexistent H1 reference ceiling. The 32-slot sum is 2+2+2+4+16+6=32 and explicitly covers distinct old event pairs plus creations/transitions. Token40 remains source-derived pending observed target qualification; no private Token API was invented.
+
+The historical aggregate event4096 and new eight per-slot4096 are explicitly distinguished. The new choice allows <=32768 slot storage PLUS actual QueueHeader overhead, with <=256 slot metadata and a single actual Header request outside PreparationBudget/token populations. This is a Proposed capacity increase requiring parent acceptance, not an already accepted host profile or an inferred 32768 total request. No host drop/backpressure/retry delivery policy is resolved. Actual layout assertions/measurement during implementation are the appropriate prerequisite, rather than compiler execution during this preparation.
+
+## Subsequent slices and acceptance boundaries
+
+Four production/four paired test modules are correctly separated. First input foundation imports only std/H1 and has no Session effects, future guide dependency or transient consumer dependency. Key-edge subchunk, interaction, router and durable exit remain sequentially bounded. Existing Session callable signatures are real; final consumer typed APIs, guide state/coordinator, contact bound, MainMenu ownership and baseline/full-advance seams remain explicit later blockers.
+
+Guide routing does not take topic/sheet/destination authority from queued events; trusted GuidePublication owns destinations. Disabled HUD focus versus enabled activation, modal historical focus, F1/H precedence, release-only ImmediateLaunch threshold/sticky movement, touch target suppression and durable-exit pending behavior preserve intake/FIX1 distinctions. Actual Core.advance updates camera/visual time before holds, so the specified entire-call guide suppression is necessary and correctly left to I3 orchestration. No host runtime/manual/game completion follows from synthetic first-slice qualification.
+
+No additional Critical/Important/Minor findings identified in this preparation scope. Only this new ignored review was written. Registry lifecycle closure and explicit per-slot capacity disposition are still required before the relevant implementation dispatch; host delivery and I3 integration prerequisites remain unresolved by design.

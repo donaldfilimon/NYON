@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791587361.459913,
+  "finished_unix": 1791587592.506282,
+  "log": "/private/tmp/nyon-zig-task3h3d-guide-gate.log",
+  "log_sha256": "98fb735d7e2d66db814731bd369b3b1aa43f99ebc82832bdbfff903aad5168b6",
+  "debug_tests": 433,
+  "source_identity_count": 75,
+  "source_identity_drift": [],
+  "review": "task-3h3d-guide-independent-review.md"
+}

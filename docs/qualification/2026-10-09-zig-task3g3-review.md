@@ -1,0 +1,37 @@
+# Task3G3 frozen independent spec and quality review
+
+2026-10-09. **ACCEPT scoped headless G3 implementation for parent aggregate qualification.** Spec: passes the scoped composition contract. Quality: no correctness blocker found. Critical: none. Important: none. Minor: one documentation inconsistency below. Parent aggregate gate remains pending; this review does not establish full Task3 or graphical acceptance.
+
+## Findings
+
+- **Minor — stale earlier README behavior statement.** `zig/README.md:190-195` still describes camera motion as pending and says AppCore visual time uses durable motion. The appended Task3G3 section correctly describes the current effective owner and camera composition. Mark the earlier Task3E paragraph explicitly historical or update its superseded statements when documentation ownership permits. This is pre-existing text retained by the additive README change, not a production defect or a reason to reject the scoped implementation.
+
+## Spec assessment
+
+AppCore owns effective presentation and camera by value; Session reads and writes the same effective owner. The removed Session override marker has no remaining `zig/src` references. Durable `setPreferences` remains distinct: onboarding completion and reset only update durable values, while settings explicitly reapplies effective values before persistence. Failed save therefore retains changed live settings. This agrees with the distinct Rust seams at `src/app/core.rs:368-375,985-1003` and `src/app/core/session.rs:148-173`; there is no synchronization deferred to a host effect consumer.
+
+The new camera update and effective-motion visual-time update occur once before the unchanged hold/gameplay path in `classic_app.zig:327-374`. Whole/fraction conversion and modulo4096 remain; speed passes do not repeat presentation, and the camera producer alone caps smoothing. Tests distinguish zero, fractional duration, 250ms versus1s, wrap, opposite durable/effective motions, all five holds, precedence, zero-step advisory behavior and direct-authority speed parity. Actual allocator failures both before the first successful step and after earlier success qualify the sticky-error path. Presentation-only paths are allocation-free; the allocator-failure isolation fixture checks pending contents/order and sequence as well as campaign/replay/fingerprint and advisory metadata.
+
+Reset ownership follows the actual source call graph, not merely idempotent final values: UI reset calls core reset directly; replacement calls it once only after checked construction/install; core restart delegates to replacement; transaction confirmed apply calls replacement; Session restart and editor result handling do not replay it. Applied transaction reset/advisory flags are cleared. Returned Session reset flags are explicitly informational completed work, with host replay prohibited. Open/close editor has no reset call. Accepted camera reset retains target position, viewport, motion and Full current state, while Reduced snaps. Installation additionally clears raw time and schedules the existing one Restart. Admission failure is atomic and allocation-free; no constructor OOM fiction is introduced. Tests cover invalid replacement and failed editor apply, including real queued envelopes and effective/camera/time retention.
+
+Scene extraction synchronously copies the accepted producer's bounded owned frame from current campaign, camera, effective preferences, alpha, selection and published advisory. It passes active-scenario fingerprint for visual seed; the test separately verifies campaign canonical fingerprint and tick in advisory metadata. Score comes from published priority-indexed scores. No new request or freshness rule is inserted. Saved populated fleets/routes/worlds/matrices/advisory remain observed after moving, restarting and destroying the producer; undefined tails are not compared. Picking uses current inverse and logical viewport, retains accepted geometry/HUD-boolean precedence, and leaves ID admission/commands to the existing command owner.
+
+## Quality assessment
+
+The production change is narrow, synchronous and dependency-free. Construction stages admission/simulation/clock before resident destruction. Effective state has one owner, camera getters return values, and no core/store/snapshot/fleet interior pointer escapes through the new frame. Existing authority/advisory stepping and failure ordering are preserved. Two existing AppCore test calls switch from durable setter to the distinct effective setter without replacing assertions or expected authority digests. Session tests are byte-preserved; root wiring is additive. No production stubs remain in the final source. Protected camera/scene/advisory/authority/store/editor producers and build/toolchain/profile boundaries are unchanged.
+
+## Evidence and provenance
+
+Reviewed home/repository AGENTS, prepared G3 brief/intake and their independent reviews, frozen report, full-context package, final sources/tests and named dependency seams. This is a fresh seven-path untracked baseline review, not a HEAD-range review. Reconstructed all six changed full-context patch sections against exact baseline copies and exact live/frozen postimages; the seventh manifest path is unchanged Session tests. Verified all seven live/frozen hashes and all49 protected live identities against the dispatched manifest.
+
+Verified focused receipt log SHA256 values and actual final success counts: composition34 in each Debug/ReleaseSafe/ReleaseFast; AppCore32; Session45; F3integration32; editor45; fmt exit0 with empty log. Verified bytes/SHA256 of all seven retained compiled artifacts. These are inspected recorded results, not newly executed tests. Artifact identity verifies the retained bytes and recorded selection; it does not independently reconstruct process launch provenance. No build/test/gate reruns were performed.
+
+All five behavioral RED logs contain concrete assertion failures and observed child executable exit1. Historical shell wrapper exit0 is separately recorded and is not treated as a test success. RED/GREEN log identities verify. Early missing-interface/setup failures are not counted as behavioral RED. Some early source preimages are explicitly reconstructed, and their retained reconstruction hashes verify; those bytes are not independently proved contemporaneous pre-run captures. Accordingly the evidence supports recorded behavioral RED/GREEN witnesses with a stage-capture limitation, not fully captured hermetic TDD provenance. The six later tests remain supplemental qualification rather than retroactive TDD. This limitation is already honestly stated in the report and does not reveal a final-source correctness defect.
+
+| Frozen input | Verified SHA256 |
+| --- | --- |
+| report | 555902b5ed43181c139526a99b79b3ae946794e667ae6d9925505a10d210dbe4 |
+| final seven-path manifest | 7414f513f2e70e0735aa1d837367a34c03686b148e36d16763347411ca4e2718 |
+| full-context patch | 3c080dacbea10cfda7e7aaf18ccc0925c32bdaa82057731cad1870f55fd7f7b9 |
+
+Only this review file was written. No product/dependency/asset/profile edits, commits, agents or broad source crawl. Parent aggregate acceptance remains unverified. Actual retained HUD geometry and seven-world safe area remain3H; routing3I; native/browser/DPR/render/manual/accessibility/performance remain3J/Task6. The headless analytic pick/HUD flag witness does not qualify those journeys.

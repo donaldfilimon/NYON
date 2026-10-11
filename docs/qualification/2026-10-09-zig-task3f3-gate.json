@@ -1,0 +1,20 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791567002.029376,
+  "finished_unix": 1791567246.364702,
+  "log": "/private/tmp/nyon-zig-task3f3-gate.log",
+  "log_sha256": "760f42753f5abdb56aa9ce12a7ea0932da5c984110618dd5edb1ac725c00c083",
+  "debug_tests": 240,
+  "source_identity_count": 48,
+  "source_identity_drift": [],
+  "review": "task-3f3-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3f3-full-gate.log",
+  "review_sha256": "d0261130409b7b33ad87d66addc5057d99a89d114dcec5075d21255ccdcc99fc",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "headless per-step advisory integration and owned projection only; actual GPU renderer and hosts pending",
+  "closed_minor": "F2 newest fallback score and full metadata publication witness independently reviewed"
+}

@@ -1,0 +1,36 @@
+# H3c canonical f32 marker geometry binding
+
+2026-10-09. Additive correction of pure dispatch review4de617b583a87c340c089e9e0e433c57cb9a4d653a0d56c1a6049a767a012b5b ImportantI1. Original pure/attach/textfix/reviews remainimmutable. Parent selects SAME shared strictf32 predicate forfuturepureprojector andfutureUIattach, noproductexecutionauthority.
+
+## Shared public pure validation contract
+
+```zig
+pub const MarkerGeometryError = error {
+    NonFinite, ArithmeticOverflow, InvalidMarkerGeometry,
+};
+pub fn validateMarkerGeometry(value:Marker) MarkerGeometryError!void;
+```
+
+Defined/exported onlyNEWclassic_start_marker.zig. Geometryvalidation allocates0,writes0,importsnoUI/Session/adapter. Attach imports puremodule and CALLSthisactualpredicate beforeANYHeaderwrite; no independentlychosen dimensiontest. WorldID/name/sourceprovenance are separateinput/attachpreflight, not validation by this geometryhelper.
+
+Everyhelper floatingoperation uses @setFloatMode(.strict),f32 operands/constants. Firstrequirepoint/min/max/anypresentconnector/radius finite;elseNonFinite. Compute expectedmax.x=f32(label.min.x+180),expectedmax.y=f32(label.min.y+54). Checkcomputedendpointsfinite elseArithmeticOverflow. Require expectedmax.x>min.x ANDexpectedmax.y>min.y;lostpositiveextentduef32rounding ->ArithmeticOverflow. Require actualstoredmaxexactlyequalscomputedexpectedmax andactualstoredmax>min eachaxis,orderedfinite;anynoncanonical/inverted/mismatching actualbounds ->InvalidMarkerGeometry. NEVER `(max-min)==180/54`,noepsilon/ULPtolerance,nominrounding orcoordinatequantization. Strictendpoint equality is exactf32numeric equality afterfinitechecks; signedzero positions permitted asordinaryfinitecoordinates, no bitwisezero-sign provenancepromise.
+
+scene_linked requiresbothoptionalconnector/radiuspresent;radiusfinite/exact22. Computeconnector.x=f32(min.x+90),y=f32(min.y+54),requirefinitearithmetic thenexactactualconnectorcomponent equality. Invalidoptionalcombination/non22radius/incorrectconnector ->InvalidMarkerGeometry. action_only requiresBOTHnull, otherwiseInvalidMarkerGeometry. Sourcepointremainsfinite numericdiagnostic; action_only neednotpointinsideSafe. HelperdoesnotverifySafe/viewport/zones/pick/sourceowner and cannotclaimmatrixinverseprovenance. It validatesrepresentationagreement foralreadyselected policyresult.
+
+Pureproject constructslabelusingstrictcanonicalendpoints/fromXYWH,computesoptionalconnector usingidenticalstrictadditions,then CALLSvalidateMarkerGeometry beforemarkerreturn. MaphelperNonFinite andInvalidMarkerGeometry ->existingInputError.InvalidBounds (malformedoutputrepresentationsource numericseam); ArithmeticOverflow ->InputError.ArithmeticOverflow. Existing inputfinitecamera/viewport/worlderrors unchanged. FutureattachmapshelperNonFinite->AttachError.NonFinite,ArithmeticOverflow->AttachError.Overflow,InvalidMarkerGeometry->AttachError.InvalidMarker. Noerrorunion silentlyadded tooldFrameError, noUIimportcycle. This explicittranslation appliesONLYhelpererrors; inputWorldName/world/counter policies unchanged.
+
+Actualstoredpositive butquantizedextent is canonical: do NOTpromise `max-min` equalsdecimal180/54. Puremust independentlycheckactualcanonicalRect liesinsideSafeinset andviewport using actualroundedendpoints, plusacceptedzone policy BEFOREreturn. Ifroundingmakesmaxviolatecontainment, thatcandidateisnotadmitted underChoiceB;do notweakencontainment basedonidealdecimalwidth. CheckedringRect point±22 mustalso havefiniteorderedpositive representableextent beforeallowingscene_linked; finiteunsafe/occludedringaction_only hidesboth, trueendpointarithmeticoverflow follows existingtypedArithmeticOverflow. Safeemptyinset ->no_label_candidate,distinctfrommalformed/overflowgeometry. No camera adjustment or caps/text growth.
+
+## Independent arithmetic and integration fixtures
+
+Handfractionalminfixture x=f32(173.8):actualmin173.8000030517578,canonicalmax353.79998779296875,subtractedspan179.99998474121094. It MUSTadmitsharedpredicate withvalidlabely/point/modeoptions, despite span!=180. x=f32(225.64) canonicaladdition produces span180.00001525878906; similarlyadmit. These IEEE754characterizationsfromreview areindependentarithmetic,evidence NOTaZigcompiler/testexecution. Fixtureexpected endpointliteral/bitpatterns must independentlyconfirmstrictf32duringimplementation, never generatedfromprojector asgolden. Atleastonefractionaly where54subtractiondiffers alsoincluded sourcecharacterization beforefixturefreeze.
+
+Hugefinitecoordinate suchas minx=f32(1e30) yieldscomputedmax==min because180lost, soArithmeticOverflow (positiveextentguard). Finitewrongcanonicalendpoint/+oneULP ->InvalidMarkerGeometry;directNaN/Inf ->NonFinite;invertedactualRect->InvalidMarkerGeometry. Testfinitearithmeticoverflow branchwhereoperationproducesnonfiniteusingdirectsynthetichelper/input policy; ifconstant180additioncannotproduceInf forfinitef32min becauselargeULPdominates, do NOTfabricate unattainableliteralclaim—retainfinitecomputedendpointguard anddocumentrealreachablelostextent rejection. Testsforcollapsedexpectedendpointandnoncanonicalactualcollapsedboundsdistinguished.
+
+Scene-linked fractionalconnector mustexactlyequalstrictmin+(90,54),ring22/bothpresent;action-onlybothnull. Independent alloptioncombinations/radiusNaN/finitewrongradius/canonicalwrongconnector fixtures. All12defaultfactory/camera/scale policies retainliteral .02pxcoordinatechecks andexactMode/ID/name/nullability. Defaultfieldadjustdecrease_enabled=false andincrease_enabled=false explicitlybecauseactualnoSelectedWorld;16primarycontrols,threeSpeed+Launch+Clear+twoAdjustdisabled,fieldchoices/advisory/SKIPenabled,help/resetabsent,tray/guidancepresent,tooltipabsent. This supersedescompressedflagphrase inoriginalpurebinding.
+
+Laterpure->attachintegration at723802/85/100/115/130 and960/1440 allscales MUSTfeedactualpurefractionalcanonicalMarker intoactualUIattach sharedpredicate,thenrealH1publish;resultadmittedwithoutsubtractiondimensionfailure. Fulltooltip45 +fiveH1textcopies113 remaincanonicaltextcontract (task-3h3c-marker-attach-text-fix.md),HeaderuniqueName24/ID128 capsunchanged. No113bytefullframetextlimitclaim. Allreturnedgeometryerrors beforeHeaderwrite preserveENTIREpreparedHeader/source/token/budget;purebyvalueResult/error leavesinputarraysunchanged. Native/browser/materialization/currentUniondispatch remainlaterunaccepted.
+
+## Scope and qualification
+
+Purefirstworker addsvalidateMarkerGeometry/project/tests inNEWmodule only;futureminimalrootREADME afterretainededitoracceptance. Attachfutureworkerusesexport ratherthanduplicating geometrylogic. Marker128/Resultactualsize/stackcharacterization andactualf32fixtures compilerqualificationDURINGauthorizedimplementation,notmeasuredhere. Originalsunchanged; no math/Rect/pick/camera/Session/source edits. No policyambiguityremainsforcanonicalendpointvalidation;freshscopedrereviewneededbeforeacceptingadditivebinding. No compiler/test/gate ran.

@@ -1,6 +1,6 @@
 # Living completion ledger — 2026-10-08
 
-Status: **Partial**. Committed prerequisites `57c4d87` and `e9be7a0` strengthen
+Status: **Partial**. Committed prerequisites `57c4d87`, `e9be7a0` and `bac2b6e` strengthen
 V2 preparation, storage recovery, player transport and bounded due intents through
 dispatch. The current sealing slice adds counted candidate tick-setting,
 validation, hashing and ordinary receipt preparation. Facts, decisions, recovery
@@ -105,13 +105,15 @@ pointer activation do not qualify the full native input/accessibility surface.
 
 ## Remaining work — Partial or Proposed
 
-**V2 engine Partial:** complete-boundary candidate validation and hashing,
-receipt/journal sealing, terminal Ready and borrowed
+**V2 engine Partial:** event-facts and decision sealing, recovery/corridor
+binding, journal preparation, terminal Ready and borrowed
 exactly-once extraction, shared stepping/replay/restore/fork/comparison execution,
 durable cleanup, and the fully shared 1,024-visit update budget remain open.
 Due-intent composition is now implemented and reviewed in the candidate below.
-The next production slice is counted boundary sealing and journal preparation,
-preserving the independent synchronous orchestration oracle.
+Counted candidate validation, hashing and ordinary receipt sealing are committed
+as `bac2b6e`. Bounded event-facts preparation is in progress on top of that
+commit; its changing source has not yet passed review or qualification. The
+independent synchronous orchestration oracle remains the reference.
 
 **Player qualification Partial:** all-tool cancel/stale/durable fresh-Continue
 journeys, remaining experiment witnesses, device-full storage and generation
@@ -133,8 +135,8 @@ still precede separate V3 implementation. No implicit V2 conversion is approved.
 
 The due-intent milestone is committed locally as `e9be7a0` on canonical `main`,
 after all 15 current gates and fresh browser qualification. The subsequent
-sealing slice is independently source-reviewed and passed all 15 covering
-gates plus fresh native/browser qualification. Whole-program completion is
+sealing slice is committed locally as `bac2b6e`, independently source-reviewed
+and passed all 15 covering gates plus fresh native/browser qualification. Whole-program completion is
 not claimed.
 Push remains unauthorized; remote CI has not qualified either candidate.
 
@@ -236,9 +238,46 @@ Private malformed-receipt and capacity fixtures are distinct from authentic Step
 and reached-stage cancellation/stale coverage. The inherited state-size tests are reused evidence, not a new authentic
 oversized post-dispatch world.
 
-Public Ready, borrowed extraction freshness, complete facts/decision verification,
+Public Ready, borrowed extraction freshness, complete facts/decision qualification,
 recovery/corridor binding, journal copying, shared replay/runtime cleanup and
 whole-program player/performance/V3 qualification remain open.
+
+## Counted event-facts preparation — uncommitted / Partial
+
+The current B candidate prepares ordinary/facts as one private pair before the
+transitional synchronous suffix. Its authentic due-10 disabled-facility test
+passed, comparing complete facts bytes and original nested allocation pointers
+with the preserved synchronous oracle. Eight focused child tests also passed,
+including independently declared 2 MiB capacity arithmetic, exact omission
+search, fault ordering and scoped cleanup controls.
+
+The first broad core run recorded 929 passes and one identity-vocabulary guard
+failure; all 578 unit tests passed. Renaming new private digest labels then
+passed the unchanged 35-test wire suite. Formatting and unchanged independent
+vectors passed. The first strict core Clippy run failed on the inline-fragment
+enum size lint and a test fixture loop. The early fix checkpoint passed strict
+core Clippy and three direct ordinary-verifier tests on stable formatted bytes,
+including the full 32 MiB payload limit and event-count precedence. An initial
+test dispatch overlapped formatter completion and is excluded; the repeated
+stable run passed all three tests. The first independent source review required
+fixes: the original lint failures plus omitted-owner/per-cut cleanup, verifier-limit
+and fault-group, integrated cancellation, and suffix-range shape coverage. Fix
+round 1 addressed those Important findings; no demonstrated canonical-output
+defect was found.
+The final fix checkpoint passed 12 fact-sealing tests, four expanded envelope
+schema tests and the authentic inner-stage cancellation/stale-input test. Its
+complete current core run passed **956 tests across 27 summaries**, including
+586 unit tests, with no failed or ignored tests; formatting and strict core
+Clippy passed. All four source hashes remained unchanged. The added tests cover
+source-derived remaining cleanup work, original omitted buffers and allocated
+empty shells, verifier limits and grouped failures, and exact sparse omission
+ranges. Fresh scoped re-review accepted all four Important fixes and the evidence
+correction. One Minor remains deferred: encoding-only nested array lengths
+255/256/257/513 need independent byte coverage before whole-plan acceptance.
+The frozen covering run started on 2026-10-09 at 05:44 UTC. Workspace formatting
+and strict all-targets/all-features Clippy passed; workspace tests are running.
+No completed covering workspace/fuzz/wasm B gate, live platform qualification
+or commit is claimed.
 
 ## Strategic world expansion — design review
 

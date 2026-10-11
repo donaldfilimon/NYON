@@ -274,7 +274,7 @@ impl Frame {
                     15 if v.intents.is_some() => node(v.intents.take()),
                     15 | 16 if v.applied_revisions.is_some() => node(v.applied_revisions.take()),
                     15..=17 if v.sealing.is_some() => node(v.sealing.take()),
-                    15..=18 if v.sealed_receipt.is_some() => node(v.sealed_receipt.take()),
+                    15..=18 if v.sealed_receipts.is_some() => node(v.sealed_receipts.take()),
                     _ => Action::Done,
                 }
             }
@@ -989,6 +989,8 @@ impl<'a> RetirementFields<'a> for LivingBoundarySealJobV2 {
         self.hash.creator_allocations(out);
         self.ordinary.creator_allocations(out);
         self.receipt.creator_allocations(out);
+        self.facts.creator_allocations(out);
+        self.facts_receipt.creator_allocations(out);
         self.retirement.creator_allocations(out);
     }
     fn retirement_child(
@@ -1005,6 +1007,8 @@ impl<'a> RetirementFields<'a> for LivingBoundarySealJobV2 {
             hash,
             ordinary,
             receipt,
+            facts,
+            facts_receipt,
             retirement,
             digest: _,
             tick: _,
@@ -1020,17 +1024,101 @@ impl<'a> RetirementFields<'a> for LivingBoundarySealJobV2 {
             6 => Some(retirement_node(std::mem::take(ordinary), policy)),
             7 => Some(retirement_node(std::mem::take(receipt), policy)),
             8 => Some(retirement_node(std::mem::take(retirement), policy)),
+            9 => Some(retirement_node(facts.take(), policy)),
+            10 => Some(retirement_node(facts_receipt.take(), policy)),
             _ => None,
         }
     }
 }
 
 fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement);
-fields!(LivingTickReceiptV2;applied_revisions,events);
+impl<'a> RetirementFields<'a> for LivingSealedReceiptsV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.ordinary.creator_allocations(out);
+        self.facts.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self { ordinary, facts } = self;
+        // Fixed receipt headers have no nested owners beyond these vectors.
+        match index {
+            0 => Some(retirement_node(
+                std::mem::take(&mut ordinary.applied_revisions),
+                policy,
+            )),
+            1 => Some(retirement_node(
+                std::mem::take(&mut ordinary.events),
+                policy,
+            )),
+            2 => Some(retirement_node(std::mem::take(&mut facts.events), policy)),
+            3 => Some(retirement_node(facts.omitted.take(), policy)),
+            _ => None,
+        }
+    }
+}
+impl<'a> RetirementFields<'a> for LivingTickReceiptV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.applied_revisions.creator_allocations(out);
+        self.events.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        match index {
+            0 => Some(retirement_node(
+                std::mem::take(&mut self.applied_revisions),
+                policy,
+            )),
+            1 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
+            _ => None,
+        }
+    }
+}
 fields!(super::super::decision::LivingDecisionReceiptV2;kind,intents);
-fields!(super::super::event_facts::LivingEventFactsReceiptV2;events,omitted);
-fields!(super::super::event_facts::LivingEventFactsOmittedV2;ranges);
+impl<'a> RetirementFields<'a> for super::super::event_facts::LivingEventFactsReceiptV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.events.creator_allocations(out);
+        self.omitted.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        match index {
+            0 => Some(retirement_node(std::mem::take(&mut self.events), policy)),
+            1 => Some(retirement_node(self.omitted.take(), policy)),
+            _ => None,
+        }
+    }
+}
+impl<'a> RetirementFields<'a> for super::super::event_facts::LivingEventFactsOmittedV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.ranges.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn RetirementPoll + 'a>> {
+        let Self { reason: _, ranges } = self;
+        (index == 0).then(|| retirement_node(std::mem::take(ranges), policy))
+    }
+}
 impl<'a> RetirementFields<'a> for super::super::event_facts::LivingExplainedEventV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.facts.creator_allocations(out);
+    }
     fn retirement_child(
         &mut self,
         i: usize,
@@ -1896,8 +1984,9 @@ audited_fields!(LivingPreparedFailureOwnersV2;capture,fault);
 audited_fields!(LivingStepCommitRejectionV2;reason,_preparation);
 audited_fields!(LivingRetiredBoundaryV2;_capture,_token,_receipt,_decision,_event_facts,_creator_recoveries,_corridor_restrictions);
 audited_fields!(LivingAppliedRevisionPreparationV2;storage,ordered,output,retirement,count,index,ready);
-audited_fields!(LivingBoundarySealJobV2;candidate,state,pending,applied,validation,hash,ordinary,receipt,retirement,digest,tick,stage);
-audited_fields!(LivingStepJobV2;sealing,sealed_receipt,applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,intents,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
+audited_fields!(LivingBoundarySealJobV2;candidate,state,pending,applied,validation,hash,ordinary,receipt,facts,facts_receipt,retirement,digest,tick,stage);
+audited_fields!(LivingSealedReceiptsV2;ordinary,facts);
+audited_fields!(LivingStepJobV2;sealing,sealed_receipts,applied_revisions,capture,copy,hash,candidate,source_digest,creator,scheduled,conflict,production,observation,observation_events,diplomacy,intents,dispatch,completed_output,preparation_capacity,production_fault,production_handoff,fault,cancelled,delivered,retirement,last_poll_visits,total_visits);
 audited_fields!(LivingQueuedCreatorJobV2;state,queue,catalog,events,stage,revision_index,operation_index,index,locals,dormant,insertion,diplomacy_work,cancellation_work,effect_work,colony_operation,colony_create,colony_removal,colony_changed,colony_owners,recovery_storage,pending_recovery,hull_parent,hull_output,hull_index,hull_id,append,retirement,last_poll_visits,delivered);
 audited_fields!(LivingGalaxyAuthorityV2;catalog,genesis_seed,generator,branch,state,committed_revision,revisions,revision_modes,queue,accepted_sequence_high_water,fault,origin,root_branch,branch_sequence_high_water,replay_branch_sequence,archives,replay_base,saved_present,redo,last_receipt,last_decision,last_event_facts,last_creator_recoveries,last_corridor_restrictions);
 #[cfg(test)]
@@ -4028,7 +4117,7 @@ mod creator_parent_cut_tests {
             completed_output: None,
             applied_revisions: None,
             sealing: None,
-            sealed_receipt: None,
+            sealed_receipts: None,
             preparation_capacity: false,
             production_fault: None,
             production_handoff: false,

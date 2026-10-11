@@ -1,0 +1,9 @@
+# H3c marker attach text correction
+
+2026-10-09. Additive source arithmetic correction only; original binding/report/review immutable. Full attach review0eed1c252f1b022b00ebdd8f71ffa721855462276df8feda946ba2cf50ea5dba read. Previous I1/I2/I3 structural contracts remain unchanged and reviewedresolved; I4 corrected below. No product/compiler/test/gate execution or new scopeauthority.
+
+The exact source tooltip `Select your Union world to begin the tutorial` is45 ASCII/UTF8 bytes (`src/app/core.rs:515`). Keep literalcomplete, no shortening. Every previous attach-contract description44/text112/112maximumfixture reference is superseded by description45/text113/113maximumfixture. Full H1 copied text is primaryname10 +description45 +primaryvalue24 +labelchildname10 +valuechildname24 =113. Smaller name n<=24 yields65+2n, with full45tooltip alwayscounted. Exact preflight text remaining allowance and independent source expectedfixture use actual113 maximum, not112.
+
+Headerunique arena copy remains onecanonicalname<=24, referenced twice; staticlabel/tooltip Headerreferences have modulelifetime, but H1 duplicates allfive textoccurrences. RetainedID actual90<=conservative128 unchanged. Existing49152text/12288IDs/Header36864/candidate81920 caps unchanged; no capgrowth/newallocation/tokenretain. Separate targetvisual/flags/staging and completeHeader assertions remain Pending. Source actualliteral lengthcheckedread-only, no compilerresultclaim.
+
+Independent futurefixture nameexact24 admittedASCII and literal45tooltip yields113 retainedtextbytes, exactremaining113 accepts/112 rejects atfullprojectionpreflight whilewholepreparedHeader/source unchanged; compare expectedliteralbytesindependently. This is additionaltextlengthbudgetfixture, not assertionthatentireframetextlimit113. Freshscopedrereview remainsrequired; host/defaultgeometry/actualtarget/allocationqualification stillPending.

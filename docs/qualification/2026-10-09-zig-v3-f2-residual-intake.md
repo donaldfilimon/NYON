@@ -1,0 +1,52 @@
+# Task 7 F2 residual source intake
+
+Observed 2026-10-09. **Partial: F2 remains open.** This bounded source intake authorizes no FIX2 author release, corpus qualification, V3 implementation or Task 7 completion. Only this note is owned here; G3 and external Living owners retain their surfaces. No generators, verifiers, builds, tests, imports of corpus helpers, dependencies or Git mutations ran.
+
+Citation aliases below: `complete-schema.md` means `docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md`; `scoring.md` means `docs/superpowers/specs/2026-10-02-living-v3-scoring.md`. Helper basename references are under `docs/superpowers/specs/fixtures/living-v3-complete-proposed/`; review/brief basenames are under `.superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/`.
+
+## Current identity and authority
+
+Read the inventory Markdown/JSON, foundation FIX1 rereview, FIX2 queued brief and semantic-draft FIX1 rereview. A read-only stdlib raw-byte comparison found zero changes among 228 unique existing inventoried source/evidence/corpus paths, zero missing corpus files, and zero added non-cache corpus files across the nine inventory folders (209 live corpus files). This is identity evidence against inventory `observed_at_utc=2026-10-09T10:24:21.568525+00:00`, not semantic or runtime verification. [docs/qualification/2026-10-09-zig-v3-corpus-inventory.json, §§ source_freeze_comparisons,selected_evidence,corpus_files,corpus_folder_summary]
+
+Recorded rules approval composes with retained initialization, repair, independent review and freeze prerequisites. Current eight-source bytes match IA2 freeze2 but initialization amendments/full independent corpus remain unestablished. The source's Proposed headers do not negate the newer approval record or establish implementation. [docs/qualification/2026-10-09-zig-v3-corpus-inventory.md, §§ Approval and source authority,Prerequisite sequence for a separately reviewed Zig V3 island]
+
+FIX1 explicitly leaves nested integration and source-decided producer provenance open. FIX2 remains NOT RELEASED. Semantic-draft D6 acceptance is evidence routing only, with F2/R1 dependencies still open. [.superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-completion-lane-foundation-fix1-rereview.md:20-25; v3-completion-lane-foundation-fix2-queued-brief.md:3-15; v3-foundation-semantic-ledger-draft-fix1-rereview.md:3,23]
+
+## Exact F2 binding
+
+`needs_reserved` extends both BlockedReason and DecisionReason with payload field order `world:ID, resource:Resource, physical_stock:u32, held:u32, required:u32`; tagged JSON starts with `type`. RecipeFacts.blocked may contain it; CandidateAttempt.reasons is a DecisionReason carrier. The reason means `held<=physical_stock`, availability `physical_stock-held`, and `required>availability`; held stock is not MissingInput. Local stock is capped at10000 by the helper's implemented local predicate; widths/bool/tag/key/order checks remain structural. [docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md:3702-3711,4635-4651; docs/superpowers/specs/fixtures/living-v3-complete-proposed/genesis.py:243-251,384-392]
+
+Current helper declares the nested Facility.blocked_reasons and Facility.recipe_facts.blocked shapes, but the local semantic function has no full-document call: the only located calls are FIX1 local controls. Richer successful initialization remains unadopted. Thus a shaped nested reason is not proven semantically enforced or historically admissible. [docs/superpowers/specs/fixtures/living-v3-complete-proposed/richer_schema.py:1-5,21-23; genesis.py:384-392,407-552; fix1_cases.py:64-66]
+
+Guard operation variant order is `facility{id}`, `repair{fleet}`, `supply{fleet}`, `hub_fallback{world}`, `battery_repair{facility}`; each starts with type then its single payload field. Facts.needs_guard orders operation/reason/outcome. Outcome is denied or food_waiver. All five genuine producers guard Energy, use phase5 pre-group full State/latest creator cursor, actor null, and consume no AUTO ordinal. [complete-schema.md:4654-4665,4680-4688]
+
+| Subject | Required producer proof and event cardinality | Outcome |
+| --- | --- | --- |
+| facility | kind7, same kind3 World, exact due recipe; guard immediately before facility_blocked/produced, ordinarily two events; successful Lab retains its research companion | denied; waiver only positive Farm |
+| repair | kind10 Fleet, exact eligible damaged Hull in global entity-ID traversal, matching owned Dock; guard then operation_changed containing Fleet Change, no aggregate Fleet guard | denied |
+| supply | kind10 Fleet, owned Dock, required Energy equals exact live Hull count; guard then fleet_supply_unavailable at Supply100 | denied |
+| hub_fallback | kind3 World equals reason.world, actual Hub Alloy fallback; one guard event only, no RecipeFacts/generic duplicate | denied |
+| battery_repair | kind7 Facility with Defense effect and matching World; guard then operation_changed containing battery Facility Change | denied |
+
+These are exact written contracts, not qualified runtime behavior. [complete-schema.md:4667-4688; complete-schema.md:2573-2635]
+
+Holds are `min(actual prefix stock,due need)` using phase5-entry population/needs, recomputed before each guarded debit and after output/refund/stock mutation. Denied guards consume no inputs; duplicate reason appears only in an actual producer carrier where one exists. Hub/repair/Supply must never acquire fabricated RecipeFacts. Stock/held/required are pre-recipe values. Farm waiver requires an otherwise physically valid positive Food recipe, strictly decreasing combined imminent Needs exposure and preserving each previously fully funded resource payment; successful recipe has no blocked reason and emits actual debit/output facts. Zero-Food Farm environmental stop visits no input/storage/Needs predicates. [complete-schema.md:1339-1358,2573-2599,4658-4665; docs/superpowers/specs/2026-10-02-living-v3-scoring.md:1103-1124]
+
+Typed subjects/account links resolve at authenticated producer-prefix replay. Stage8 checks only supplied preliminary graph/history evidence, stage9 integrity precedes reconstruction, stage10 authenticates original membership/kind/link/ownership/Hull/amount/cardinality. Missing replay prerequisite is stage10 missing_reference; reproduced discrepancy is stage10 replay_mismatch; arithmetic remains invalid_range. Never infer current resident membership or move a replay fault to stage8. [complete-schema.md:4690-4707]
+
+Full guards contain private stock/holds. Authority/creator/authenticated replay may read; actor inspection requires original-prefix reason.world ownership and matching owned Facility/Fleet links. Every other actor loses the entire guard, including missing historical proof; present ownership, sight or cargo receipt grants nothing. Canonical Event bytes stay intact and Actor32 gains no stock/hold fields. [complete-schema.md:4709-4718; docs/superpowers/specs/2026-10-01-living-expansion-experience.md:93-100]
+
+## Concrete correction and proposed independent witnesses
+
+When the original author is actually released, integrate local-domain checks through every schema-owned BlockedReason/DecisionReason/RecipeFacts occurrence with exact document paths, independently of bootstrap predicates. Enumerate complete nested carriers, rather than adding a universal untyped dictionary scan. Preserve structural diagnostics and unsupported/history boundaries; a local positive must not manufacture paid Genesis admission. Then implement/authenticate genuine five-row producer/account semantics and companion equality/order, with independent complete literals/replay inputs and source-decided diagnostic strength. FIX1 local controls alone cannot close F2. [FIX2 queued brief:9-15; FIX1 rereview:22,40-41; complete-schema.md:4690-4707]
+
+Proposed witness designs, deliberately without bytes/digests/goldens:
+
+1. At every actual nested carrier, use stock10/held10/required1 as local positive; mutate separately stock10001, held11, required0, held0/required10 (equality rejects), held0/required11 (inequality alone holds). Keep a second unrelated richer row to expose the generic-semantic bypass. These are local checks only until authentic source history is available. [genesis.py:384-392; FIX1 rereview:40-41]
+2. One genuine denied history per five-row producer above; independently compute prefix inventory/need/hold, exact subject/link, companion count/order, unchanged input inventory and legitimate clock/status changes. Supply live Hull-count mutation, repair selected-Hull mismatch, Hub fictitious RecipeFacts and battery non-Defense mutation isolate distinct producer failures. [complete-schema.md:2573-2635,4667-4707]
+3. Farm positive waiver versus unchanged/increased combined exposure and previously funded Energy becoming short; retain physical validation failure and q0 environmental cases as earlier-stop controls. Successful waiver has guard plus produced/resource facts and empty blocked reasons; denied version has no applied input/output. [complete-schema.md:1339-1358,2594-2599,4658-4665; scoring.md:1114-1124]
+4. Two ordered local operations where the first output/refund changes the next hold, and two debits competing for the same reserve; derive prefix holds after each mutation, with no fractional payment or stale pre-group stock reuse. [complete-schema.md:2573-2576; scoring.md:1114-1122]
+5. Same authenticated guard inspected by original owner, later owner, direct observer, cargo receiver and missing-proof actor; only original authorized owner sees the full guard. Independently retained canonical receipt bytes remain identical, Actor32 has no added fields. [complete-schema.md:4709-4718]
+6. Separate preliminary supplied-edge absence/wrong-kind, corrupted frame, missing replay prerequisite and authenticated wrong amount/cardinality; assert only source-decided stage/family/path fields. Do not derive expected bytes from helper or runtime output. [complete-schema.md:4690-4707; semantic-draft FIX1 rereview, § Findings adjudication D4]
+
+Gaps: no full eight-source rereview, full nested union inventory, independent literal derivation, helper execution or runtime proof. New Zig V3 implementation awaits coherent package/corpus freeze and independently reviewed implementation plan; strategic architecture approval remains a separate dependency. [docs/qualification/2026-10-09-zig-v3-corpus-inventory.md, § Prerequisite sequence for a separately reviewed Zig V3 island]

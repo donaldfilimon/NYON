@@ -1,0 +1,1400 @@
+{
+  "status": "Partial source-only hash inventory; no corpus generator/verifier executed; no codec/runtime proof",
+  "observed_at_utc": "2026-10-09T10:24:21.568525+00:00",
+  "hash_algorithm": "SHA256 raw file bytes",
+  "folder_identity_list_hash_format": "JSON UTF8 of file rows in sorted path order, sort_keys true, separators comma and colon; no newline",
+  "source_freeze_comparisons": [
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-architecture.md",
+        "bytes": 15023,
+        "sha256": "55905f9c45ff32bfe645d79ee450ab6330a1793ad3590588549c6d8a7b5b1087"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-architecture.md",
+        "bytes": 15023,
+        "sha256": "55905f9c45ff32bfe645d79ee450ab6330a1793ad3590588549c6d8a7b5b1087"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-societies-rules.md",
+        "bytes": 16833,
+        "sha256": "1b79c491dc38122c410bcb1a3157ffdcc3208a37478bdae1c1bb5182a60ce2bb"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-societies-rules.md",
+        "bytes": 16833,
+        "sha256": "1b79c491dc38122c410bcb1a3157ffdcc3208a37478bdae1c1bb5182a60ce2bb"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-ecology-rules.md",
+        "bytes": 18964,
+        "sha256": "7219bbbf35b3ee50ce8b1f270584e0b05445ab20f944703d4e037d54059a9acf"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-ecology-rules.md",
+        "bytes": 18964,
+        "sha256": "7219bbbf35b3ee50ce8b1f270584e0b05445ab20f944703d4e037d54059a9acf"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-diplomacy-expansion.md",
+        "bytes": 27289,
+        "sha256": "350badd8e5197df1f8d30991401dd950a5d2efbcd2aa8eb6f273d85063abb97a"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-diplomacy-expansion.md",
+        "bytes": 27289,
+        "sha256": "350badd8e5197df1f8d30991401dd950a5d2efbcd2aa8eb6f273d85063abb97a"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-wire.md",
+        "bytes": 27883,
+        "sha256": "1fba0ff89f795c3cdf4df970ec7e5728bc82b2ea250e9f803450d87eaa2f74e7"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-wire.md",
+        "bytes": 27883,
+        "sha256": "1fba0ff89f795c3cdf4df970ec7e5728bc82b2ea250e9f803450d87eaa2f74e7"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-experience.md",
+        "bytes": 16562,
+        "sha256": "7e12c533085af8f67de9523902b547b307c0dd023134817e3553367704828980"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-expansion-experience.md",
+        "bytes": 16562,
+        "sha256": "7e12c533085af8f67de9523902b547b307c0dd023134817e3553367704828980"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md",
+        "bytes": 339293,
+        "sha256": "bf77dc1237e4f8717143a3ca04c6d20db4632cf8cbe4645a00d21f3de023339a"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md",
+        "bytes": 339293,
+        "sha256": "bf77dc1237e4f8717143a3ca04c6d20db4632cf8cbe4645a00d21f3de023339a"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "current_ia2_freeze2",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-02-living-v3-scoring.md",
+        "bytes": 110834,
+        "sha256": "911410cee5f10229e4471c18154a2e7f821aff2d6645fba1222cc41091fa487f"
+      },
+      "expected": {
+        "source_path": "docs/superpowers/specs/2026-10-02-living-v3-scoring.md",
+        "bytes": 110834,
+        "sha256": "911410cee5f10229e4471c18154a2e7f821aff2d6645fba1222cc41091fa487f"
+      },
+      "live_matches": true,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-architecture.md",
+        "bytes": 15023,
+        "sha256": "55905f9c45ff32bfe645d79ee450ab6330a1793ad3590588549c6d8a7b5b1087"
+      },
+      "expected": {
+        "sha256": "12c219236d8dcaf8a946d67dc1a1cb8e69d34563d6cc3469a55a6d97c109b8ef",
+        "bytes": 12655
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-societies-rules.md",
+        "bytes": 16833,
+        "sha256": "1b79c491dc38122c410bcb1a3157ffdcc3208a37478bdae1c1bb5182a60ce2bb"
+      },
+      "expected": {
+        "sha256": "ba27e52df19b1cb70632605be51f11b25461b54a59cdcbb8cb4501fb4356197e",
+        "bytes": 14116
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-ecology-rules.md",
+        "bytes": 18964,
+        "sha256": "7219bbbf35b3ee50ce8b1f270584e0b05445ab20f944703d4e037d54059a9acf"
+      },
+      "expected": {
+        "sha256": "490bc20f8cf7f2fea2bd5face91c46632b31774a0ee6dd615bf14646da8fb9b8",
+        "bytes": 12237
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-diplomacy-expansion.md",
+        "bytes": 27289,
+        "sha256": "350badd8e5197df1f8d30991401dd950a5d2efbcd2aa8eb6f273d85063abb97a"
+      },
+      "expected": {
+        "sha256": "76d9ebc2e0c49ca78eae8b4a81b77a9e0021eb78f744c10133ba22947e86669e",
+        "bytes": 17554
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-wire.md",
+        "bytes": 27883,
+        "sha256": "1fba0ff89f795c3cdf4df970ec7e5728bc82b2ea250e9f803450d87eaa2f74e7"
+      },
+      "expected": {
+        "sha256": "56b0e6f5c141602a1f1dc225121e30ad6d28c65ca9ad5c9c832b03cea9101062",
+        "bytes": 23743
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-expansion-experience.md",
+        "bytes": 16562,
+        "sha256": "7e12c533085af8f67de9523902b547b307c0dd023134817e3553367704828980"
+      },
+      "expected": {
+        "sha256": "cd762e0b7e15a23d06a33a5837eaae0e8240a770d9d2493b80f092d07ea27701",
+        "bytes": 13146
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-01-living-v3-complete-schema.md",
+        "bytes": 339293,
+        "sha256": "bf77dc1237e4f8717143a3ca04c6d20db4632cf8cbe4645a00d21f3de023339a"
+      },
+      "expected": {
+        "sha256": "92a4a11240830d16ca6fd037979678fecc7dd6503b8f9a6d53774cd6765ba243",
+        "bytes": 235028
+      },
+      "live_matches": false,
+      "copy_matches": true
+    },
+    {
+      "freeze": "historical_current_release",
+      "source": {
+        "path": "docs/superpowers/specs/2026-10-02-living-v3-scoring.md",
+        "bytes": 110834,
+        "sha256": "911410cee5f10229e4471c18154a2e7f821aff2d6645fba1222cc41091fa487f"
+      },
+      "expected": {
+        "sha256": "ca6b06bec113e828d7751409705addbbcc89de78664ce6821134ad57fd29bb54",
+        "bytes": 102350
+      },
+      "live_matches": false,
+      "copy_matches": true
+    }
+  ],
+  "selected_evidence": [
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-ia2-completion-lane-freeze-2/manifest.json",
+      "bytes": 2904,
+      "sha256": "55ca0ede26a284142f6d1208fa57ebe83ecd6bcce59a99751751332d42d6d1eb"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-current-release-source-freeze/manifest.json",
+      "bytes": 1716,
+      "sha256": "d0ab6b0d86808e6f9f3fabfeb503e1a143d7b108c1e49468bb94dd88ec206c8c"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-completion-lane-foundation-fix1-package-manifest.json",
+      "bytes": 48022,
+      "sha256": "12775b726d46d21c3e5dd4717565e9c0522b64d37355cde83f50fe8a3de34418"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-completion-lane-foundation-fix1-rereview.md",
+      "bytes": 9572,
+      "sha256": "b9f57cc9dfc99349f62dd6b048abf1289621db4ee2eb442355968bf6e7bd763f"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-ia2-completion-lane-fix1-review.md",
+      "bytes": 7556,
+      "sha256": "55941ecd0d74eeb6ffeda469da94addbd111e525c1cb8ca17241f10ac1d9ae3b"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-foundation-semantic-ledger-draft.json",
+      "bytes": 16287127,
+      "sha256": "e3aae41e201d062d0c1777084d9e004f5a1a49dbc3b5193d10a06478da369321"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-01-sandbox-completion-and-expansion/v3-foundation-semantic-ledger-draft-fix1-rereview.md",
+      "bytes": 6383,
+      "sha256": "8f0ce6e8136d92ebd00ed6046af900c51c83dd7719cd01a1e25b88af22980562"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-03-living-v3-initialization-design.md",
+      "bytes": 93676,
+      "sha256": "d305e685b58f37a3fadfb31325de48513a9e4b0fcdcb8a7faabe833e67c9b147"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-08-living-v3-repair-eligibility-clarification.md",
+      "bytes": 1894,
+      "sha256": "c8d99b8ada1daeb38c712d71215884bddd64dedc5fdca3ad54843332e498e56e"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-03-complete-nyon-v2-then-v3/task-3-review.md",
+      "bytes": 13608,
+      "sha256": "a101ff41484669e78a49c160ae84cb2509ee4b847e04be5a997cc84aa6fba615"
+    },
+    {
+      "path": ".superpowers/sdd/2026-10-03-complete-nyon-v2-then-v3/task-3-reviewed-freeze-1/manifest.json",
+      "bytes": 2175,
+      "sha256": "9e5857c7a11c650d01f4d5129d84a1ba664b936f4486808bf3d2068445dfc61a"
+    }
+  ],
+  "corpus_folder_summary": [
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-catalog-proposed",
+      "files": 4,
+      "bytes": 3691504,
+      "identity_list_sha256": "866896c90c6da1de0928f5ef0fdd5a8957317f98ec9cbcf5780259e18db8709f"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-complete-proposed",
+      "files": 143,
+      "bytes": 76484495,
+      "identity_list_sha256": "9f86b28a6c02007ac6e7edff0ff8b6ca46bc6215b5d508c321284e0a2f78d7ce"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-current-proposed",
+      "files": 43,
+      "bytes": 45054629,
+      "identity_list_sha256": "9def22a8483050ae5668d726b52142026abd7443d9426b9ab0d1e3528fdb451a"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-environment-boundaries-proposed",
+      "files": 3,
+      "bytes": 3390606,
+      "identity_list_sha256": "7e99a95f4da2a7669c4382f1304e453080086d7557e18618f854119cdcbf0e8f"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-environment-proposed",
+      "files": 3,
+      "bytes": 99840,
+      "identity_list_sha256": "14d90626ba7e871e4e33fbd67058fbd6f8382e931958c423d6bd382e0bccfe00"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-genesis-proposed",
+      "files": 4,
+      "bytes": 17070611,
+      "identity_list_sha256": "59f13a9ec56afb832f8171f44ba0166cbe1fa7a70353f4992fffb159e516ebaf"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-integrated-proposed",
+      "files": 4,
+      "bytes": 171850,
+      "identity_list_sha256": "d2b888e9ce9a4776e89a5da35d3deafe22071717887f3fa7e6369e9cd4e98ac4"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-proposed",
+      "files": 2,
+      "bytes": 25187,
+      "identity_list_sha256": "9cda9941340a011952fef1c19fd66c9c2c2b28cd8838a1def2363ab83624fc6c"
+    },
+    {
+      "directory": "docs/superpowers/specs/fixtures/living-v3-wire-proposed",
+      "files": 3,
+      "bytes": 226615,
+      "identity_list_sha256": "2090720bbaa469d14eb3b7be6e8d0ccda74a859fe30a357d7fa967c12894c0e7"
+    }
+  ],
+  "corpus_files": [
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-catalog-proposed/README.md",
+      "bytes": 4497,
+      "sha256": "b82142b5ecaaab2f0db68d97b58862eeb92d46443aeb061ff96f86ddf43ff109"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-catalog-proposed/coverage.json",
+      "bytes": 2324,
+      "sha256": "692fd45e97ce5be411591e224f676bbdeab4f0437b9deab05dd51839cb03a4be"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-catalog-proposed/derive.py",
+      "bytes": 24994,
+      "sha256": "a006ebea79bbb2530c00a7b3ead7b67c363355e3eb2f4bc743de1d3115be298f"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-catalog-proposed/generatedvectors.json",
+      "bytes": 3659689,
+      "sha256": "ab6b0619b6b88bb316246e711bacecd654a3617ecae6bab03f6224cf195fe20a"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/README.md",
+      "bytes": 4431,
+      "sha256": "3055a3fe8f556bf02589fe9849e7887dcf30879704c5ed6579d958c4da706070"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/all18-genesis-frames.json",
+      "bytes": 22497,
+      "sha256": "e42659a9339b9aebb51b447c8ae5a4e008c47b625c551d080de191b54d450306"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/catalog/core.catalog.json",
+      "bytes": 4269,
+      "sha256": "965e027377240427a2177a1709b026c67912ba15eb2c6645119d8d313594dc5e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/catalog/predicate-coverage.json",
+      "bytes": 240655,
+      "sha256": "1b10f903ab528048a75f3fdd103403820766338a0c886599e433bc855b738e0c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/catalog/vectors.json",
+      "bytes": 6048994,
+      "sha256": "c84ef335f942bb160a01388a274671b4f626e7559c723022628c1cd584de08cc"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/catalog.py",
+      "bytes": 51339,
+      "sha256": "2cb8a44ef25bfb40d873e1831977b4efc81a973d0333255d9169cddfe32ffaf5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/derive.py",
+      "bytes": 29806,
+      "sha256": "dab1826562a276e7f3e13d776c5fcfd31f9cf23a8455d9342cfe86e3570593af"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/civs_cap16.genesis.json",
+      "bytes": 116026,
+      "sha256": "6c2a7b737976af55b7b069c0732c2ea77c46f8d6009d4b74a2a34981f3831862"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/civs_cap16.state-wrapper.json",
+      "bytes": 111225,
+      "sha256": "c922de55e2dfaa21cf9b2720d574077858b8f5f6d9c636fcbeba1855755cf4ed"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/colonies_cap512.genesis.json",
+      "bytes": 720969,
+      "sha256": "095340adcc5e37faf30b0bfbc466bb750a1e6da56489184d0b6dcb90ab6ad56c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/colonies_cap512.state-wrapper.json",
+      "bytes": 685995,
+      "sha256": "1809d71aea79c987f04963bea7da62cea79e88bc41897dc9c0292f0b3ea86303"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_alloy.genesis.json",
+      "bytes": 4535,
+      "sha256": "0dfcc35407bd1c5f324812bf419239ed318ef7c8ce32d4e0a77a328baf8ce228"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_alloy.state-wrapper.json",
+      "bytes": 3627,
+      "sha256": "a1590cb99b3945b50883c3b9e11e7086101e0105700c7ec6c4bbdbf3f6be47d6"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_energy.genesis.json",
+      "bytes": 4536,
+      "sha256": "96c7ee5b097df22a2004c7435af029f1364668948c64d57e932ba7beb5cc3276"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_energy.state-wrapper.json",
+      "bytes": 3628,
+      "sha256": "cb19ea64773e2ab3f3e6cde7d6d3c45eff5fea6b9e70cad8a3cb716f00a234b4"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_food.genesis.json",
+      "bytes": 4534,
+      "sha256": "d618f1c19e2c03a8fdc8c17190fe0ca569b895d33b3f7c89e660a02e40484448"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_food.state-wrapper.json",
+      "bytes": 3626,
+      "sha256": "9884540192e49a410e6b2be4535e07d9abbaecbcb224f2f13e0501a67a16233c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_ore.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_ore.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_u64_max.genesis.json",
+      "bytes": 4563,
+      "sha256": "3bd7ee404e681c5a313848244073705354249f3950dcf8c08fe11f2c1dd2e3d9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_u64_max.state-wrapper.json",
+      "bytes": 3655,
+      "sha256": "3f579ad628d1fa1ce01746e9c8ac72e555e529b853bbb0025c67723f33bf87b5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_zero.genesis.json",
+      "bytes": 4525,
+      "sha256": "635983e1063955daa94e81ff855c7e37de39e8aac6596527fc979b46979e7e58"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposit_zero.state-wrapper.json",
+      "bytes": 3617,
+      "sha256": "d30f63606fa3aa870b648438aac4043a0f341cceb1fe412dc5877b8ae14f2bc2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposits_cap1024.genesis.json",
+      "bytes": 203940,
+      "sha256": "a1b09d664ae6cfb323f275fb5082eda1fe5bafeb68f35c23d38785ba762ab7ae"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/deposits_cap1024.state-wrapper.json",
+      "bytes": 134572,
+      "sha256": "7ed1181b18dc667c0ed9f319fbfe76da64958b37712cdfc187da3035afeacf9d"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/distinct_lane_opposite_direction.genesis.json",
+      "bytes": 4533,
+      "sha256": "590921af36fc07fc2492b05f6b157f9f0f9a6a85d5b73e12eb0d41369d3f5531"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/distinct_lane_opposite_direction.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "d7b299b40aade72b7b948b9e4acf1f416ee3de0fda0ac05d0d9a8d24a90c58a2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/dormant_colony_absent.genesis.json",
+      "bytes": 4162,
+      "sha256": "070846ac0d8093ce6568545473e4d3dd2a1e106fcbfc665f20a6b544b199853c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/dormant_colony_absent.state-wrapper.json",
+      "bytes": 3254,
+      "sha256": "133163af8b31aefe27dfac31fc07df14ca84d52b83e23e402720d8a102765eb7"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/empty.genesis.json",
+      "bytes": 805,
+      "sha256": "f96d03bd85f6949e8791a681098258b6f0ddb0e545c9f7dd3a9ebbdcc3916a24"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/empty.state-wrapper.json",
+      "bytes": 613,
+      "sha256": "5037847aa42d251a9bec2776c0fc1d6c9a12f42628fc783de38707c77083e410"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/fleets_cap256.genesis.json",
+      "bytes": 152384,
+      "sha256": "cd527048fca7d7ff755943764791776b869d2309bb185edfd20e7305e1028987"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/fleets_cap256.state-wrapper.json",
+      "bytes": 117008,
+      "sha256": "f1de0aa601118a747bbe5cc1417bcb83d1c4522f1c38d2c19753cd765699d614"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/generator_max.genesis.json",
+      "bytes": 4591,
+      "sha256": "46d85b507c283c1f7459b395aeeaa95f514f82f294f6e64e4aab686cbc0c604d"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/generator_max.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "d76c7e018411cfa3a37d46860c3febdee18f95ebea80f2bbad5aba5999cb2935"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/generator_zero_version.genesis.json",
+      "bytes": 4533,
+      "sha256": "5018f02ee6df05910d80ca54add642da2b5daae45840d6a2ad4150108d55b266"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/generator_zero_version.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "5bc0c6c175aa6664eae94fcfe60b98bf6154a0541809d07950ff90c27e9f1bf1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/hulls_global_cap2048.genesis.json",
+      "bytes": 528731,
+      "sha256": "15b7572ea4fd3209f28b5510bc41a42e36b61b039acf9e2ebd389cd518a1d177"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/hulls_global_cap2048.state-wrapper.json",
+      "bytes": 379154,
+      "sha256": "2b60cc7d41feb70b7c51f1464d8b3265530bac8ce43b67bfa2b3c9fbcfdb46c3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/inhabited.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/inhabited.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/lanes_cap256.genesis.json",
+      "bytes": 80754,
+      "sha256": "d235da266a68d360751f5d311d7a2024c4d37fb19cb6a29e464245c4a711f133"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/lanes_cap256.state-wrapper.json",
+      "bytes": 58532,
+      "sha256": "4909715978edcf5440b4a2e2d3fa1632ae908fd991f60e998abb17477c881195"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/local_domains_0.genesis.json",
+      "bytes": 4481,
+      "sha256": "8b32e45cb17abb996acd14b1de438cec32e3436bff64caff1f35f29582cf0695"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/local_domains_0.state-wrapper.json",
+      "bytes": 3573,
+      "sha256": "22785a112484badc146cd1727de9d6016c95cd413c8ee0923414ec564bb366ad"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/local_domains_10000.genesis.json",
+      "bytes": 4561,
+      "sha256": "d1fc397ccb802734f71e69ec9f19e0674b0861c8a5bfc87005ce97f0610537b0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/local_domains_10000.state-wrapper.json",
+      "bytes": 3653,
+      "sha256": "cb83ca13a55e6ce8cb6ad56fb32888e57b1c8c278f1850b38a8e5b8ad645abc3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/many_hulls.genesis.json",
+      "bytes": 8021,
+      "sha256": "fb0e307de55ee9a59abdf884a24202b7eb46549e7a916503710855f4324fe3e4"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/many_hulls.state-wrapper.json",
+      "bytes": 6116,
+      "sha256": "a1ac1e6404c6088e99aa8828dee1bc871c5705811ae9df03f4d0abb6e68632d9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/metadata.catalog.json",
+      "bytes": 4380,
+      "sha256": "8607b8dfa2322a6588a8e2ebf886360a7351aca24f3cd643ae77a8a34f460399"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/metadata.genesis.json",
+      "bytes": 4533,
+      "sha256": "6b3ca5b3673cfd200bb97da84c4ff23aa55853896fbe3f03f942f76da22c2b18"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/metadata.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "caedc5ec8fb6399a09e6fc34586f93f6c8e32a94e9e58b9329ae963a79722ea9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/multiple_actors.genesis.json",
+      "bytes": 13737,
+      "sha256": "edc4dd3271d421e0b5b8c839e54a273e25989578054ebcad3cb48f5e0b873064"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/multiple_actors.state-wrapper.json",
+      "bytes": 12175,
+      "sha256": "d556fdafba9afb8a2b256c4f1d78968b4f1aa84d8845056e7ece21909de49e2b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_deposits.genesis.json",
+      "bytes": 4337,
+      "sha256": "801615f1d493121ea163f351b8d868763acf49300bcb878e8f3271a49dfa93b1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_deposits.state-wrapper.json",
+      "bytes": 3494,
+      "sha256": "12acb8faba9fb123774512e991ae648f53cfa84abfe0c453e14dd1ec95ea99c0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_fleets.genesis.json",
+      "bytes": 3928,
+      "sha256": "0badd61b0e13b3565e78db82dd3dbe3bedf177b531927af5df4e591bab286612"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_fleets.state-wrapper.json",
+      "bytes": 3152,
+      "sha256": "0cbe6c7cd2b8af441fad3cf0499e21ddd7dd1c50807dd11d5bdfeca9e078de9c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_stars.genesis.json",
+      "bytes": 4088,
+      "sha256": "8e086df71f475d62317e2501d3d72b1a8c79960e1767ad1d60432201fd4bd0c8"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/no_stars.state-wrapper.json",
+      "bytes": 3310,
+      "sha256": "6dac069b136ada3f739615fe56a0643ee621a5e29f45311ea0e1b605ad59b09c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/noncontiguous_ordinals.genesis.json",
+      "bytes": 4555,
+      "sha256": "ee8965c87c81327da30f65f6073f8ccc91eddea1d095c4e75a242a8bdaaf1d8c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/noncontiguous_ordinals.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "66811883f0c3a113f3728b83d5eae2cfd686cd1b51b6aa46c00fbb21f8462ed3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/observations_cap8192.genesis.json",
+      "bytes": 4348115,
+      "sha256": "be429c5014bad1fd5418d589f78fdfed79adf603f3e11ebcc6c465671c80d28b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/observations_cap8192.state-wrapper.json",
+      "bytes": 4312486,
+      "sha256": "0e401252443ee759f3a4cf1a0119edd055d04cbe49447cf7deec3cb9d95ad3b3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/ordinal_u64_max.genesis.json",
+      "bytes": 3575,
+      "sha256": "d518d594700aecfe8837491659dcc822ece85d39173292f556b54bee26ea18fa"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/ordinal_u64_max.state-wrapper.json",
+      "bytes": 2794,
+      "sha256": "bce0d4461400c5925a9f195108b3aeb67e0fd5da20b7c631219ade06881b5dc9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/owned_world_without_colony.genesis.json",
+      "bytes": 3613,
+      "sha256": "ec260f2b2fc94e69316f4b438ab5d23005620f104db6e8fb05bd2129ca0f1ed5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/owned_world_without_colony.state-wrapper.json",
+      "bytes": 2837,
+      "sha256": "bcf042717ae93cbc2ae5635d194f23334de9b603df8fed3fdb0c86581e88293b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_expansionist.genesis.json",
+      "bytes": 4538,
+      "sha256": "ac3166c70f1c5699913be5654bce08ec9bba22633189ded0217240004fb19bbe"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_expansionist.state-wrapper.json",
+      "bytes": 3630,
+      "sha256": "07243bb84a0aa7f56a197e41bbfed292f1c234e34702272a0b90935339d2b3a4"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_guardian.genesis.json",
+      "bytes": 4534,
+      "sha256": "9009a61bb3d8ab48e556ac09b6200bb021b442fa49acdaa9ddc7c3c34a1635e6"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_guardian.state-wrapper.json",
+      "bytes": 3626,
+      "sha256": "c7a991df0de02fda56bfbe27dd102a4f7f295a16cbf70fe3ab00237fe40d2356"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_industrialist.genesis.json",
+      "bytes": 4539,
+      "sha256": "dcb75ea704cf669d6541d2315ea5e063066c2072194e0776ecf5e4a578e02886"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_industrialist.state-wrapper.json",
+      "bytes": 3631,
+      "sha256": "e58af6e18c3cb930a0dcddb153e46de181f2c53417db0d2db74c8d2f05fc7f7d"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_neutral.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_neutral.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_trader.genesis.json",
+      "bytes": 4532,
+      "sha256": "27076a2ecc1c9f120d8476c88130ac19e4f5a2c6f92adb3d11fbb83603346a71"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/policy_trader.state-wrapper.json",
+      "bytes": 3624,
+      "sha256": "515e7bb7daf2072bf20c6d5b5c2e590356c299e8cbcf25833289b75602f62f9c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_0.genesis.json",
+      "bytes": 4531,
+      "sha256": "2e131a547493e8a47fa9e1672dcca7306510234a7b73216d307583d66eedb878"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_0.state-wrapper.json",
+      "bytes": 3623,
+      "sha256": "e933d22bee30f46955d4afaeb1ee179e89229c7bddb286d4f7a4ee1f6a68afa0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_1.genesis.json",
+      "bytes": 4531,
+      "sha256": "c31ad1817c30f13e68140a259e4801ec361d82d8bf0e948a24a4dd5e4c56e956"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_1.state-wrapper.json",
+      "bytes": 3623,
+      "sha256": "dd4f64d0a17ede9e419ebd42e1d8b508201496b3611be4f975cc3b8a47a1b1bb"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_100.genesis.json",
+      "bytes": 4533,
+      "sha256": "641bec9375712bf950fef16562314927de07750ca0ab79d9293cf5a964a2c406"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_100.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "7927369104ec2c9430c4aff955b3f18829d32ec0b23a570eda72c11e9cba0f15"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_10000.genesis.json",
+      "bytes": 4535,
+      "sha256": "a833576be3f59252fe74f6f8424e36138b4a24e36e4ad2a10aef06f7ec54cb67"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_10000.state-wrapper.json",
+      "bytes": 3627,
+      "sha256": "64bee473b8081f6af711bc4b4045649e13cafb915f63a331b3ff8834341715a0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_199.genesis.json",
+      "bytes": 4533,
+      "sha256": "d39dc2aab4e76b26bc35273641dd382f3b9249f25fb0cb906fec9da5654dc09f"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_199.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "63e4e4c01c5435646da147813f3c7b7215d241e9edb1b75c009a7e205a779303"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_200.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_200.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_99.genesis.json",
+      "bytes": 4532,
+      "sha256": "51e7f6811b73e2456c52531285f13baff0c034db73e548fe525154610c11bad5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/population_99.state-wrapper.json",
+      "bytes": 3624,
+      "sha256": "ac8f8e5ae1ee80cdaf1e429d9b113bfa082628dba0b1453d41f8ac34511d8cf3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_agrarian.genesis.json",
+      "bytes": 4533,
+      "sha256": "cf4e2485cedd05641e094c04cd10ce72ecd11232a8e5ce90a26086c5ff8332d4"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_agrarian.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "3b5eed65639dceafb129f34b19b438254109668a318dbf9fb38cb9c2c2ce4bad"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_balanced.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_balanced.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_industrial.genesis.json",
+      "bytes": 4535,
+      "sha256": "0f46e28df117ba3f674e8773b24f0d8a29963c2a024b8885528d0b89b33618ff"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_industrial.state-wrapper.json",
+      "bytes": 3627,
+      "sha256": "8b30de7cf9cc92f6e3c8c15323755c03f9652c948b7a7d42a6aaee4d196131bf"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_research.genesis.json",
+      "bytes": 4533,
+      "sha256": "5c6c847e8621a698ad577fd98d38a2491ee96cafba1683d4e99fd53a8fea27d1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/specialization_research.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "7dc18d3076b5dbb570755591b762ccfd850b15b57b0a57794f5f7d5ca24f9ff9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/star_archetype_main_sequence.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/star_archetype_main_sequence.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/star_archetype_red_dwarf.genesis.json",
+      "bytes": 4529,
+      "sha256": "8079bfcef3a474b4e497776e3d2eeabe2bcf836ebfa86a48c6899d528d62d950"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/star_archetype_red_dwarf.state-wrapper.json",
+      "bytes": 3621,
+      "sha256": "16fce056b9f0dffce6a78cdf0baef3994942b825f689c4418fc71febca23d252"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/stars_cap128.genesis.json",
+      "bytes": 32779,
+      "sha256": "503551ee637430a2091d3c823d046c3a930396fcceacdf9011013d41aaa387c2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/stars_cap128.state-wrapper.json",
+      "bytes": 23533,
+      "sha256": "cfed926fc9a3bd43d6ad8be4162162017b0610948014e43d07be364778b0c6de"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/systems_cap64.genesis.json",
+      "bytes": 64210,
+      "sha256": "d876263ca3307fd1612d2fea53d4f86c18cd888c00520f31d5e44260b8565b1a"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/systems_cap64.state-wrapper.json",
+      "bytes": 46963,
+      "sha256": "b2ae9cc5cb38fa7e17510bb9700421c69d95c7a2d05fb836875ef42c538a6d8f"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/three_systems.genesis.json",
+      "bytes": 5848,
+      "sha256": "969e3a7af40c667efb57c41a73be51a2224b3c227c70f01df8b2ce59e36d2add"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/three_systems.state-wrapper.json",
+      "bytes": 4615,
+      "sha256": "ee67bcc00167d200da9ca5896fc76d497ae95be177bd1df9a5bf75eefbcc8ac2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_max.genesis.json",
+      "bytes": 6283,
+      "sha256": "a1535e83f8176d7540db8300c306995a6f1729f239552fbef521c13c7dc3b040"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_max.state-wrapper.json",
+      "bytes": 5375,
+      "sha256": "20bd84fe457a18643d7eee38dfc0e9d12358a26bebf0988c92b9e0da6925d111"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_no_normalization.genesis.json",
+      "bytes": 4512,
+      "sha256": "3325c63264e21731af1a3ea9a196dfd03737b497c93c0358e1321543ffeb5a52"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_no_normalization.state-wrapper.json",
+      "bytes": 3604,
+      "sha256": "1219dfca40182debfcb8736be55c3a3d97e55d9ebac0ecba0fef5e75464ab6f5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_replacement.genesis.json",
+      "bytes": 4512,
+      "sha256": "e4a0188ceceafbe28b63161e3240b04d202a0bb167e5f12f765d8f3665be7e74"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/unicode_replacement.state-wrapper.json",
+      "bytes": 3604,
+      "sha256": "163b17ad4f49e6eaa9f232c9db3f82593659492638de1c479ced05f9d53d666b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/world_archetype_barren.genesis.json",
+      "bytes": 4530,
+      "sha256": "6800eb39f916fc0e169078a202d61dfbc60ae939e99a3dfed414eac307e81fca"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/world_archetype_barren.state-wrapper.json",
+      "bytes": 3622,
+      "sha256": "03ab6032ffc4168cf29fbeeaabf92aced8fe1723c5e2145651b4ef8e6ab29b81"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/world_archetype_temperate.genesis.json",
+      "bytes": 4533,
+      "sha256": "7cb7252e08f4652b05051c70d56a1d4116db592fa3ccfa91096918623ed07834"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/world_archetype_temperate.state-wrapper.json",
+      "bytes": 3625,
+      "sha256": "906ffea7521de48861733bbf629617708d4c3d7523aeccdc64d1816ebe113ef3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/worlds_cap512.genesis.json",
+      "bytes": 367294,
+      "sha256": "1e70be08a6f10b4361f796dd30f389e8858ffc487162363ae17f6e40e28bddf2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/documents/worlds_cap512.state-wrapper.json",
+      "bytes": 332320,
+      "sha256": "1137892c8b9269b49deb94ef415b24109166dbd047009443fc1c56628ee2b9a9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/fix1-regression-cases.json",
+      "bytes": 70642,
+      "sha256": "6c617249e7d0e470a4ad832021f27a3e7a02df036840408487a99bcbe501d390"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/fix1_cases.py",
+      "bytes": 6084,
+      "sha256": "7e4440632a17d9560806e81300a2fac9d1220e00adbdef1e57adea6c2ce35327"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/foundation-predicate-coverage.json",
+      "bytes": 2822068,
+      "sha256": "57de9aaf9ec81a43e1be3e9a6a12311299549428ee605b37ad2e6242076a93b5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/full-package-coverage.json",
+      "bytes": 3190142,
+      "sha256": "4eb6a14c83933594c5f0be6f13b612693423b2604ded2bf6549b2dd1edab9c84"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/genesis-cases.json",
+      "bytes": 12496337,
+      "sha256": "31f6738be1421310b5ed1a2943155553bf68a2423f03260e5af8491649ea76c0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/genesis.py",
+      "bytes": 36062,
+      "sha256": "84a8fdc606a647a680b3b0a02e7444c1c0f4080be2de61fc660c2d73e32d107e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/helper_hashes.json",
+      "bytes": 1276,
+      "sha256": "a28cd51fbb4f9f2e0cff032612d4145addd8ffaa4a1ca7d9df8c005b935a202d"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/initial-state-and-root-identities.json",
+      "bytes": 37938710,
+      "sha256": "fa915513e986e5d1883615222170f4437940cf73414868593992e1d07f1ecf18"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/predicate_matrix.py",
+      "bytes": 7965,
+      "sha256": "92daca4909ca09635fe097435e7dcd7497b0e2245bfc7df569cc026f43c6dd83"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/profiles.py",
+      "bytes": 4009,
+      "sha256": "d3ef44fea80488e2eff6869c4e93047babed08ce7fa8c5ae221a6f56185bfae6"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/provenance.md",
+      "bytes": 2988,
+      "sha256": "a78b65f1e884db6ed43940b43e274d9db49172bb6a4af0661f1d15682b2f23f5"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/provenance.py",
+      "bytes": 1516,
+      "sha256": "524375a468bd14878ab78d82717c86e46e35b975b08b1eca552aa2145daae277"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/raw-cap-cases.json",
+      "bytes": 708,
+      "sha256": "bb61d3fa565701040d0cc62f84fb9a49ae93ef6a4ac3034a6e0b704ba1eae958"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/richer_references.py",
+      "bytes": 5500,
+      "sha256": "3c9b533e3d30c9dd05f04f4b3a9157deb0f5db08a6d577d2b5146fe4e3e5c1bf"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/richer_schema.py",
+      "bytes": 8310,
+      "sha256": "3f975311acbdfd0d60bb141caaf4dc2f15479070a0fef29497eeaadea92d372e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/root-binding-cases.json",
+      "bytes": 166570,
+      "sha256": "fbef30698e125587062e9bbde7e4653686e84d1a73f3832508c7a09a1ac03e94"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/source_hashes.json",
+      "bytes": 2081,
+      "sha256": "931090ae913d72f568582c3b2a5f9d7712e2069458eb6875836858c00287fcfa"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/structural-cases.json",
+      "bytes": 47324,
+      "sha256": "b2004346cd4e6579998efacc51d0141c0f56accf1798b816c89f8e80b24f8401"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/summary.json",
+      "bytes": 418,
+      "sha256": "fcfb787cb27efef90e4b89593c797b3eaeb62448fd1b4e3ec482f3089e000578"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/visibility-leaf-cases.json",
+      "bytes": 50430,
+      "sha256": "f4dda61a6aa114c441fdacae971150c8ac022fc06c102fb37fe2a1a36ad24f5a"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-complete-proposed/visibility_cases.py",
+      "bytes": 2164,
+      "sha256": "93c801908df678cfd5d0fa240065c1b0aba655a3694d4de4159ad0bef8196cae"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/README.md",
+      "bytes": 7233,
+      "sha256": "385502ca5144f82d778b4d91f271eedd49e7668a13efc2d9bd5257d82c18161b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/core.catalog.json",
+      "bytes": 4264,
+      "sha256": "efc762006d5abfa3e3a00d3aa9ba46b001e9e1951833b1c655ab6518b18f3f10"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/derive.py",
+      "bytes": 53563,
+      "sha256": "c8d772c48420b1dcf1c3598ceba35bc6ab59baa08e87fb7bd5e2fb917757ae51"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/README.md",
+      "bytes": 8641,
+      "sha256": "1dfd25ebff4d7db219014cacabb3fa22f3a4402ebd8609ed36c1a927618ee18d"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/derive.py",
+      "bytes": 58011,
+      "sha256": "f7e4a4b0f09397c9fe67b7d8d38a871e82ae5f44aa9971dc6fc67fe4edb35751"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/empty.genesis.json",
+      "bytes": 805,
+      "sha256": "4c5db9ebe76e19b36e76cd7333934f8697b81303001d99c10c27f35448ed03a0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/inhabited.genesis.json",
+      "bytes": 4518,
+      "sha256": "614d702ef8bcabe16493ee68ef79456541d1b26a3462a56b8e1bf6d4ec279d72"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/predicate-coverage.json",
+      "bytes": 153569,
+      "sha256": "1a37cb6494f4c0faadebf2979ba346da7e746715329e0410f9d486667cf81f9a"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/genesis/vectors.json",
+      "bytes": 13422288,
+      "sha256": "03a9ce6ba537a89132e3acddcd3fe2da8fb403699a7ddbb1f8cd0fa890ca65d9"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/README.md",
+      "bytes": 8670,
+      "sha256": "fbcb2e48aed3598bf63b05cc8ed1ffc72355aaf43c84ebe935a494a24cefe41e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/archive.json",
+      "bytes": 4991,
+      "sha256": "fa7a5904b6ab5ffcfa954b325bccf934a79f6c53fa1ce5b30dd6e88363cac33b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/README.md",
+      "bytes": 6828,
+      "sha256": "b7c7922c7809c84e5330956811f4838d15d2bde6c4a058eea56be31e89c5d21c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/archive.json",
+      "bytes": 8928,
+      "sha256": "4879fc5550ffb7bc7d784a751f61c4db9bc28db851a67a26cf3f2a8552afc5a2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/derive.py",
+      "bytes": 22317,
+      "sha256": "8a6bc52b1bc408a4fbd7f5a9d57554bd388d16b4185d9629aba1c00e3cd0b3b1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/notebook.json",
+      "bytes": 1520,
+      "sha256": "6cdf43e0b7ccf38c9329126ae0083de1919f0d8e02de842c7a5c0ee8916ff082"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/predicate-coverage.json",
+      "bytes": 5666,
+      "sha256": "aacb260117a4785f67c2eddf1be918742152cdade30f762c613020324b7a0d02"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/trace.json",
+      "bytes": 89077,
+      "sha256": "e1b0b96717ddc1d3e8707ac0426569e4a66cb9b4887ad9ebaaa6f59b630fb905"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/transfer.json",
+      "bytes": 15054,
+      "sha256": "16725eb9b177db39f2367548622f4d970b96b9a4a27b9f52b044dee63bad49fb"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/child-running/vectors.json",
+      "bytes": 582782,
+      "sha256": "6aef3762481f9b7a2e5d8711c9256da026a0f0c086dd196c4ca52fae973c63cc"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/derive.py",
+      "bytes": 47407,
+      "sha256": "1c0fe60bceec31b116c7145d67a886fb4f0d4414f68ebd8fc38ee6df090d59d1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/README.md",
+      "bytes": 13012,
+      "sha256": "a70ddf20129bb33fdace7b184c1751d013c1fe89a0b4fd6a30ffd7eecad4a421"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/archive.json",
+      "bytes": 6943,
+      "sha256": "34fb8f4e9f38f16bcf0f468b3fc7963728a3bbdfa23f40a7c6b4cc29bbee642f"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/derive.py",
+      "bytes": 54322,
+      "sha256": "c2586347fc215740b8661dc4fb8832b9eb0720df801d099b331798722f8b26de"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/notebook.json",
+      "bytes": 993,
+      "sha256": "76929a8f2101cfd4c46e8676426a8099c19acad44e92b8c35e16ec5bd5282b3c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/predicate-coverage.json",
+      "bytes": 65299,
+      "sha256": "514bbc9c4d900e4b2024fdd1df044be77429b4a3b0a1411cbd481d6fe43be2a2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/trace.json",
+      "bytes": 81845,
+      "sha256": "0eeefb0c3e41a7a86ad16fb50d898f2adaf12185a3e2a8efc477f884e4f7b8a0"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/transfer.json",
+      "bytes": 12542,
+      "sha256": "404e3710fa902443a5c509a1fc1fe816bb4b15c630510b94b0611770de0c2021"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/fork/vectors.json",
+      "bytes": 8178026,
+      "sha256": "4690a619ca7ce17dfa6feeb416acf3515e57d40cc49fda85728bad177dfd024f"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/notebook.json",
+      "bytes": 738,
+      "sha256": "b064451605c4ae86f3c9643357d838d5d462bf67c3cf7f2fdefa26ee3e07542e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/predicate-coverage.json",
+      "bytes": 50077,
+      "sha256": "b08877435476e6806cfb0f5258365ad1d41043e293e467a0a4210b85b16de1ca"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/README.md",
+      "bytes": 11611,
+      "sha256": "5abc9ca93a225bec0d4f9a00d427ebfa26859b07c7dca2c1fbe8a11993651306"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/archive.json",
+      "bytes": 7743,
+      "sha256": "6851ead304ac047f2c3523a44be69fd863c4366a8c3b1badf473f948999bdcb1"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/derive.py",
+      "bytes": 39965,
+      "sha256": "9a188e905659c4700d0ea38cf0b9c74cdc6e11963b0c19f1873f18246ab463c6"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/notebook.json",
+      "bytes": 998,
+      "sha256": "e834269e1be032bfac7f9439228c02ddc0b5fe40f961265786d5eca08eebf837"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/predicate-coverage.json",
+      "bytes": 52588,
+      "sha256": "4006ce009da69e5e1a299e691af22b98bef457a99bec8413160d5813f96e1d89"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/trace.json",
+      "bytes": 116438,
+      "sha256": "54c973e76e022584acaca010c3aedbfdd8ac0a1f6c51a805ff78b04ae7a313ae"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/transfer.json",
+      "bytes": 13347,
+      "sha256": "521f0f406176fed5ede00772a4380e5d6ad3b275f9d2a2a841f21b2524811cb2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/running/vectors.json",
+      "bytes": 10483500,
+      "sha256": "b53197e0d8964c4783e135c952b9d8a69c4cdc11e9c9d8580e8d94b3df3b1397"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/trace.json",
+      "bytes": 46329,
+      "sha256": "9d57dc17956c18fb1d1b6c8b116f173636520c0e2ab6addf83ad5a4910e25430"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/transfer.json",
+      "bytes": 10335,
+      "sha256": "f23f38133841d95cc972d9b4f241e11fe7f4ced42dae30d6b2e1bf5837eb2b2b"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/history/vectors.json",
+      "bytes": 5016718,
+      "sha256": "e1a718049fa9e0d1b1af942a44e3412caf1c6041475206652791871ce08a8d4c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/predicate-coverage.json",
+      "bytes": 239920,
+      "sha256": "edb40f42a3c07a00bf0f92e69f03ce77b2bfeae714f1a1d33c0b3229afd5a394"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-current-proposed/vectors.json",
+      "bytes": 6045208,
+      "sha256": "e1f1acde5bd98c2795e81886cbf3e3db731bdcf8281ca437ecbfd3b4dacb6ca2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-boundaries-proposed/README.md",
+      "bytes": 1584,
+      "sha256": "28ee5a924e3ba0d06fb37267eb3c9d9390d564ce6ddb5845db33004f6bcf2320"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-boundaries-proposed/derive.py",
+      "bytes": 7314,
+      "sha256": "b56a9ca8c88338320609eaa73b820c80e109510a9a57b6edced3f878f7744c0e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-boundaries-proposed/generatedvectors.json",
+      "bytes": 3381708,
+      "sha256": "93dceffb0bdeec0d4654228714a3ebe80f20fd61d8655517cbceac7545878867"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-proposed/README.md",
+      "bytes": 2357,
+      "sha256": "2543b573e2a92649241ff307b50f39c8a58dbeccc5d3192977c3e7c984d1ddf3"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-proposed/derive.py",
+      "bytes": 7414,
+      "sha256": "be34e6c51370d18d3550b3993beff8b157f3e6660ab109d15f857d86e739171e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-environment-proposed/generatedvectors.json",
+      "bytes": 90069,
+      "sha256": "6221b60cc5c22ebcb262b1cb9052644e7e52cce03ade5fca5d4d711d7a34b05c"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-genesis-proposed/README.md",
+      "bytes": 5162,
+      "sha256": "8c68002de267e7aec4693e5fc4c072e16601e5b5b4c2b85d46189059c7469703"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-genesis-proposed/coverage.json",
+      "bytes": 2741,
+      "sha256": "dda0cefd8aec8d97d921ab5a7ac9507787c6bab502842b02cdcc9b77a995ec66"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-genesis-proposed/derive.py",
+      "bytes": 20033,
+      "sha256": "7b478a844d42ee4dbc953eac59d6fa2fb51b6aa7d2b473eecd0fcc6148315beb"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-genesis-proposed/generatedvectors.json",
+      "bytes": 17042675,
+      "sha256": "3abf5223b3554e5d14277fd3168007d264c326363e896e0a06f0061b62e7093a"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-integrated-proposed/README.md",
+      "bytes": 2688,
+      "sha256": "339aeebb76ef615e8d7fb3c8da6b227cec9c146e9713b29088118857887869fc"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-integrated-proposed/coverage.json",
+      "bytes": 6425,
+      "sha256": "a166271ecc51573beb6de942874e844f6a6ab05602714dcef19272acb8230a71"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-integrated-proposed/derive.py",
+      "bytes": 18189,
+      "sha256": "16674cb918aaaf6041fec9def3ac19c809e426a962b8c707758e3e5df9917b8e"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-integrated-proposed/generatedvectors.json",
+      "bytes": 144548,
+      "sha256": "39e05f49f26423c15207169754803af19f4a8b7f6541f3a60da55935b59ae410"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-proposed/derive.py",
+      "bytes": 6178,
+      "sha256": "0ada44f57c1563c98a04438d42dc648a36d2da04f22cc57ad1a619827937d4c2"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-proposed/vectors.json",
+      "bytes": 19009,
+      "sha256": "a2c917ff40869d984297122715ba1b5b254cc6d65035e549d171f2491b91fe65"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-wire-proposed/README.md",
+      "bytes": 4994,
+      "sha256": "986b8fdade39181dcd9884118f8c29f605e998269275a37ff8479b03eceea7aa"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-wire-proposed/derive.py",
+      "bytes": 48175,
+      "sha256": "b328ea621eb552cc948c5d1de35ebe0b96bb41a19f9f05e75ccb791af76a6938"
+    },
+    {
+      "path": "docs/superpowers/specs/fixtures/living-v3-wire-proposed/generatedvectors.json",
+      "bytes": 173446,
+      "sha256": "f14634830d0ebe2b40c5953292e5192e4a8426de1ab6b53cd7b66401fcefcfd2"
+    }
+  ]
+}

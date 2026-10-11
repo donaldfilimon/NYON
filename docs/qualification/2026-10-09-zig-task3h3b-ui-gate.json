@@ -1,0 +1,14 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791583992.886187,
+  "finished_unix": 1791584183.3755379,
+  "log": "/private/tmp/nyon-zig-task3h3b-ui-gate.log",
+  "log_sha256": "f29045e683d5ea60ebf51c2b5c0ea32659d74110562bca70372dcb834f02d011",
+  "debug_tests": 398,
+  "source_identity_count": 69,
+  "source_identity_drift": [],
+  "review": "task-3h3b-ui-independent-review.md",
+  "review_sha256": "447d37560452a0756aba17b5345344f601b6cb0ac236d52eb76e178785319a9e",
+  "scope": "Pure retained editor H3b; no host/runtime/LG acceptance"
+}

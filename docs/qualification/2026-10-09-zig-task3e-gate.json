@@ -1,0 +1,21 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791563817.735905,
+  "finished_unix": 1791564144.166274,
+  "log": "/private/tmp/nyon-zig-task3e-gate.log",
+  "log_sha256": "58f070ca3ef1a4be4b1873e92f5aab3215d0c387bc98b71744a02b6f33807ee2",
+  "debug_tests": 212,
+  "source_identity_count": 40,
+  "source_identity_drift": [],
+  "review": "task-3e-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3e-full-gate.log",
+  "review_sha256": "66253847d18fb6f598da2e6a7a40ce1201948a01f9d1af50c4f923c014504d8d",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "headless Task3E only; graphical and complete game Pending",
+  "minor_deferred": "classic_session_tests.zig:854 unconditional allocation-count printing",
+  "runner_diagnostic": "Zig build prints failed-command line alongside intentional test stderr; aggregate terminal exit0 and final focused three modes28/28 are separately retained"
+}

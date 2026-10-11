@@ -1,0 +1,21 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791570221.3605812,
+  "finished_unix": 1791570488.790855,
+  "log": "/private/tmp/nyon-zig-task3g3-gate.log",
+  "log_sha256": "73d8444a23befd0408012372af54dee1473dd1a30436e82b65e6de9e410b3777",
+  "debug_tests": 280,
+  "source_identity_count": 56,
+  "source_identity_drift": [],
+  "review": "task-3g3-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3g3-full-gate.log",
+  "review_sha256": "aaa69f3714a2476f31aa547bac98361f4bcd94cc9f5de0ae5b5374cfe46b1a38",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "headless Core/Session camera/effective presentation/owned scene composition; retained HUD routing hosts pending",
+  "tdd_provenance": "five recorded real RED/GREEN chunks; some source preimages reconstructed not contemporaneous; supplemental qualification separate",
+  "minor_deferred": "README Task3E lines190-195 durable-motion and camera-pending wording; next H1a doc owner must correct"
+}

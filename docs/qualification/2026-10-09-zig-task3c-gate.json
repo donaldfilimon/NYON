@@ -1,0 +1,84 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791545690.734626,
+  "finished_unix": 1791545876.359297,
+  "log": "/private/tmp/nyon-zig-task3c-gate.log",
+  "log_sha256": "941c7daf5dc691806d189ea35138c75ee3b14da442b6cacdf8a82f1b00fb61e4",
+  "debug_tests": 162,
+  "source_identity_count": 32,
+  "source_identity_drift": [],
+  "review": "task-3c-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3c-full-gate.log",
+  "release_safe_test_build_exit": 0,
+  "native_cli_checks": 57,
+  "codec_cases": 323,
+  "trace_rows": 144012,
+  "actual_transitions": 144000,
+  "events": 2038,
+  "candidate_sources": {
+    "zig/src/classic_editor.zig": {
+      "exists": true,
+      "sha256": "3c93ed1f9a1d526b4ba293c3b9e9a004ad1e41ddb59f7b617b9f98a29ba1d07c",
+      "bytes": 16234
+    },
+    "zig/src/classic_editor_tests.zig": {
+      "exists": true,
+      "sha256": "33942cbd0729c33d119e3c7839f18f3b91ff039c8de79f784f4588f95feb0703",
+      "bytes": 39834
+    },
+    "zig/src/classic_editor_types.zig": {
+      "exists": false
+    },
+    "zig/src/root.zig": {
+      "exists": true,
+      "sha256": "67bc6212dcd887156df175e2614fd6167af900f184af961ff556e568017117a6",
+      "bytes": 1216
+    },
+    "zig/README.md": {
+      "exists": true,
+      "sha256": "99d21fcfad5285c825d383e12809bcddc9121a76c14a8d2ba43c5b307775b033",
+      "bytes": 10600
+    }
+  },
+  "protected_sources": {
+    "zig/src/classic_commands.zig": "2b148fe0962af83308718ab20d4d216cdd04b30d086a210167591e3a1dae932b",
+    "zig/src/classic_commands_tests.zig": "72d364a07999a423d0ab6706431d733ce6066c2919119425317315f662e4076d",
+    "zig/src/classic_app.zig": "4cfe84b1684c6cfb727e9a17d97de9f8d300097badfa54b9bddf68a9b0547bcd",
+    "zig/src/model.zig": "86db58f389d4b0b1e415a363b7e32c8694837f7bd23d4b3b9635cee66daed20e",
+    "zig/src/integration_tests.zig": "e88e05f98bd6c5e0a42a061537685d1d6798a1529f9259c8aed335eb7a37a239",
+    "zig/src/classic_store_tests.zig": "3d9ad861b4887ece74c91ff09e929ac2a5b57d365d87b1631aed701d8a618cbd",
+    "zig/src/scenario_tests.zig": "cd0f70d9c793e1d5383cbb954f72c0ceb5056babfde868fcc00a66ad6ac8b4c6",
+    "zig/src/simulation_tests.zig": "19c263aa66c5a51903f9d824797b2a4b98f2ff49d72e4191675855f5112ca3de",
+    "zig/src/scenario.zig": "2df5624269ba8b467280fb232edc335ddd45e91d0e76efc344f0c32bccb4e4d5",
+    "zig/src/main.zig": "98bd7537bd3fdf44f76e69f1c93a7a1fa212f425993348d650095ae3a5b529f8",
+    "zig/src/simulation.zig": "7d52a2d00251ab356dd258194bec1e0798969305650fe3e94aeae27bc0eb17fe",
+    "zig/src/classic_store.zig": "1552a5fe97b76780b191f6357edf4cfe2366c368af9ace6ef0443c1c7081e7ea",
+    "zig/src/preferences.zig": "18d2d90d4e57baa0e75d126e947e5002450b4e17909ee877cf4d8bfbbb6bdce2",
+    "zig/src/economy.zig": "a2684931c284f22ed76acdb9b4f0cd9eadb0d91fb0b95919485665a812de9f27",
+    "zig/src/navigation.zig": "836869e307f832614bd76b9561f081061f1a23b48256fa4817592839c71e6a1f",
+    "zig/src/preferences_tests.zig": "6fd996ee872a448f94b451e8edaee124a0fbd4431ffb809d299ef93f83f10c5b",
+    "zig/src/generator.zig": "96ed3c2490d3e2b8c69c9b7921fda0a5d6e962a8679773bc63cb971b146daf39",
+    "zig/src/classic_store_load.zig": "9d54c89be039ceef934dc6a517b86ad708e203496f20a82ada288e79e958d141",
+    "zig/src/store_integration_tests.zig": "b9f897545df9ed838d2ac08608bc75e9a90b04c603b30365ad0cecb50136985a",
+    "zig/tools/check-classic-store-cli.py": "bde31b6e75ecc5f1b2e742ae2814426f65f20b9b1e62763cc00fd136368e15c6",
+    "zig/tools/check-classic-parity.py": "4d32f9298c9bfb82a18c1e720297c7bd2640350e883d0090f4849129c428e587",
+    "zig/tools/check.sh": "8bb44a18f4e069509ff96024ab056d41bf65afc1a49cbc5ad2081f624fdbdd96",
+    "zig/build.zig": "9b08ff5ae54d3684395d56222c99fbce51054e5ba0d8facbd64d44798c0adc4b",
+    "zig/.zigversion": "8f79b2a57773c8f7593af87c07b4bf40777b6bc6ed51d049695568b327d411c6",
+    "examples/zig_classic_oracle.rs": "c159fdbee140d5eef50bead9c563c032356c2793abf5b54bbeaa9e9f0e27b6a2",
+    "zig/src/classic_clock.zig": "96d2be546055efa1c9d80eeb10f332ea46359d1256ca47626d7cab63df259993",
+    "zig/src/classic_clock_tests.zig": "d0fa31644124dca0ab8287fdf8dd70744c4e66d12ab2cadda6caf8891b87d0e2",
+    "zig/src/classic_app_tests.zig": "07d822e30dea8d5f6635afd74bd81c8d02c6d0db31e0e6abae7f062ee61838cf"
+  },
+  "review_sha256": "b0e1f9419a1b88f7521334dd20fdebea846b6c54f94f8d70a6a379b30fad9913",
+  "full_game": "Partial",
+  "host_evidence": "Pending",
+  "cli_artifact_sha256": "9f6e5bd9b45c5e6a252c384f9bdb72915f439b18d5b2f42286eb7f04b7966220",
+  "cli_inputs_sha256": "5dd99cbd7be3cac561a0f611ef063877cf1740d9a3fab05f6bb8199fde61eec8",
+  "parity_artifact_sha256": "01708c259da3878a2ce56814b6485c204934c93c0d421155a531b2ea4e00430b",
+  "parity_inputs_sha256": "8824d38c0d2de7bdb5e7bb6c36ab1aaf27926b8f1d3b8675f380a0940b025ce1",
+  "rust_oracle_sha256": "20f2d7d1690dff43c2726987d6f82e926d8ff25232cd18671e2808643bce60de",
+  "codec_sha256": "5d34cf289a76097efa3537b99f4a362b7e2410667071fb91967fa3a6d5473f6c",
+  "trace_sha256": "23f714b8fc527920102100bcf7422d6aeb96e1b9f52f42c84c85d1ea869253aa"
+}

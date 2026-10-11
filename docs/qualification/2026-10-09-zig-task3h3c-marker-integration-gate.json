@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791586319.18183,
+  "finished_unix": 1791586508.67429,
+  "log": "/private/tmp/nyon-zig-task3h3c-marker-integration-gate.log",
+  "log_sha256": "a26c3033156a305d2e7e628c7c9cb59c8c6a022fad5302c8898db6ec70643155",
+  "debug_tests": 422,
+  "source_identity_count": 73,
+  "source_identity_drift": [],
+  "review": "task-3h3c-marker-integration-independent-review.md"
+}

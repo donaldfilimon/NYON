@@ -1,0 +1,19 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791568000.647443,
+  "finished_unix": 1791568331.5305011,
+  "log": "/private/tmp/nyon-zig-task3g1-gate.log",
+  "log_sha256": "ad0c7ca424bcd37dad2b6d5199fb7c1e8cca0f8e6df1e54c79b511908fb952e6",
+  "debug_tests": 259,
+  "source_identity_count": 53,
+  "source_identity_drift": [],
+  "review": "task-3g1-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3g1-full-gate.log",
+  "review_sha256": "cd316ff74077b5dfa802dc24a5f569c50c40bec5275bb385386cf5b9191ec416",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "pure value math camera and logical picking; composition scene renderer hosts pending"
+}

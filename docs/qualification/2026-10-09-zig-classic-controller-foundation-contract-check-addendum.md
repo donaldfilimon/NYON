@@ -1,0 +1,5 @@
+# Foundation terminal lifetime checks
+
+2026-10-09. Supplements accepted lifetime correction only; no product source changed. Registry deinit must explicitly detect non-free entries and fail via unconditional contract panic in Debug, ReleaseSafe and ReleaseFast rather than relying on an elidable debug assertion. The caller may not terminally close registry/clock while any owning or borrowed domain survives; clock cannot detect hidden external CurrentView copies, so those remain caller prerequisites rather than a fake runtime detector. Closed reserve and invalid ticket operations are deterministic typed failures as specified. Internal checked fixture seams can qualify occupied-deinit rejection through a real standalone fatal probe in every mode without exporting mutable registry fields or adding shipped hooks. Numeric caps and all other APIs remain unchanged.
+
+Exact failure behavior follows established H1 all-mode terminal ownership contracts. Later I3 must wire ordered shutdown, stable addresses and no-reset/nonescape; foundation alone cannot prove host adherence. This is an execution clarification, not arbitrary address-reuse protection.

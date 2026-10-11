@@ -1,0 +1,27 @@
+# H3c concrete integration independent preparation review
+
+Status: Proposed; one Important preparation ambiguity needs closure before integration dispatch. No product acceptance or implementation authority.
+
+Reviewed complete concrete binding SHA256 `3ca4c9bc3b0ab0c0f6c31c1c5cc8c6381dd6eed136dbc7347e28a779e258dca0` and report `e25abd8da294e513b4602bef7df404c3f9e82505261b8febb6dbd49e0abc164e`, earlier immutable source/lease/HUD rebind/attach/text correction/canonical geometry/pure API contracts, and actual accepted UI/Core/Session/camera/scene/picking/H1 source. Independently rehashed all eight stable source identities in the concrete binding: all match. No transient classic_start_marker implementation, root or README was read or adopted. No compiler, tests, aggregate gate or product writes.
+
+## Important I1 — settings ancillary schema contradicts accepted source
+
+`task-3h3c-marker-integration-concrete-binding.md:60` simultaneously says to append actual guidance/tooltip regions when present and specifies “settings11 and no Playing regions/help.” Together with the unknown-region rejection at line 56, this does not define a consistent schema for legitimate Settings preparations.
+
+Actual `classic_ui.zig:222` selects Playing versus Settings construction, then `:223` independently appends c/guidance for any nonnull onboarding step and `:230`–`:243` independently appends c/tooltip from pointer/action or hovered name. These additions apply to Settings too. The actual Session adapter passes onboarding.step(), core.help_visible and pointer through the Settings source (`classic_ui.zig:478`–`:489`); it does not clear these fields. Thus Settings can contain eleven settings controls plus guidance and tooltip. A settings frame during first-run onboarding is a concrete supported case, rather than malformed source geometry.
+
+Required closure: explicitly admit and validate the accepted ancillary Settings guidance/tooltip schema; specify whether those validated bounds are copied into snapshot zones or intentionally excluded because settings produces an absent marker. Define help-visible handling in Settings consistently with that policy. Update the settings population bound accordingly and require actual Settings fixtures with onboarding and a pointer tooltip, asserting valid snapshot construction and absent result. Do not reject valid accepted Settings ancillary nodes or clear source state to satisfy the bound. This is a contract ambiguity; no future implementation defect or existing UI defect is asserted.
+
+## Other reviewed contracts
+
+The proposed geometry getter correctly reads existing private scalar fields, rejects empty before current input() unwrap, returns no Header pointer, and adds no storage. Snapshot/current checks bind exact copied context, resident identity, hold, revision and draft-null before slices. Independent caller output storage and immutable prepared lifetime are explicit preconditions; second-pass fill keeps output unchanged on rejected preflight without a second snapshot buffer. Closed primary-node scans, required Playing tray, actual enabled flags, bounded zone count and fixed output prefix avoid guessed geometry or child duplication.
+
+Core calls exist with the stated signatures and ownership. Campaign worlds and SceneFrame worlds/matrices are owned values; the unrelated CampaignView fleet borrow does not escape. Normalized viewport and camera logical viewport checks are coherent with AppCore.setViewport and CameraState.setViewport. scene_frame.camera is the actual projection/picking source. The captured CurrentLease is honestly a caller precondition, not a nonexistent Core revision/token/context getter or matrix provenance proof.
+
+Same-Header attachment has a coherent acyclic module split, closed seven-world action mapping, immutable name copy, explicit flags, absent-once behavior and successful-publication ban. The 45-byte tooltip and five H1 copies give 65+2n, maximum 113 at n=24; the corrected whole-frame B+113/B+112 fixture does not fabricate a production near-cap population. Names are range-checked before asSlice. Shared strict f32 canonical endpoints avoid subtraction-width rejection; helper errors are explicitly translated without enlarging unrelated H1 errors.
+
+Complete nonmutating topology/cap/text/geometry preflight followed by infallible reverse insertion, parent renumber and adjacency rebuild preserves flat DFS and rollback. Marker focus follows existing toolbar controls and does not invent initial focus. Snapshot/input borrows end before mutation and must be reacquired after attach; inline Result survives snapshot destruction. Header allocation remains charged before request, with no attach allocation/retain/arena expansion or second Header.
+
+Shared/local budget and fixed storage ceilings remain Proposed implementation obligations. Actual Header/visual/Marker/snapshot/staging layouts, all allocation ordinals and populated old-frame P/P-1 must be measured during implementation. Default twelve fixtures use accepted generator/Core/camera/scene/pick and independent expected geometry, not adapter-generated goldens. Fractional endpoint fixtures and exact copied-text populations remain necessary. No rendered host materialization, current-Union event routing, accessibility/focus runtime or whole-game qualification is granted.
+
+No other Critical, Important or Minor findings identified in this scoped preparation review. Pure final export/review/gate rebind remains required before future integration implementation.

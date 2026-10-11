@@ -350,7 +350,7 @@ pub struct LivingExplainedEventV2 {
 }
 
 /// A token is bounded before construction, not encoded into a growing Vec
-/// and later split. No schema string can require escaping or exceed34 bytes.
+/// and later split. Closed IDs/digests use at most66 quoted bytes.
 pub(crate) struct CanonicalFragment {
     bytes: [u8; 256],
     len: usize,
@@ -382,13 +382,15 @@ impl std::io::Write for CanonicalFragment {
     }
 }
 
-/// Closed dispatch: ID34, tick20, ordinal5, quantity10, resource8, role13,
+/// Closed dispatch: ID34, digest66, tick20, ordinal5, quantity10, resource8, role13,
 /// agreement kind15, route kind10, blocked tag17, null4. IDs use their existing
 /// fixed32-byte temporary String serializer. No compound record is a leaf.
 #[derive(Clone, Copy)]
 enum FactsJsonLeaf {
     Entity(LivingEntityIdV2),
     Event(LivingEventIdV2),
+    LivingStateDigest(LivingStateDigestV2),
+    LivingReceiptDigest(LivingReceiptDigestV2),
     Ordinal(u16),
     Quantity(u32),
     Tick(LivingTickV2),
@@ -411,6 +413,8 @@ impl FactsJsonLeaf {
         match self {
             Self::Entity(value) => scalar(output, &value),
             Self::Event(value) => scalar(output, &value),
+            Self::LivingStateDigest(value) => scalar(output, &value),
+            Self::LivingReceiptDigest(value) => scalar(output, &value),
             Self::Ordinal(value) => scalar(output, &value),
             Self::Quantity(value) => scalar(output, &value),
             Self::Tick(value) => scalar(output, &value),
@@ -1076,6 +1080,968 @@ pub fn seal_living_event_facts_receipt_v2(
     Ok(r)
 }
 
+/// A view is supplied for each visit, never stored beside its owning job.
+#[derive(Clone, Copy)]
+enum FactsEncodingView<'a> {
+    Prefix {
+        pending: &'a LivingPendingEventsV2,
+        receipt: &'a LivingTickReceiptV2,
+        retained: usize,
+    },
+    Sealed(&'a LivingEventFactsReceiptV2),
+}
+impl<'a> FactsEncodingView<'a> {
+    fn tick(self) -> LivingTickV2 {
+        match self {
+            Self::Prefix { receipt, .. } => receipt.tick,
+            Self::Sealed(r) => r.tick,
+        }
+    }
+    fn state_digest(self) -> LivingStateDigestV2 {
+        match self {
+            Self::Prefix { receipt, .. } => receipt.state_digest,
+            Self::Sealed(r) => r.state_digest,
+        }
+    }
+    fn receipt_digest(self) -> LivingReceiptDigestV2 {
+        match self {
+            Self::Prefix { receipt, .. } => receipt.digest,
+            Self::Sealed(r) => r.receipt_digest,
+        }
+    }
+    fn integrity(self) -> LivingReceiptDigestV2 {
+        match self {
+            Self::Prefix { .. } => LivingReceiptDigestV2([0; 32]),
+            Self::Sealed(r) => r.integrity_sha256,
+        }
+    }
+    fn count(self) -> usize {
+        match self {
+            Self::Prefix { retained, .. } => retained,
+            Self::Sealed(r) => r.events.len(),
+        }
+    }
+    fn omitted(self) -> bool {
+        match self {
+            Self::Prefix {
+                pending, retained, ..
+            } => retained < pending.explained.len(),
+            Self::Sealed(r) => r.omitted.is_some(),
+        }
+    }
+    fn entry(self, index: usize) -> (u16, LivingEventIdV2, &'a LivingEventFactsV2) {
+        match self {
+            Self::Prefix {
+                pending, receipt, ..
+            } => {
+                let (ordinal, facts) = &pending.explained[index];
+                (*ordinal, receipt.events[usize::from(*ordinal)].id, facts)
+            }
+            Self::Sealed(r) => {
+                let e = &r.events[index];
+                (e.ordinal, e.event_id, &e.facts)
+            }
+        }
+    }
+}
+// The largest variant owns one fixed stack fragment (<=256 payload bytes).
+// Boxing this per token would introduce allocation into every encoding visit.
+#[allow(clippy::large_enum_variant)]
+enum FactsEncodingStep {
+    Fragment(CanonicalFragment),
+    Scan,
+    Done,
+}
+/// Closed envelope schema. Range coalescing scans at most one source row per
+/// visit. Scan/entry transitions are work even when they emit no bytes.
+struct FactsEnvelopeCursor {
+    stage: u8,
+    index: usize,
+    range_index: usize,
+    range: Option<[u16; 2]>,
+    next_ordinal: Option<u16>,
+    entry: Option<LivingExplainedEntryEncodingCursorV2>,
+    envelope: bool,
+    bytes: usize,
+    hasher: Sha256,
+    #[cfg(test)]
+    tokens: usize,
+    #[cfg(test)]
+    max_fragment: usize,
+}
+impl FactsEnvelopeCursor {
+    fn new(envelope: bool) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(LIVING_EVENT_FACTS_DOMAIN_V2);
+        Self {
+            stage: 0,
+            index: 0,
+            range_index: 0,
+            range: None,
+            next_ordinal: None,
+            entry: None,
+            envelope,
+            bytes: 0,
+            hasher,
+            #[cfg(test)]
+            tokens: 0,
+            #[cfg(test)]
+            max_fragment: 0,
+        }
+    }
+    fn assert_non_owning(&self) {
+        let Self {
+            stage: _,
+            index: _,
+            range_index: _,
+            range: _,
+            next_ordinal: _,
+            entry,
+            envelope: _,
+            bytes: _,
+            hasher: _,
+            #[cfg(test)]
+                tokens: _,
+            #[cfg(test)]
+                max_fragment: _,
+        } = self;
+        if let Some(entry) = entry {
+            entry.assert_non_owning();
+        }
+    }
+    fn capacity(&self) -> Result<(), LivingEventFactsErrorV2> {
+        if self.bytes > LIVING_MAX_EVENT_FACTS_BYTES_V2 {
+            Err(LivingWireErrorV2::TooLarge {
+                actual: self.bytes,
+                limit: LIVING_MAX_EVENT_FACTS_BYTES_V2,
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+    fn digest(&self) -> LivingReceiptDigestV2 {
+        LivingReceiptDigestV2(self.hasher.clone().finalize().into())
+    }
+    fn visit(
+        &mut self,
+        view: FactsEncodingView<'_>,
+    ) -> Result<FactsEncodingStep, LivingEventFactsErrorV2> {
+        let step = self.next(view)?;
+        if let FactsEncodingStep::Fragment(fragment) = &step {
+            self.bytes += fragment.len;
+            #[cfg(test)]
+            {
+                self.tokens += 1;
+                self.max_fragment = self.max_fragment.max(fragment.len);
+            }
+            if self.bytes <= LIVING_MAX_EVENT_FACTS_BYTES_V2 {
+                self.hasher.update(fragment.as_bytes());
+            }
+        }
+        Ok(step)
+    }
+    fn next(
+        &mut self,
+        view: FactsEncodingView<'_>,
+    ) -> Result<FactsEncodingStep, LivingEventFactsErrorV2> {
+        use FactsJsonToken::{Leaf, Literal};
+        let token = match self.stage {
+            0 => Literal(b"{"),
+            1 => Literal(b"\"tick\""),
+            2 => Literal(b":"),
+            3 => Leaf(FactsJsonLeaf::Tick(view.tick())),
+            4 => Literal(b","),
+            5 => Literal(b"\"state_digest\""),
+            6 => Literal(b":"),
+            7 => Leaf(FactsJsonLeaf::LivingStateDigest(view.state_digest())),
+            8 => Literal(b","),
+            9 => Literal(b"\"receipt_digest\""),
+            10 => Literal(b":"),
+            11 => Leaf(FactsJsonLeaf::LivingReceiptDigest(view.receipt_digest())),
+            12 => Literal(b","),
+            13 => Literal(b"\"events\""),
+            14 => Literal(b":"),
+            15 => Literal(b"["),
+            16 => {
+                if self.index < view.count() {
+                    let (ordinal, id, _) = view.entry(self.index);
+                    self.entry = Some(LivingExplainedEntryEncodingCursorV2::new(ordinal, id));
+                    self.stage = 17;
+                    return Ok(FactsEncodingStep::Scan);
+                }
+                self.stage = 19;
+                Literal(b"]")
+            }
+            17 => {
+                if let Some(fragment) = self
+                    .entry
+                    .as_mut()
+                    .unwrap()
+                    .next_fragment(view.entry(self.index).2)?
+                {
+                    return Ok(FactsEncodingStep::Fragment(fragment));
+                }
+                self.entry = None;
+                self.index += 1;
+                self.stage = 18;
+                return Ok(FactsEncodingStep::Scan);
+            }
+            18 => {
+                self.stage = 16;
+                if self.index < view.count() {
+                    return Self::literal(b",");
+                }
+                return Ok(FactsEncodingStep::Scan);
+            }
+            20 => {
+                if !view.omitted() {
+                    self.stage = 40;
+                    return Ok(FactsEncodingStep::Scan);
+                }
+                self.range_index = match view {
+                    FactsEncodingView::Prefix { retained, .. } => retained,
+                    _ => 0,
+                };
+                Literal(b",")
+            }
+            21 => Literal(b"\"omitted\""),
+            22 => Literal(b":"),
+            23 => Literal(b"{"),
+            24 => Literal(b"\"reason\""),
+            25 => Literal(b":"),
+            26 => Literal(b"\"capacity\""),
+            27 => Literal(b","),
+            28 => Literal(b"\"ranges\""),
+            29 => Literal(b":"),
+            30 => Literal(b"["),
+            31 => {
+                match view {
+                    FactsEncodingView::Prefix { pending, .. } => {
+                        if let Some((ordinal, _)) = pending.explained.get(self.range_index) {
+                            self.range_index += 1;
+                            match self.range.as_mut() {
+                                None => self.range = Some([*ordinal, *ordinal]),
+                                Some(range) if u32::from(range[1]) + 1 == u32::from(*ordinal) => {
+                                    range[1] = *ordinal
+                                }
+                                Some(_) => {
+                                    self.next_ordinal = Some(*ordinal);
+                                    self.stage = 32;
+                                }
+                            }
+                        } else if self.range.is_some() {
+                            self.stage = 32;
+                        } else {
+                            self.stage = 38;
+                        }
+                    }
+                    FactsEncodingView::Sealed(r) => {
+                        if let Some(range) =
+                            r.omitted.as_ref().unwrap().ranges.get(self.range_index)
+                        {
+                            self.range = Some(*range);
+                            self.range_index += 1;
+                            self.stage = 32;
+                        } else {
+                            self.stage = 38;
+                        }
+                    }
+                }
+                return Ok(FactsEncodingStep::Scan);
+            }
+            32 => Literal(b"["),
+            33 => Leaf(FactsJsonLeaf::Ordinal(self.range.unwrap()[0])),
+            34 => Literal(b","),
+            35 => Leaf(FactsJsonLeaf::Ordinal(self.range.unwrap()[1])),
+            36 => Literal(b"]"),
+            37 => {
+                self.range = self.next_ordinal.take().map(|ordinal| [ordinal, ordinal]);
+                let more = match view {
+                    FactsEncodingView::Prefix { .. } => self.range.is_some(),
+                    FactsEncodingView::Sealed(r) => {
+                        self.range_index < r.omitted.as_ref().unwrap().ranges.len()
+                    }
+                };
+                self.stage = if more { 31 } else { 38 };
+                if more {
+                    return Self::literal(b",");
+                }
+                return Ok(FactsEncodingStep::Scan);
+            }
+            38 => Literal(b"]"),
+            39 => Literal(b"}"),
+            40 => {
+                if !self.envelope {
+                    self.stage = 45;
+                    return Ok(FactsEncodingStep::Scan);
+                }
+                Literal(b",")
+            }
+            41 => Literal(b"\"integrity_sha256\""),
+            42 => Literal(b":"),
+            43 => {
+                self.stage = 44;
+                Leaf(FactsJsonLeaf::LivingReceiptDigest(view.integrity()))
+            }
+            45 => Literal(b"}"),
+            46 => return Ok(FactsEncodingStep::Done),
+            _ => unreachable!("closed envelope token stage"),
+        };
+        self.stage += 1;
+        let mut fragment = CanonicalFragment::new();
+        match token {
+            Literal(bytes) => {
+                use std::io::Write;
+                fragment
+                    .write_all(bytes)
+                    .map_err(|_| LivingWireErrorV2::Json)?;
+            }
+            Leaf(leaf) => leaf.encode(&mut fragment)?,
+        }
+        Ok(FactsEncodingStep::Fragment(fragment))
+    }
+    fn literal(bytes: &'static [u8]) -> Result<FactsEncodingStep, LivingEventFactsErrorV2> {
+        use std::io::Write;
+        let mut fragment = CanonicalFragment::new();
+        fragment
+            .write_all(bytes)
+            .map_err(|_| LivingWireErrorV2::Json)?;
+        Ok(FactsEncodingStep::Fragment(fragment))
+    }
+}
+
+/// Final verification preserves the public verifier's grouped fault order.
+struct FactsPairVerificationCursor {
+    stage: u8,
+    index: usize,
+    range_index: usize,
+    encoding: FactsEnvelopeCursor,
+    ordinary: super::receipt::LivingOrdinaryReceiptVerificationCursorV2,
+    semantic: Option<LivingEventFactsValidationCursorV2>,
+    fault: Option<LivingEventFactsErrorV2>,
+}
+impl FactsPairVerificationCursor {
+    fn new() -> Self {
+        Self {
+            stage: 0,
+            index: 0,
+            range_index: 0,
+            encoding: FactsEnvelopeCursor::new(true),
+            ordinary: super::receipt::LivingOrdinaryReceiptVerificationCursorV2::new(),
+            semantic: None,
+            fault: None,
+        }
+    }
+    fn assert_non_owning(&self) {
+        let Self {
+            stage: _,
+            index: _,
+            range_index: _,
+            encoding,
+            ordinary,
+            semantic,
+            fault: _,
+        } = self;
+        encoding.assert_non_owning();
+        ordinary.assert_non_owning();
+        if let Some(semantic) = semantic {
+            semantic.assert_non_owning();
+        }
+    }
+    fn ready(&self) -> bool {
+        self.stage == 12 && self.fault.is_none()
+    }
+    fn visit(
+        &mut self,
+        facts: &LivingEventFactsReceiptV2,
+        receipt: &LivingTickReceiptV2,
+    ) -> Result<bool, LivingEventFactsErrorV2> {
+        if let Some(error) = self.fault {
+            return Err(error);
+        }
+        if self.ready() {
+            return Ok(false);
+        }
+        let result = self.visit_inner(facts, receipt);
+        if let Err(error) = result {
+            self.fault = Some(error);
+        }
+        result.map(|()| true)
+    }
+    fn visit_inner(
+        &mut self,
+        facts: &LivingEventFactsReceiptV2,
+        receipt: &LivingTickReceiptV2,
+    ) -> Result<(), LivingEventFactsErrorV2> {
+        use LivingEventFactsErrorV2::Binding;
+        match self.stage {
+            0 => {
+                if matches!(
+                    self.encoding.visit(FactsEncodingView::Sealed(facts))?,
+                    FactsEncodingStep::Done
+                ) {
+                    self.encoding.capacity()?;
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.ordinary.ready() {
+                    self.stage = 2;
+                } else {
+                    self.ordinary.visit(receipt)?;
+                }
+            }
+            2 => {
+                if facts.tick != receipt.tick
+                    || facts.state_digest != receipt.state_digest
+                    || facts.receipt_digest != receipt.digest
+                {
+                    return Err(Binding);
+                }
+                self.index = 1;
+                self.stage = 3;
+            }
+            3 => {
+                if self.index < facts.events.len() {
+                    if facts.events[self.index - 1].ordinal >= facts.events[self.index].ordinal {
+                        return Err(Binding);
+                    }
+                    self.index += 1;
+                } else {
+                    self.index = 0;
+                    self.stage = 4;
+                }
+            }
+            4 => {
+                if let Some(entry) = facts.events.get(self.index) {
+                    let ordinary = receipt
+                        .events
+                        .get(usize::from(entry.ordinal))
+                        .ok_or(Binding)?;
+                    if ordinary.ordinal != entry.ordinal || ordinary.id != entry.event_id {
+                        return Err(Binding);
+                    }
+                    self.semantic = Some(LivingEventFactsValidationCursorV2::new(ordinary.kind));
+                    self.stage = 5;
+                } else {
+                    self.stage = 7;
+                }
+            }
+            5 => {
+                let semantic = self.semantic.as_mut().unwrap();
+                if semantic.ready() {
+                    self.semantic = None;
+                    self.stage = 6;
+                } else {
+                    semantic.visit(&facts.events[self.index].facts)?;
+                }
+            }
+            6 => {
+                if facts.events[self.index]
+                    .facts
+                    .agreement
+                    .as_ref()
+                    .is_some_and(|a| a.start_tick != receipt.tick)
+                {
+                    return Err(Binding);
+                }
+                self.index += 1;
+                self.stage = 4;
+            }
+            7 => {
+                if let Some(omitted) = &facts.omitted {
+                    if omitted.ranges.is_empty()
+                        || facts
+                            .events
+                            .last()
+                            .is_some_and(|e| omitted.ranges[0][0] <= e.ordinal)
+                    {
+                        return Err(Binding);
+                    }
+                    self.index = 0;
+                    self.stage = 8;
+                } else {
+                    self.encoding = FactsEnvelopeCursor::new(false);
+                    self.stage = 11;
+                }
+            }
+            8 => {
+                let ranges = &facts.omitted.as_ref().unwrap().ranges;
+                if let Some([start, end]) = ranges.get(self.index) {
+                    if start > end || usize::from(*end) >= receipt.events.len() {
+                        return Err(Binding);
+                    }
+                    self.index += 1;
+                } else {
+                    self.index = 1;
+                    self.stage = 9;
+                }
+            }
+            9 => {
+                let ranges = &facts.omitted.as_ref().unwrap().ranges;
+                if self.index < ranges.len() {
+                    if u32::from(ranges[self.index - 1][1]) + 1 >= u32::from(ranges[self.index][0])
+                    {
+                        return Err(Binding);
+                    }
+                    self.index += 1;
+                } else {
+                    self.index = 0;
+                    self.range_index = 0;
+                    self.stage = 10;
+                }
+            }
+            10 => {
+                let ranges = &facts.omitted.as_ref().unwrap().ranges;
+                if let Some(event) = facts.events.get(self.index) {
+                    if let Some(range) = ranges.get(self.range_index) {
+                        if range[1] < event.ordinal {
+                            self.range_index += 1;
+                        } else if range[0] <= event.ordinal {
+                            return Err(Binding);
+                        } else {
+                            self.index += 1;
+                        }
+                    } else {
+                        self.index += 1;
+                    }
+                } else {
+                    self.encoding = FactsEnvelopeCursor::new(false);
+                    self.stage = 11;
+                }
+            }
+            11 => {
+                if matches!(
+                    self.encoding.visit(FactsEncodingView::Sealed(facts))?,
+                    FactsEncodingStep::Done
+                ) {
+                    self.encoding.capacity()?;
+                    if self.encoding.digest() != facts.integrity_sha256 {
+                        return Err(LivingEventFactsErrorV2::Integrity);
+                    }
+                    self.stage = 12;
+                }
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+/// Original nested facts move through one retained row and prepared storage.
+/// All cursors borrow these owners; every other field is fixed scalar state.
+pub(crate) struct LivingEventFactsSealJobV2 {
+    pending: Option<LivingPendingEventsV2>,
+    receipt: Option<LivingTickReceiptV2>,
+    source: Option<std::vec::IntoIter<(u16, LivingEventFactsV2)>>,
+    held: Option<LivingExplainedEventV2>,
+    events: Vec<LivingExplainedEventV2>,
+    ranges: Vec<[u16; 2]>,
+    events_storage: Option<super::step_job::LivingVecStorageJobV2<'static, LivingExplainedEventV2>>,
+    ranges_storage: Option<super::step_job::LivingVecStorageJobV2<'static, [u16; 2]>>,
+    output: Option<LivingEventFactsReceiptV2>,
+    retirement: super::step_job::PhaseRetirementLane<'static>,
+    ordinary: super::receipt::LivingOrdinaryReceiptVerificationCursorV2,
+    encoding: FactsEnvelopeCursor,
+    verification: FactsPairVerificationCursor,
+    stage: u8,
+    index: usize,
+    low: usize,
+    high: usize,
+    middle: usize,
+    fault: Option<LivingEventFactsErrorV2>,
+    capacity: bool,
+    delivered: bool,
+    last_visit_visits: usize,
+}
+impl LivingEventFactsSealJobV2 {
+    #[cfg(test)]
+    pub(crate) fn stage_for_test(&self) -> u8 {
+        self.stage
+    }
+    pub(crate) fn begin(pending: LivingPendingEventsV2, receipt: LivingTickReceiptV2) -> Self {
+        Self {
+            pending: Some(pending),
+            receipt: Some(receipt),
+            source: None,
+            held: None,
+            events: Vec::new(),
+            ranges: Vec::new(),
+            events_storage: None,
+            ranges_storage: None,
+            output: None,
+            retirement: Default::default(),
+            ordinary: super::receipt::LivingOrdinaryReceiptVerificationCursorV2::new(),
+            encoding: FactsEnvelopeCursor::new(true),
+            verification: FactsPairVerificationCursor::new(),
+            stage: 0,
+            index: 0,
+            low: 0,
+            high: 0,
+            middle: 0,
+            fault: None,
+            capacity: false,
+            delivered: false,
+            last_visit_visits: 0,
+        }
+    }
+    pub(crate) fn ready(&self) -> bool {
+        self.stage == 19
+            && self.retirement.is_empty()
+            && self.fault.is_none()
+            && !self.capacity
+            && !self.delivered
+    }
+    pub(crate) fn visit(&mut self) -> Result<bool, super::step_job::LivingLifecycleJobErrorV2> {
+        use super::step_job::LivingLifecycleJobErrorV2 as E;
+        self.last_visit_visits = 0;
+        if let Some(fault) = self.fault {
+            return Err(E::Fault(fault.into()));
+        }
+        if self.capacity {
+            return Err(E::PreparationCapacity);
+        }
+        if self.stage == 19 || self.delivered {
+            return Ok(false);
+        }
+        self.last_visit_visits = 1;
+        if self.retirement.visit() {
+            return Ok(true);
+        }
+        match self.visit_inner() {
+            Ok(()) => Ok(true),
+            Err(FactsSealError::Facts(error)) => {
+                self.fault = Some(error);
+                Err(E::Fault(error.into()))
+            }
+            Err(FactsSealError::Storage) => {
+                self.capacity = true;
+                Err(E::PreparationCapacity)
+            }
+        }
+    }
+    fn visit_inner(&mut self) -> Result<(), FactsSealError> {
+        use super::step_job::LivingVecStorageJobV2 as Storage;
+        match self.stage {
+            0 => {
+                if self.ordinary.ready() {
+                    self.stage = 1;
+                } else {
+                    self.ordinary
+                        .visit(self.receipt.as_ref().unwrap())
+                        .map_err(LivingEventFactsErrorV2::from)?;
+                }
+            }
+            1 => {
+                let pending = self.pending.as_ref().unwrap();
+                if !pending.explanations_enabled()
+                    || pending.payloads().len() != self.receipt.as_ref().unwrap().events.len()
+                {
+                    return Err(LivingEventFactsErrorV2::Binding.into());
+                }
+                self.stage = 2;
+            }
+            2 => {
+                let pending = self.pending.as_ref().unwrap();
+                if let Some(payload) = pending.payloads().get(self.index) {
+                    let event = &self.receipt.as_ref().unwrap().events[self.index];
+                    if payload.ordinal != event.ordinal
+                        || payload.kind != event.kind
+                        || payload.provenance != event.provenance
+                    {
+                        return Err(LivingEventFactsErrorV2::Binding.into());
+                    }
+                    self.index += 1;
+                } else {
+                    self.index = 0;
+                    self.stage = 3;
+                }
+            }
+            3 => {
+                if let Some((ordinal, _)) = self.pending.as_ref().unwrap().explained.get(self.index)
+                {
+                    if self
+                        .receipt
+                        .as_ref()
+                        .unwrap()
+                        .events
+                        .get(usize::from(*ordinal))
+                        .is_none()
+                    {
+                        return Err(LivingEventFactsErrorV2::Binding.into());
+                    }
+                    self.index += 1;
+                } else {
+                    self.high = self.index;
+                    self.index = 0;
+                    self.stage = 4;
+                }
+            }
+            4 => {
+                self.encoding = FactsEnvelopeCursor::new(true);
+                if self.low < self.high {
+                    self.middle = self.low + (self.high - self.low).div_ceil(2);
+                    self.stage = 5;
+                } else {
+                    self.middle = self.low;
+                    self.stage = 6;
+                }
+            }
+            5 | 6 => {
+                // Each trial borrows only its retained prefix; a suffix's semantic
+                // or encoding fault must not be surfaced by eager preparation.
+                let view = FactsEncodingView::Prefix {
+                    pending: self.pending.as_ref().unwrap(),
+                    receipt: self.receipt.as_ref().unwrap(),
+                    retained: self.middle,
+                };
+                let result = self.encoding.visit(view);
+                match result {
+                    Ok(FactsEncodingStep::Done) => {
+                        let fit = self.encoding.capacity();
+                        if self.stage == 5 {
+                            if fit.is_ok() {
+                                self.low = self.middle;
+                            } else {
+                                self.high = self.middle - 1;
+                            }
+                            self.stage = 4;
+                        } else {
+                            fit?;
+                            self.stage = 7;
+                        }
+                    }
+                    Err(_) if self.stage == 5 => {
+                        self.high = self.middle - 1;
+                        self.stage = 4;
+                    }
+                    Err(error) => return Err(error.into()),
+                    _ => {}
+                }
+            }
+            7 => {
+                self.events_storage = Some(Storage::begin_empty(self.low));
+                self.stage = 8;
+            }
+            8 => {
+                let storage = self.events_storage.as_mut().unwrap();
+                if storage.ready() {
+                    self.events = storage
+                        .take_ready_result()
+                        .map_err(|_| FactsSealError::Storage)?;
+                    self.retirement.start(self.events_storage.take());
+                    self.stage = 9;
+                } else {
+                    storage.poll(1).map_err(|_| FactsSealError::Storage)?;
+                }
+            }
+            9 => {
+                self.ranges_storage = Some(Storage::begin_empty(
+                    self.pending.as_ref().unwrap().explained.len() - self.low,
+                ));
+                self.stage = 10;
+            }
+            10 => {
+                let storage = self.ranges_storage.as_mut().unwrap();
+                if storage.ready() {
+                    self.ranges = storage
+                        .take_ready_result()
+                        .map_err(|_| FactsSealError::Storage)?;
+                    self.retirement.start(self.ranges_storage.take());
+                    self.index = self.low;
+                    self.stage = 11;
+                } else {
+                    storage.poll(1).map_err(|_| FactsSealError::Storage)?;
+                }
+            }
+            11 => {
+                if let Some((ordinal, _)) = self.pending.as_ref().unwrap().explained.get(self.index)
+                {
+                    if let Some(last) = self.ranges.last_mut()
+                        && u32::from(last[1]) + 1 == u32::from(*ordinal)
+                    {
+                        last[1] = *ordinal;
+                    } else {
+                        Storage::commit_one(&mut self.ranges, &mut Some([*ordinal, *ordinal]))
+                            .map_err(|_| FactsSealError::Storage)?;
+                    }
+                    self.index += 1;
+                } else {
+                    self.stage = 12;
+                }
+            }
+            12 => {
+                self.source = Some(
+                    self.pending
+                        .as_mut()
+                        .unwrap()
+                        .take_explained_for_sealing()
+                        .into_iter(),
+                );
+                self.index = 0;
+                self.stage = 13;
+            }
+            13 => {
+                if self.index < self.low {
+                    let (ordinal, facts) = self.source.as_mut().unwrap().next().unwrap();
+                    self.held = Some(LivingExplainedEventV2 {
+                        ordinal,
+                        event_id: self.receipt.as_ref().unwrap().events[usize::from(ordinal)].id,
+                        facts,
+                    });
+                    self.stage = 14;
+                } else {
+                    // Raw iterator, including its original allocation and omitted
+                    // nested owners. No slice clone, split_off or truncate.
+                    self.retirement.start(self.source.take().unwrap());
+                    self.stage = 15;
+                }
+            }
+            14 => {
+                Storage::commit_one(&mut self.events, &mut self.held)
+                    .map_err(|_| FactsSealError::Storage)?;
+                self.index += 1;
+                self.stage = 13;
+            }
+            15 => {
+                let receipt = self.receipt.as_ref().unwrap();
+                self.output = Some(LivingEventFactsReceiptV2 {
+                    tick: receipt.tick,
+                    state_digest: receipt.state_digest,
+                    receipt_digest: receipt.digest,
+                    events: std::mem::take(&mut self.events),
+                    omitted: if self.ranges.is_empty() {
+                        None
+                    } else {
+                        Some(LivingEventFactsOmittedV2 {
+                            reason: LivingEventFactsOmissionReasonV2::Capacity,
+                            ranges: std::mem::take(&mut self.ranges),
+                        })
+                    },
+                    integrity_sha256: LivingReceiptDigestV2([0; 32]),
+                });
+                self.encoding = FactsEnvelopeCursor::new(false);
+                self.stage = 16;
+            }
+            16 => {
+                if matches!(
+                    self.encoding
+                        .visit(FactsEncodingView::Sealed(self.output.as_ref().unwrap()))?,
+                    FactsEncodingStep::Done
+                ) {
+                    self.encoding.capacity()?;
+                    self.stage = 17;
+                }
+            }
+            17 => {
+                self.output.as_mut().unwrap().integrity_sha256 = self.encoding.digest();
+                self.stage = 18;
+            }
+            18 => {
+                if self.verification.ready() {
+                    self.stage = 19;
+                } else {
+                    self.verification.visit(
+                        self.output.as_ref().unwrap(),
+                        self.receipt.as_ref().unwrap(),
+                    )?;
+                }
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+    pub(crate) fn take_ready_result(
+        &mut self,
+    ) -> Option<(
+        LivingPendingEventsV2,
+        LivingTickReceiptV2,
+        LivingEventFactsReceiptV2,
+    )> {
+        if !self.ready() {
+            return None;
+        }
+        self.delivered = true;
+        Some((
+            self.pending.take().unwrap(),
+            self.receipt.take().unwrap(),
+            self.output.take().unwrap(),
+        ))
+    }
+}
+enum FactsSealError {
+    Facts(LivingEventFactsErrorV2),
+    Storage,
+}
+impl From<LivingEventFactsErrorV2> for FactsSealError {
+    fn from(error: LivingEventFactsErrorV2) -> Self {
+        Self::Facts(error)
+    }
+}
+impl<'a> super::step_job::RetirementFields<'a> for LivingEventFactsSealJobV2 {
+    #[cfg(test)]
+    fn creator_allocations(&self, out: &mut Vec<(usize, usize, Option<usize>, usize)>) {
+        self.pending.creator_allocations(out);
+        self.receipt.creator_allocations(out);
+        self.source.creator_allocations(out);
+        self.held.creator_allocations(out);
+        self.events.creator_allocations(out);
+        self.ranges.creator_allocations(out);
+        self.events_storage.creator_allocations(out);
+        self.ranges_storage.creator_allocations(out);
+        self.output.creator_allocations(out);
+        self.retirement.creator_allocations(out);
+    }
+    fn retirement_child(
+        &mut self,
+        index: usize,
+        policy: super::step_job::LivingStateRetirementPolicyV2,
+    ) -> Option<Box<dyn super::step_job::RetirementPoll + 'a>> {
+        use super::step_job::retirement_node;
+        let Self {
+            pending,
+            receipt,
+            source,
+            held,
+            events,
+            ranges,
+            events_storage,
+            ranges_storage,
+            output,
+            retirement,
+            ordinary,
+            encoding,
+            verification,
+            stage: _,
+            index: _,
+            low: _,
+            high: _,
+            middle: _,
+            fault: _,
+            capacity: _,
+            delivered: _,
+            last_visit_visits: _,
+        } = self;
+        ordinary.assert_non_owning();
+        encoding.assert_non_owning();
+        verification.assert_non_owning();
+        match index {
+            0 => Some(retirement_node(pending.take(), policy)),
+            1 => Some(retirement_node(receipt.take(), policy)),
+            2 => Some(retirement_node(source.take(), policy)),
+            3 => Some(retirement_node(held.take(), policy)),
+            4 => Some(retirement_node(std::mem::take(events), policy)),
+            5 => Some(retirement_node(std::mem::take(ranges), policy)),
+            6 => Some(retirement_node(events_storage.take(), policy)),
+            7 => Some(retirement_node(ranges_storage.take(), policy)),
+            8 => Some(retirement_node(output.take(), policy)),
+            9 => Some(retirement_node(std::mem::take(retirement), policy)),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod bounded_facts_tests {
     use super::super::model::LivingAgreementKindV2;
@@ -1476,6 +2442,61 @@ mod bounded_facts_tests {
         assert_eq!(c.last_visit_visits(), 0);
         assert!(c.next_fragment(f).unwrap().is_none());
         assert_eq!(c.last_visit_visits(), 0);
+        // Compose each existing schema fixture through the complete envelope.
+        // Entry bytes above are independently Serde-produced; framing and token
+        // arithmetic here are handwritten and never obtained from the cursor.
+        let receipt = LivingEventFactsReceiptV2 {
+            tick: LivingTickV2(1),
+            state_digest: LivingStateDigestV2([2; 32]),
+            receipt_digest: LivingReceiptDigestV2([3; 32]),
+            events: vec![LivingExplainedEventV2 {
+                ordinal,
+                event_id,
+                facts: f.clone(),
+            }],
+            omitted: None,
+            integrity_sha256: LivingReceiptDigestV2([0; 32]),
+        };
+        for envelope in [false, true] {
+            let mut expected = format!(
+                "{{\"tick\":1,\"state_digest\":\"{}\",\"receipt_digest\":\"{}\",\"events\":[",
+                "02".repeat(32),
+                "03".repeat(32)
+            )
+            .into_bytes();
+            expected.extend_from_slice(&reference);
+            expected.extend_from_slice(b"]");
+            if envelope {
+                expected.extend_from_slice(
+                    format!(",\"integrity_sha256\":\"{}\"", "00".repeat(32)).as_bytes(),
+                );
+            }
+            expected.push(b'}');
+            let mut cursor = FactsEnvelopeCursor::new(envelope);
+            let mut actual = Vec::new();
+            loop {
+                match cursor.visit(FactsEncodingView::Sealed(&receipt)).unwrap() {
+                    FactsEncodingStep::Fragment(fragment) => {
+                        actual.extend_from_slice(fragment.as_bytes())
+                    }
+                    FactsEncodingStep::Scan => {}
+                    FactsEncodingStep::Done => break,
+                }
+            }
+            assert_eq!(actual, expected);
+            assert_eq!(
+                cursor.tokens,
+                expected_tokens(f) + if envelope { 22 } else { 18 }
+            );
+            assert!(cursor.max_fragment <= 256);
+            let mut hash = Sha256::new();
+            hash.update(LIVING_EVENT_FACTS_DOMAIN_V2);
+            hash.update(&expected);
+            assert_eq!(
+                cursor.digest(),
+                LivingReceiptDigestV2(hash.finalize().into())
+            );
+        }
     }
     #[test]
     fn fixed_encoder_serde_bytes_all_schema_scalars_and_sparse_combinations() {
@@ -1613,5 +2634,1054 @@ mod bounded_facts_tests {
         fragment.write_all(&[0; 256]).unwrap();
         assert!(fragment.write_all(&[0]).is_err());
         assert_eq!(fragment.len, 256);
+    }
+}
+
+#[cfg(test)]
+mod facts_sealing_tests {
+    use super::super::model::LivingAgreementKindV2;
+    use super::super::receipt::{LivingEventProvenanceV2, seal_living_tick_receipt_v2};
+    use super::super::step_job::{
+        LivingLifecycleJobErrorV2, LivingLifecycleProgressV2, LivingPhaseRetirementJobV2,
+        LivingStateRetirementPolicyV2, RetirementFields,
+    };
+    use super::*;
+
+    fn pair(n: usize, tick: u64, actors: usize) -> (LivingPendingEventsV2, LivingTickReceiptV2) {
+        let mut pending = LivingPendingEventsV2::new();
+        for i in 0..n {
+            pending
+                .record_explained(
+                    LivingEventProvenanceV2::Autonomous {
+                        phase: LivingPhaseV2::RunProduction,
+                    },
+                    LivingEventKindV2::FacilityProduced,
+                    LivingEventFactsV2 {
+                        actor: (i < actors).then_some(LivingEntityIdV2([1; 16])),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        let receipt = seal_living_tick_receipt_v2(
+            LivingTickV2(tick),
+            vec![],
+            &pending,
+            LivingStateDigestV2([2; 32]),
+        )
+        .unwrap();
+        (pending, receipt)
+    }
+    fn run(job: &mut LivingEventFactsSealJobV2) -> Result<(), LivingLifecycleJobErrorV2> {
+        for _ in 0..100_000_000 {
+            if job.ready() {
+                return Ok(());
+            }
+            job.visit()?;
+        }
+        panic!("facts visit bound");
+    }
+    fn encode(view: FactsEncodingView<'_>, envelope: bool) -> (Vec<u8>, FactsEnvelopeCursor) {
+        let mut cursor = FactsEnvelopeCursor::new(envelope);
+        let mut bytes = Vec::new();
+        loop {
+            match cursor.visit(view).unwrap() {
+                FactsEncodingStep::Fragment(fragment) => {
+                    assert!((1..=256).contains(&fragment.len));
+                    bytes.extend_from_slice(fragment.as_bytes());
+                }
+                FactsEncodingStep::Scan => {}
+                FactsEncodingStep::Done => break,
+            }
+        }
+        assert_eq!(bytes.len(), cursor.bytes);
+        (bytes, cursor)
+    }
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+    // Handwritten schema, deliberately independent of Serde and all cursors.
+    fn literal_default(
+        r: &LivingTickReceiptV2,
+        retained: usize,
+        actors: usize,
+        omitted: Option<[u16; 2]>,
+        integrity: Option<LivingReceiptDigestV2>,
+    ) -> Vec<u8> {
+        let mut text = format!(
+            "{{\"tick\":{},\"state_digest\":\"{}\",\"receipt_digest\":\"{}\",\"events\":[",
+            r.tick.0,
+            hex(&r.state_digest.0),
+            hex(&r.digest.0)
+        );
+        for (i, event) in r.events.iter().take(retained).enumerate() {
+            if i != 0 {
+                text.push(',');
+            }
+            let actor = if i < actors {
+                format!("\"{}\"", "01".repeat(16))
+            } else {
+                "null".to_owned()
+            };
+            text.push_str(&format!("{{\"ordinal\":{i},\"event_id\":\"{}\",\"facts\":{{\"actor\":{actor},\"entity\":null,\"resources\":[],\"blocked_reasons\":[],\"affected\":[]}}}}", hex(&event.id.0)));
+        }
+        text.push(']');
+        if let Some([start, end]) = omitted {
+            text.push_str(&format!(
+                ",\"omitted\":{{\"reason\":\"capacity\",\"ranges\":[[{start},{end}]]}}"
+            ));
+        }
+        if let Some(digest) = integrity {
+            text.push_str(&format!(",\"integrity_sha256\":\"{}\"", hex(&digest.0)));
+        }
+        text.push('}');
+        text.into_bytes()
+    }
+    #[test]
+    fn facts_tokens_match_literal_full_envelope_and_original_reference() {
+        for n in [0, 1, 2, 10, 257] {
+            let (pending, receipt) = pair(n, 1, 0);
+            let original = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+            let (bytes, cursor) = encode(FactsEncodingView::Sealed(&original), true);
+            assert_eq!(
+                bytes,
+                literal_default(&receipt, n, 0, None, Some(original.integrity_sha256))
+            );
+            assert_eq!(bytes, original.canonical_bytes().unwrap());
+            assert_eq!(cursor.tokens, if n == 0 { 22 } else { 21 + 37 * n });
+            let (payload, payload_cursor) = encode(FactsEncodingView::Sealed(&original), false);
+            assert_eq!(payload, literal_default(&receipt, n, 0, None, None));
+            assert_eq!(payload_cursor.digest(), original.integrity_sha256);
+            if n == 0 {
+                assert_eq!(bytes.len(), 274);
+                assert_eq!(payload.len(), 188);
+            }
+            assert!(cursor.max_fragment <= 256);
+        }
+        let (pending, receipt) = pair(2, 1, 0);
+        // Only ordinal1 is explained; its omission is exactly [1,1].
+        let mut pending = pending;
+        pending.explained.remove(0);
+        let (bytes, cursor) = encode(
+            FactsEncodingView::Prefix {
+                pending: &pending,
+                receipt: &receipt,
+                retained: 0,
+            },
+            true,
+        );
+        assert_eq!(
+            bytes,
+            literal_default(
+                &receipt,
+                0,
+                0,
+                Some([1, 1]),
+                Some(LivingReceiptDigestV2([0; 32]))
+            )
+        );
+        assert_eq!(bytes.len(), 323);
+        assert_eq!(cursor.tokens, 40);
+    }
+    #[test]
+    fn facts_prefix_uses_full_integrity_envelope_and_upper_mid_search() {
+        const N: usize = 13_959;
+        for (tick, actors, all_bytes, retained) in [
+            (1, 5, 2_097_122, N),
+            (1, 6, 2_097_152, N),
+            (10, 6, 2_097_153, N - 1),
+        ] {
+            let (pending, receipt) = pair(N, tick, actors);
+            let independent = literal_default(
+                &receipt,
+                N,
+                actors,
+                None,
+                Some(LivingReceiptDigestV2([0; 32])),
+            );
+            assert_eq!(independent.len(), all_bytes);
+            let (full, _) = encode(
+                FactsEncodingView::Prefix {
+                    pending: &pending,
+                    receipt: &receipt,
+                    retained: N,
+                },
+                true,
+            );
+            assert_eq!(full, independent);
+            let expected = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+            assert_eq!(expected.events.len(), retained);
+            let mut expected_mids = Vec::new();
+            let (mut low, mut high) = (0, N);
+            while low < high {
+                let middle = low + (high - low).div_ceil(2);
+                expected_mids.push(middle);
+                let omitted = (middle < N).then_some([middle as u16, (N - 1) as u16]);
+                if literal_default(
+                    &receipt,
+                    middle,
+                    actors,
+                    omitted,
+                    Some(LivingReceiptDigestV2([0; 32])),
+                )
+                .len()
+                    <= 2_097_152
+                {
+                    low = middle;
+                } else {
+                    high = middle - 1;
+                }
+            }
+            let mut job = LivingEventFactsSealJobV2::begin(pending, receipt);
+            let mut mids = Vec::new();
+            while !job.ready() {
+                if job.stage == 5 && job.encoding.stage == 0 {
+                    mids.push(job.middle);
+                }
+                job.visit().unwrap();
+            }
+            assert_eq!(mids, expected_mids);
+            let (_, receipt, actual) = job.take_ready_result().unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(
+                actual.canonical_bytes().unwrap(),
+                literal_default(
+                    &receipt,
+                    retained,
+                    actors,
+                    (retained < N).then_some([13958, 13958]),
+                    Some(actual.integrity_sha256)
+                )
+            );
+            assert_eq!(
+                actual.canonical_bytes().unwrap().len(),
+                if retained == N {
+                    all_bytes
+                } else {
+                    2_097_152 - 93
+                }
+            );
+        }
+    }
+    fn compare(
+        pending: LivingPendingEventsV2,
+        receipt: LivingTickReceiptV2,
+    ) -> Result<LivingEventFactsReceiptV2, LivingEventFactsErrorV2> {
+        let expected = seal_living_event_facts_receipt_v2(&receipt, &pending);
+        let mut job = LivingEventFactsSealJobV2::begin(pending, receipt);
+        let actual = match run(&mut job) {
+            Ok(()) => Ok(job.take_ready_result().unwrap().2),
+            Err(LivingLifecycleJobErrorV2::Fault(
+                super::super::simulation::LivingDeterministicFaultV2::EventFacts(error),
+            )) => {
+                assert_eq!(job.last_visit_visits, 1);
+                assert!(job.visit().is_err());
+                assert_eq!(job.last_visit_visits, 0);
+                Err(error)
+            }
+            other => panic!("unexpected result {other:?}"),
+        };
+        assert_eq!(actual, expected);
+        actual
+    }
+    #[test]
+    fn facts_omitted_payload_is_not_semantically_validated() {
+        let (mut pending, receipt) = pair(2, 1, 0);
+        // Injected malformed child input: too many affected IDs. Public append
+        // correctly rejects it; sealing must still omit its oversized suffix.
+        pending.explained[1].1.affected = vec![LivingEntityIdV2([1; 16]); 65_536];
+        let actual = compare(pending.clone(), receipt.clone()).unwrap();
+        assert_eq!(actual.events.len(), 1);
+        assert_eq!(actual.omitted.unwrap().ranges, [[1, 1]]);
+        pending.explained[1].1.affected.truncate(65);
+        assert_eq!(
+            compare(pending.clone(), receipt.clone()),
+            Err(LivingEventFactsErrorV2::Facts)
+        );
+        pending.explained[1].0 = 9;
+        assert_eq!(
+            compare(pending, receipt),
+            Err(LivingEventFactsErrorV2::Binding)
+        );
+    }
+    #[test]
+    fn facts_ordinary_verifier_preserves_wrapped_fault_precedence() {
+        use super::super::receipt::LivingReceiptErrorV2 as R;
+        let (pending, receipt) = pair(2, 1, 0);
+        let mut bad = receipt.clone();
+        bad.events[0].ordinal = 9;
+        assert_eq!(
+            compare(pending.clone(), bad.clone()),
+            Err(LivingEventFactsErrorV2::Receipt(R::DigestMismatch))
+        );
+        bad.digest = bad.payload().digest().unwrap();
+        assert_eq!(
+            compare(pending.clone(), bad.clone()),
+            Err(LivingEventFactsErrorV2::Receipt(R::EventIdentityMismatch))
+        );
+        bad.applied_revisions = vec![LivingRevisionIdV2([1; 32]); 2];
+        assert_eq!(
+            compare(pending.clone(), bad),
+            Err(LivingEventFactsErrorV2::Receipt(R::UnsortedRevisions))
+        );
+        let mut changed = pending.clone();
+        changed.explained.reverse();
+        assert_eq!(
+            compare(changed, receipt.clone()),
+            Err(LivingEventFactsErrorV2::Binding)
+        );
+        let mut changed = pending;
+        changed.explained[1].0 = 0;
+        assert_eq!(
+            compare(changed, receipt),
+            Err(LivingEventFactsErrorV2::Binding)
+        );
+    }
+    #[test]
+    fn facts_final_verification_preserves_capacity_binding_and_integrity_order() {
+        let (pending, receipt) = pair(3, 1, 0);
+        let original = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+        for variant in 0..9 {
+            let mut facts = original.clone();
+            let mut ordinary = receipt.clone();
+            match variant {
+                0 => {
+                    facts.events[0].facts.affected = vec![LivingEntityIdV2([1; 16]); 65_536];
+                    ordinary.digest.0[0] ^= 1;
+                }
+                1 => {
+                    ordinary.digest.0[0] ^= 1;
+                    facts.tick.0 += 1;
+                }
+                2 => {
+                    facts.events[0].facts.affected = vec![LivingEntityIdV2([1; 16]); 65];
+                    facts.events.swap(1, 2);
+                }
+                3 => {
+                    facts.events[0].event_id.0[0] ^= 1;
+                    facts.events[0].facts.affected = vec![LivingEntityIdV2([1; 16]); 65];
+                }
+                4 => {
+                    facts.events[0].facts.affected = vec![LivingEntityIdV2([1; 16]); 65];
+                }
+                5 => {
+                    facts.omitted = Some(LivingEventFactsOmittedV2 {
+                        reason: LivingEventFactsOmissionReasonV2::Capacity,
+                        ranges: vec![],
+                    });
+                }
+                6 => {
+                    facts.events.clear();
+                    facts.omitted = Some(LivingEventFactsOmittedV2 {
+                        reason: LivingEventFactsOmissionReasonV2::Capacity,
+                        ranges: vec![[0, 0], [1, 9]],
+                    });
+                }
+                7 => {
+                    facts.events.clear();
+                    facts.omitted = Some(LivingEventFactsOmittedV2 {
+                        reason: LivingEventFactsOmissionReasonV2::Capacity,
+                        ranges: vec![[0, 0], [1, 1]],
+                    });
+                }
+                _ => {
+                    facts.integrity_sha256.0[0] ^= 1;
+                }
+            }
+            let expected = facts.verify_receipt(&ordinary);
+            let mut cursor = FactsPairVerificationCursor::new();
+            let actual = loop {
+                match cursor.visit(&facts, &ordinary) {
+                    Err(error) => break Err(error),
+                    Ok(false) => break Ok(()),
+                    _ => {}
+                }
+            };
+            assert_eq!(actual, expected, "variant{variant}");
+        }
+    }
+    fn retire(job: LivingEventFactsSealJobV2, budget: usize) -> u64 {
+        retire_schedule(job, &[budget])
+    }
+    fn retire_schedule(job: LivingEventFactsSealJobV2, schedule: &[usize]) -> u64 {
+        let mut retirement =
+            LivingPhaseRetirementJobV2::begin(job, LivingStateRetirementPolicyV2::ReleaseHandle);
+        let mut poll = 0;
+        loop {
+            let budget = schedule[poll % schedule.len()];
+            poll += 1;
+            let status = retirement.poll(budget).unwrap();
+            assert!(retirement.last_poll_visits() <= budget);
+            if status == LivingLifecycleProgressV2::Ready {
+                break;
+            }
+        }
+        let total = retirement.total_visits();
+        retirement.poll(1).unwrap();
+        assert_eq!(retirement.last_poll_visits(), 0);
+        total
+    }
+    // Independent graph arithmetic from facts-sealing-fix1-owner-worksheet.md.
+    // Read-only partition lengths instantiate formulas; measured retirement
+    // counters are never used to choose an expected value.
+    fn opt<T>(owner: &Option<T>, cost: impl FnOnce(&T) -> u64) -> u64 {
+        owner.as_ref().map_or(1, |owner| 3 + cost(owner))
+    }
+    fn fact_cost(facts: &LivingEventFactsV2) -> u64 {
+        10 + 3 * (facts.resources.len() + facts.blocked_reasons.len() + facts.affected.len()) as u64
+    }
+    fn source_cost(source: &std::vec::IntoIter<(u16, LivingEventFactsV2)>) -> u64 {
+        1 + source
+            .as_slice()
+            .iter()
+            .map(|(_, f)| 14 + fact_cost(f))
+            .sum::<u64>()
+    }
+    fn storage_cost<T: RetirementFields<'static>>(
+        storage: &super::super::step_job::LivingVecStorageJobV2<'static, T>,
+    ) -> u64 {
+        let partitions = storage.production_partitions();
+        assert!(
+            partitions.original.is_none()
+                && partitions.source.is_none()
+                && partitions.pending.is_none()
+        );
+        if let Some(destination) = partitions.destination {
+            assert!(destination.is_empty());
+            25
+        } else {
+            22
+        }
+    }
+    fn job_cost(job: &LivingEventFactsSealJobV2, lane_remaining: Option<u64>) -> u64 {
+        assert_eq!(job.retirement.is_empty(), lane_remaining.is_none());
+        21 + opt(&job.pending, |pending| {
+            assert!(
+                pending.decisions.is_empty()
+                    && pending.creator_recoveries.is_empty()
+                    && pending.corridor_restrictions.is_empty()
+            );
+            16 + 3 * pending.payloads().len() as u64
+                + pending
+                    .explained
+                    .iter()
+                    .map(|(_, f)| 14 + fact_cost(f))
+                    .sum::<u64>()
+        }) + opt(&job.receipt, |r| {
+            7 + 3 * (r.applied_revisions.len() + r.events.len()) as u64
+        }) + opt(&job.source, source_cost)
+            + opt(&job.held, |e| fact_cost(&e.facts))
+            + 1
+            + job
+                .events
+                .iter()
+                .map(|e| 2 + fact_cost(&e.facts))
+                .sum::<u64>()
+            + 1
+            + 3 * job.ranges.len() as u64
+            + opt(&job.events_storage, storage_cost)
+            + opt(&job.ranges_storage, storage_cost)
+            + opt(&job.output, |r| {
+                let rows = r
+                    .events
+                    .iter()
+                    .map(|e| 2 + fact_cost(&e.facts))
+                    .sum::<u64>();
+                r.omitted
+                    .as_ref()
+                    .map_or(7 + rows, |o| 13 + rows + 3 * o.ranges.len() as u64)
+            })
+            + lane_remaining.map_or(7, |remaining| 6 + remaining)
+    }
+    fn advance_counted(job: &mut LivingEventFactsSealJobV2, lane_remaining: &mut Option<u64>) {
+        let active = !job.retirement.is_empty();
+        let admitted = if active {
+            None
+        } else if (job.stage == 8 && job.events_storage.as_ref().unwrap().ready())
+            || (job.stage == 10 && job.ranges_storage.as_ref().unwrap().ready())
+        {
+            Some(25)
+        } else if job.stage == 13 && job.index == job.low {
+            Some(source_cost(job.source.as_ref().unwrap()))
+        } else {
+            None
+        };
+        assert!(job.visit().unwrap());
+        assert_eq!(job.last_visit_visits, 1);
+        if active {
+            *lane_remaining = match lane_remaining.unwrap() {
+                0 => None,
+                n => Some(n - 1),
+            };
+        } else if admitted.is_some() {
+            *lane_remaining = admitted;
+        }
+        assert_eq!(job.retirement.is_empty(), lane_remaining.is_none());
+    }
+    #[test]
+    fn facts_original_owner_graph_has_predeclared_literal_counts() {
+        for budget in [1, 64, 1024] {
+            let (pending, receipt) = pair(0, 1, 0);
+            assert_eq!(
+                retire(LivingEventFactsSealJobV2::begin(pending, receipt), budget),
+                64
+            );
+            let (mut pending, receipt) = pair(0, 1, 0);
+            pending.explained.push((
+                0,
+                LivingEventFactsV2 {
+                    blocked_reasons: vec![LivingBlockedReasonV2::Disabled; 3],
+                    affected: vec![LivingEntityIdV2([1; 16]); 2],
+                    ..Default::default()
+                },
+            ));
+            assert_eq!(
+                retire(LivingEventFactsSealJobV2::begin(pending, receipt), budget),
+                103
+            );
+            let (pending, receipt) = pair(0, 1, 0);
+            let mut job = LivingEventFactsSealJobV2::begin(pending, receipt);
+            run(&mut job).unwrap();
+            assert!(!job.visit().unwrap());
+            assert_eq!(job.last_visit_visits, 0);
+            let _output = job.take_ready_result().unwrap();
+            assert!(job.take_ready_result().is_none());
+            assert_eq!(retire(job, budget), 37);
+        }
+    }
+    #[test]
+    fn facts_original_nested_owners_survive_every_reached_cut() {
+        let (mut pending, _) = pair(2, 1, 0);
+        for (ordinal, facts) in &mut pending.explained {
+            facts.affected = vec![LivingEntityIdV2([*ordinal as u8 + 1; 16])];
+        }
+        let receipt = seal_living_tick_receipt_v2(
+            LivingTickV2(1),
+            vec![],
+            &pending,
+            LivingStateDigestV2([2; 32]),
+        )
+        .unwrap();
+        let expected = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+        let mut probe = LivingEventFactsSealJobV2::begin(pending.clone(), receipt.clone());
+        let mut total = 0;
+        while !probe.ready() {
+            probe.visit().unwrap();
+            total += 1;
+        }
+        assert!(total < 10_000);
+        for cut in 0..=total {
+            let source = pending.clone();
+            let pointers: Vec<_> = source
+                .explained
+                .iter()
+                .map(|(_, f)| f.affected.as_ptr() as usize)
+                .collect();
+            let ordinary_ids = receipt.clone();
+            let event_pointer = ordinary_ids.events.as_ptr() as usize;
+            let mut job = LivingEventFactsSealJobV2::begin(source, ordinary_ids);
+            let mut lane_remaining = None;
+            for _ in 0..cut {
+                advance_counted(&mut job, &mut lane_remaining);
+            }
+            let mut allocations = Vec::new();
+            job.creator_allocations(&mut allocations);
+            for pointer in &pointers {
+                assert_eq!(
+                    allocations
+                        .iter()
+                        .filter(|row| row.0 == *pointer && row.1 == 1)
+                        .count(),
+                    1,
+                    "cut{cut}"
+                );
+            }
+            assert_eq!(
+                allocations
+                    .iter()
+                    .filter(|row| row.0 == event_pointer && row.1 == 2)
+                    .count(),
+                1
+            );
+            if job.ready() {
+                let (_, _, actual) = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected);
+                for (i, entry) in actual.events.iter().enumerate() {
+                    assert_eq!(entry.facts.affected.as_ptr() as usize, pointers[i]);
+                }
+            } else {
+                assert!(job.take_ready_result().is_none());
+            }
+            let expected_remaining = job_cost(&job, lane_remaining);
+            let schedules: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 2, 1024, 7]];
+            assert_eq!(
+                retire_schedule(job, schedules[cut % schedules.len()]),
+                expected_remaining,
+                "cut {cut}"
+            );
+        }
+    }
+    #[test]
+    fn facts_storage_capacity_is_local_sticky_and_retains_originals() {
+        let (pending, receipt) = pair(1, 1, 0);
+        let pointer = pending.explained.as_ptr();
+        let mut job = LivingEventFactsSealJobV2::begin(pending, receipt);
+        while job.stage != 8 {
+            job.visit().unwrap();
+        }
+        job.events_storage = Some(super::super::step_job::LivingVecStorageJobV2::begin_empty(
+            usize::MAX,
+        ));
+        assert_eq!(
+            job.visit(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(job.last_visit_visits, 1);
+        assert!(job.fault.is_none());
+        assert_eq!(job.pending.as_ref().unwrap().explained.as_ptr(), pointer);
+        assert_eq!(
+            job.visit(),
+            Err(LivingLifecycleJobErrorV2::PreparationCapacity)
+        );
+        assert_eq!(job.last_visit_visits, 0);
+        assert!(job.take_ready_result().is_none());
+        retire(job, 64);
+    }
+    fn literal_sparse(r: &LivingTickReceiptV2, ordinals: &[u16], ranges: &[[u16; 2]]) -> Vec<u8> {
+        let mut text = format!(
+            "{{\"tick\":{},\"state_digest\":\"{}\",\"receipt_digest\":\"{}\",\"events\":[",
+            r.tick.0,
+            hex(&r.state_digest.0),
+            hex(&r.digest.0)
+        );
+        for (index, ordinal) in ordinals.iter().enumerate() {
+            if index != 0 {
+                text.push(',');
+            }
+            text.push_str(&format!("{{\"ordinal\":{ordinal},\"event_id\":\"{}\",\"facts\":{{\"actor\":null,\"entity\":null,\"resources\":[],\"blocked_reasons\":[],\"affected\":[]}}}}",hex(&r.events[usize::from(*ordinal)].id.0)));
+        }
+        text.push(']');
+        if !ranges.is_empty() {
+            text.push_str(",\"omitted\":{\"reason\":\"capacity\",\"ranges\":[");
+            for (index, [start, end]) in ranges.iter().enumerate() {
+                if index != 0 {
+                    text.push(',');
+                }
+                text.push_str(&format!("[{start},{end}]"));
+            }
+            text.push_str("]}");
+        }
+        text.push_str(&format!(",\"integrity_sha256\":\"{}\"}}", "00".repeat(32)));
+        text.into_bytes()
+    }
+    #[test]
+    fn facts_sparse_suffix_search_preserves_exact_ranges_and_zero_integrity() {
+        type SuffixRangeCase<'a> = (&'a [u16], usize, &'a [[u16; 2]], bool);
+        let cases: &[SuffixRangeCase<'_>] = &[
+            (&[0, 1, 2, 5, 7, 8], 1, &[[1, 2], [5, 5], [7, 8]], true),
+            (&[9, 10, 11], 0, &[[9, 11]], true),
+            (&[65534, 65535], 0, &[[65534, 65535]], true),
+            (&[1, 1, 2], 0, &[[1, 1], [1, 2]], false),
+            (&[5, 3, 4], 0, &[[5, 5], [3, 4]], false),
+            (&[0, 1, 3, 2], 1, &[[1, 1], [3, 3], [2, 2]], false),
+        ];
+        for &(ordinals, retained, ranges, valid) in cases {
+            let (mut pending, receipt) =
+                pair(usize::from(*ordinals.iter().max().unwrap()) + 1, 1, 0);
+            pending.explained = ordinals
+                .iter()
+                .map(|ordinal| (*ordinal, LivingEventFactsV2::default()))
+                .collect();
+            // A nonempty bounded-child source also directly exercises a zero-prefix view.
+            let expected_zero_ranges = {
+                let mut groups: Vec<[u16; 2]> = Vec::new();
+                for &ordinal in ordinals {
+                    if let Some(last) = groups.last_mut()
+                        && u32::from(last[1]) + 1 == u32::from(ordinal)
+                    {
+                        last[1] = ordinal;
+                    } else {
+                        groups.push([ordinal, ordinal]);
+                    }
+                }
+                groups
+            };
+            let (zero, _) = encode(
+                FactsEncodingView::Prefix {
+                    pending: &pending,
+                    receipt: &receipt,
+                    retained: 0,
+                },
+                true,
+            );
+            assert_eq!(zero, literal_sparse(&receipt, &[], &expected_zero_ranges));
+            // A semantically valid bounded entry always fits alone. To naturally
+            // select zero/one at the real cap, inject an explicitly malformed
+            // oversized child; omitted semantics must remain unvisited.
+            pending.explained[retained].1.affected = vec![LivingEntityIdV2([1; 16]); 65536];
+            let expected = seal_living_event_facts_receipt_v2(&receipt, &pending);
+            let mut expected_mids = Vec::new();
+            let (mut low, mut high) = (0, ordinals.len());
+            while low < high {
+                let middle = low + (high - low).div_ceil(2);
+                expected_mids.push(middle);
+                // All prefixes through the giant exceed 2 MiB: one affected
+                // array alone contributes 35*65536-1=2,293,759 bytes. Earlier
+                // prefixes are <2 KiB by the literal framing above.
+                if middle <= retained {
+                    low = middle;
+                } else {
+                    high = middle - 1;
+                }
+            }
+            assert_eq!(low, retained);
+            let selected = literal_sparse(&receipt, &ordinals[..retained], ranges);
+            let mut job = LivingEventFactsSealJobV2::begin(pending, receipt.clone());
+            let mut mids = Vec::new();
+            while job.stage != 7 {
+                if job.stage == 5 && job.encoding.stage == 0 {
+                    mids.push(job.middle);
+                }
+                job.visit().unwrap();
+            }
+            assert_eq!(mids, expected_mids);
+            assert_eq!(job.low, retained);
+            assert_eq!(job.encoding.bytes, selected.len());
+            let (actual, _) = encode(
+                FactsEncodingView::Prefix {
+                    pending: job.pending.as_ref().unwrap(),
+                    receipt: &receipt,
+                    retained,
+                },
+                true,
+            );
+            assert_eq!(actual, selected);
+            let result = run(&mut job);
+            if valid {
+                result.unwrap();
+                let (_, _, actual) = job.take_ready_result().unwrap();
+                assert_eq!(actual, expected.unwrap());
+                assert_eq!(actual.omitted.as_ref().unwrap().ranges, ranges);
+                assert_eq!(actual.events.len(), retained);
+            } else {
+                assert_eq!(expected, Err(LivingEventFactsErrorV2::Binding));
+                assert_eq!(job.fault, Some(LivingEventFactsErrorV2::Binding));
+                assert!(result.is_err());
+                assert!(job.take_ready_result().is_none());
+                assert!(job.visit().is_err());
+                assert_eq!(job.last_visit_visits, 0);
+            }
+        }
+    }
+    #[test]
+    fn facts_agreement_semantics_precede_start_tick_binding() {
+        let agreement = LivingAgreementV2 {
+            kind: LivingAgreementKindV2::Trade,
+            participant_a: LivingEntityIdV2([1; 16]),
+            participant_b: LivingEntityIdV2([2; 16]),
+            start_tick: LivingTickV2(1),
+            end_tick: LivingTickV2(2),
+        };
+        let mut pending = LivingPendingEventsV2::new();
+        pending
+            .record_explained(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::RunProduction,
+                },
+                LivingEventKindV2::AgreementFormed,
+                LivingEventFactsV2 {
+                    agreement: Some(agreement),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let receipt = seal_living_tick_receipt_v2(
+            LivingTickV2(1),
+            vec![],
+            &pending,
+            LivingStateDigestV2([2; 32]),
+        )
+        .unwrap();
+        let original = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+        for (end, stage, expected) in [
+            (0, 5, LivingEventFactsErrorV2::Facts),
+            (2, 6, LivingEventFactsErrorV2::Binding),
+        ] {
+            let mut facts = original.clone();
+            let agreement = facts.events[0].facts.agreement.as_mut().unwrap();
+            agreement.start_tick = LivingTickV2(0);
+            agreement.end_tick = LivingTickV2(end);
+            facts.integrity_sha256 = LivingReceiptDigestV2([0; 32]);
+            assert_eq!(facts.verify_receipt(&receipt), Err(expected));
+            let mut cursor = FactsPairVerificationCursor::new();
+            loop {
+                if let Err(error) = cursor.visit(&facts, &receipt) {
+                    assert_eq!(error, expected);
+                    break;
+                }
+            }
+            assert_eq!((cursor.stage, cursor.index), (stage, 0));
+            assert_eq!(cursor.visit(&facts, &receipt), Err(expected));
+            assert_eq!(cursor.stage, stage);
+        }
+    }
+    #[test]
+    fn facts_final_groups_are_ordered_before_integrity_and_measure_full_capacity() {
+        let (pending, receipt) = pair(8, 1, 0);
+        let original = seal_living_event_facts_receipt_v2(&receipt, &pending).unwrap();
+        for (ranges, expected_stage, expected_index) in [
+            (vec![[0, 0], [7, 6]], 7, 1),
+            (vec![[1, 1], [2, 2], [7, 6]], 8, 2),
+            (vec![[1, 1], [2, 2], [4, 4]], 9, 1),
+            (vec![[1, 2], [4, 4]], 11, 1),
+        ] {
+            let mut facts = original.clone();
+            facts.events.truncate(1);
+            facts.omitted = Some(LivingEventFactsOmittedV2 {
+                reason: LivingEventFactsOmissionReasonV2::Capacity,
+                ranges,
+            });
+            facts.integrity_sha256 = LivingReceiptDigestV2([0; 32]);
+            let expected = facts.verify_receipt(&receipt).unwrap_err();
+            let mut c = FactsPairVerificationCursor::new();
+            let mut observed = 0u16;
+            let actual = loop {
+                observed |= 1 << c.stage;
+                if let Err(e) = c.visit(&facts, &receipt) {
+                    break e;
+                }
+            };
+            assert_eq!(actual, expected);
+            assert_eq!((c.stage, c.index), (expected_stage, expected_index));
+            if expected_stage == 11 {
+                assert_ne!(observed & (1 << 10), 0);
+                assert_eq!(actual, LivingEventFactsErrorV2::Integrity);
+            }
+            assert_eq!(c.visit(&facts, &receipt), Err(actual));
+            assert_eq!(c.stage, expected_stage);
+        }
+        // All endpoints individually fit; the full envelope is oversized and
+        // must precede the deliberately invalid adjacent/duplicate ranges.
+        let mut facts = original;
+        facts.events.clear();
+        facts.omitted = Some(LivingEventFactsOmittedV2 {
+            reason: LivingEventFactsOmissionReasonV2::Capacity,
+            ranges: vec![[0, 0]; 350_000],
+        });
+        let expected = LivingEventFactsErrorV2::Wire(LivingWireErrorV2::TooLarge {
+            actual: 317 + 6 * 350_000,
+            limit: 2_097_152,
+        });
+        assert_eq!(facts.verify_receipt(&receipt), Err(expected));
+        let mut c = FactsPairVerificationCursor::new();
+        loop {
+            if let Err(error) = c.visit(&facts, &receipt) {
+                assert_eq!(error, expected);
+                break;
+            }
+        }
+        assert_eq!(c.stage, 0);
+        assert_eq!(c.encoding.bytes, 2_100_317);
+    }
+    fn omitted_owner_fixture() -> (
+        LivingEventFactsSealJobV2,
+        Vec<(usize, usize, usize)>,
+        [usize; 3],
+    ) {
+        let mut pending = LivingPendingEventsV2::new();
+        for _ in 0..2 {
+            pending
+                .record_explained(
+                    LivingEventProvenanceV2::Autonomous {
+                        phase: LivingPhaseV2::RunProduction,
+                    },
+                    LivingEventKindV2::FacilityBlocked,
+                    LivingEventFactsV2 {
+                        resources: vec![LivingEventResourceFactV2 {
+                            role: LivingEventResourceRoleV2::Input,
+                            resource: LivingResourceV2::Energy,
+                            quantity: 1,
+                        }],
+                        blocked_reasons: vec![LivingBlockedReasonV2::Disabled],
+                        affected: vec![LivingEntityIdV2([1; 16])],
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        pending
+            .record_explained(
+                LivingEventProvenanceV2::Autonomous {
+                    phase: LivingPhaseV2::RunProduction,
+                },
+                LivingEventKindV2::FacilityProduced,
+                LivingEventFactsV2::default(),
+            )
+            .unwrap();
+        // Deliberately malformed oversized OMITTED child, as in the worksheet.
+        pending.explained[1].1.affected = vec![LivingEntityIdV2([2; 16]); 65536];
+        pending.explained[2].1.resources = Vec::with_capacity(3);
+        pending.explained[2].1.blocked_reasons = Vec::with_capacity(4);
+        pending.explained[2].1.affected = Vec::with_capacity(5);
+        let mut pointers = Vec::new();
+        for (_, f) in &pending.explained {
+            pointers.push((
+                f.resources.as_ptr() as usize,
+                f.resources.len(),
+                f.resources.capacity(),
+            ));
+            pointers.push((
+                f.blocked_reasons.as_ptr() as usize,
+                f.blocked_reasons.len(),
+                f.blocked_reasons.capacity(),
+            ));
+            pointers.push((
+                f.affected.as_ptr() as usize,
+                f.affected.len(),
+                f.affected.capacity(),
+            ));
+        }
+        let receipt = seal_living_tick_receipt_v2(
+            LivingTickV2(1),
+            vec![LivingRevisionIdV2([1; 32])],
+            &pending,
+            LivingStateDigestV2([2; 32]),
+        )
+        .unwrap();
+        let fixed = [
+            receipt.applied_revisions.as_ptr() as usize,
+            receipt.events.as_ptr() as usize,
+            pending.explained.as_ptr().wrapping_add(3) as usize,
+        ];
+        (
+            LivingEventFactsSealJobV2::begin(pending, receipt),
+            pointers,
+            fixed,
+        )
+    }
+    #[test]
+    fn facts_omitted_original_owners_and_partial_lanes_have_exact_remaining_work() {
+        let (mut probe, pointers, fixed) = omitted_owner_fixture();
+        let mut lane = None;
+        let mut cuts = std::collections::BTreeSet::new();
+        let mut last_stage = None;
+        let mut last_verification_stage = None;
+        let mut last_signature = None;
+        let mut observed: Vec<_> = pointers.iter().map(|(_, len, _)| Some(*len)).collect();
+        let mut saw_exhausted = false;
+        let mut saw_partial = false;
+        let mut saw_held = false;
+        let mut saw_output = false;
+        let mut cut = 0usize;
+        loop {
+            let stage = probe.stage;
+            let at_owner_cut = last_stage != Some(stage)
+                || matches!(stage, 8 | 10 | 13 | 14)
+                || (stage == 5 && probe.encoding.stage == 0)
+                || (stage == 18 && last_verification_stage != Some(probe.verification.stage))
+                || (stage == 15
+                    && lane.is_some_and(|n| {
+                        !(120..=196_608).contains(&n) || (98_300..=98_310).contains(&n)
+                    }));
+            if at_owner_cut || probe.ready() {
+                let mut allocations = Vec::new();
+                probe.creator_allocations(&mut allocations);
+                for (i, (pointer, initial, capacity)) in pointers.iter().enumerate() {
+                    let found: Vec<_> = allocations
+                        .iter()
+                        .filter(|a| a.0 == *pointer && a.2 == Some(*capacity))
+                        .collect();
+                    assert!(found.len() <= 1, "original buffer duplicated at {cut}/{i}");
+                    if i < 3 {
+                        assert_eq!(found.len(), 1);
+                        assert_eq!(found[0].1, *initial);
+                    }
+                    let now = found.first().map(|a| a.1);
+                    match (observed[i], now) {
+                        (Some(before), Some(after)) => assert!(after <= before),
+                        (Some(before), None) => {
+                            assert_eq!(before, 0, "original dropped before empty at {cut}/{i}")
+                        }
+                        (None, Some(_)) => panic!("original buffer resurrected"),
+                        (None, None) => {}
+                    }
+                    if i == 5 && now.is_some_and(|n| n > 0 && n < 65536) {
+                        saw_partial = true;
+                    }
+                    observed[i] = now;
+                }
+                for (pointer, len) in [(fixed[0], 1), (fixed[1], 3)] {
+                    assert_eq!(
+                        allocations
+                            .iter()
+                            .filter(|a| a.0 == pointer && a.1 == len)
+                            .count(),
+                        1
+                    );
+                }
+                saw_exhausted |= allocations
+                    .iter()
+                    .any(|a| a.0 == fixed[2] && a.1 == 0 && a.2.is_none());
+                saw_held |= probe.held.is_some();
+                saw_output |= probe.output.is_some();
+                // Ignore identical long leaf-run lengths when selecting costly
+                // reconstruction cuts; preserve empty/one/interior/root states.
+                let signature = (
+                    stage,
+                    probe.verification.stage,
+                    probe.held.is_some(),
+                    probe.output.is_some(),
+                    lane.is_some(),
+                    allocations
+                        .iter()
+                        .filter(|a| a.2 != Some(0))
+                        .map(|a| (a.0, if a.1 > 1 { 2 } else { a.1 }, a.2))
+                        .collect::<Vec<_>>(),
+                );
+                if last_signature.as_ref() != Some(&signature) {
+                    cuts.insert(cut);
+                    last_signature = Some(signature);
+                }
+            }
+            if lane == Some(98_305) {
+                cuts.insert(cut);
+            }
+            last_stage = Some(stage);
+            last_verification_stage = Some(probe.verification.stage);
+            if probe.ready() {
+                break;
+            }
+            advance_counted(&mut probe, &mut lane);
+            cut += 1;
+            assert!(cut < 2_000_000);
+        }
+        assert_eq!(probe.low, 1);
+        assert_eq!(
+            probe
+                .output
+                .as_ref()
+                .unwrap()
+                .omitted
+                .as_ref()
+                .unwrap()
+                .ranges,
+            [[1, 2]]
+        );
+        assert!(saw_exhausted && saw_partial && saw_held && saw_output);
+        assert!(observed[3..].iter().all(Option::is_none));
+        let schedules: &[&[usize]] = &[&[1], &[64], &[1024], &[1, 64, 2, 1024, 7]];
+        for (index, cut) in cuts.into_iter().enumerate() {
+            let (mut job, _, _) = omitted_owner_fixture();
+            let mut lane = None;
+            for _ in 0..cut {
+                advance_counted(&mut job, &mut lane);
+            }
+            let expected = job_cost(&job, lane);
+            assert_eq!(
+                retire_schedule(job, schedules[index % schedules.len()]),
+                expected,
+                "cut {cut}"
+            );
+        }
     }
 }

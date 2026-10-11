@@ -1,0 +1,12 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791590934.196071,
+  "finished_unix": 1791591099.539416,
+  "log": "/private/tmp/nyon-zig-task3i3-hud-focus-setter-gate.log",
+  "log_sha256": "eecbe57bc0bb8e19fc30cf0b77b09f52b6f158d6fae4c2cd0295c4604b29fa55",
+  "debug_tests": 476,
+  "source_identity_count": 79,
+  "source_identity_drift": [],
+  "review": "task-3i3-hud-focus-setter-independent-review.md"
+}

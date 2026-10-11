@@ -1,0 +1,21 @@
+{
+  "command": "./zig/tools/check.sh",
+  "terminal_exit": 0,
+  "started_unix": 1791565745.320458,
+  "finished_unix": 1791566311.389034,
+  "log": "/private/tmp/nyon-zig-task3f2-gate.log",
+  "log_sha256": "23b6436e5dccc38cb0a9f56834dc8c5943e55fe49b78291599dcc8dd79bc93b0",
+  "debug_tests": 230,
+  "source_identity_count": 46,
+  "source_identity_drift": [],
+  "review": "task-3f2-review.md",
+  "preserved_log": ".superpowers/sdd/2026-10-09-nyon-zig-migration/task-3f2-full-gate.log",
+  "review_sha256": "2be5ad202c3618f5d0c9814070f9819b9576428fc037f0485cbda983cdb8da91",
+  "cli_checks": 57,
+  "codec_records": 323,
+  "tick_transitions": 144000,
+  "events": 2038,
+  "scope": "fixed-value advisory controller F2 only; per-step and actualGPU/host pending",
+  "minor_deferred": "optional exact newest fallback scores/publication assertion classic_advisory_controller_tests.zig:94",
+  "runner_diagnostic": "intentional inherited test stderr; actual terminal0 and focused31/31 three-mode separately retained"
+}
