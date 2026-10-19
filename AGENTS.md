@@ -1,5 +1,15 @@
 # AGENTS.md
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+## Current decision: Zig rewrite canceled (2026-10-19)
+
+Donald canceled the Zig rewrite and continuation plans on 2026-10-19. This decision supersedes conflicting Zig implementation, migration, cutover, completion and goal-continuation instructions below and in nested plans. Do not resume their unfinished Zig tasks. Preserve all source, dirty work, fixtures and historical evidence.
+
+Current: retained Rust workspace in Cargo.toml, src/ and crates/. Resume the Workshop Rust implementation using the native and platform gates documented in AGENTS.md.
+
+See REWRITE-DECISION-2026-10-19.md. The updated nightly is the upgrade candidate (Cargo.toml requires Rust 1.100, above stable 1.99.1); installed-toolchain updates do not qualify this project on a new compiler. Retain exact repository pins until their own gates pass on a candidate.
+<!-- END 2026-10-19 rewrite decision -->
+
 Canonical repository guidance. Accepted Workshop behavior is in
 `docs/superpowers/specs/2026-09-02-nyon-v2-design.md`; the master plan is
 `docs/superpowers/plans/2026-09-02-nyon-v2.md`. Plans describe targets, not proof

@@ -1,5 +1,9 @@
 # NYON Zig Shader Tooling Implementation Plan
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+> **Canceled on 2026-10-19:** Donald canceled further Zig rewrite work. Unfinished Zig tasks and continuation instructions in this document are superseded; retain its historical evidence and existing source. See [the current implementation decision](../../../REWRITE-DECISION-2026-10-19.md).
+<!-- END 2026-10-19 rewrite decision -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce source-authoritative shader candidates and independent receipts for every required target.

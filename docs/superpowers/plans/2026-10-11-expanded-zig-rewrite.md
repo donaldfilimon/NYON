@@ -1,5 +1,9 @@
 # NYON expanded Zig rewrite roadmap
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+> **Canceled on 2026-10-19:** Donald canceled further Zig rewrite work. Unfinished Zig tasks and continuation instructions in this document are superseded; retain its historical evidence and existing source. See [the current implementation decision](../../../REWRITE-DECISION-2026-10-19.md).
+<!-- END 2026-10-19 rewrite decision -->
+
 Status: user-approved overall direction and execution request, 2026-10-11.
 This records the approved chat plan; it is not a replacement for each new
 subsystem's reviewed specification and detailed implementation plan.

@@ -1,5 +1,9 @@
 # Complete NYON in Zig 0.18-dev
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+> **Canceled on 2026-10-19:** Donald canceled further Zig rewrite work. Unfinished Zig tasks and continuation instructions in this document are superseded; retain its historical evidence and existing source. See [the current implementation decision](../../../REWRITE-DECISION-2026-10-19.md).
+<!-- END 2026-10-19 rewrite decision -->
+
 Specification: the complete requirement inventory in
 `docs/qualification/2026-10-09-zig-migration.md` and its binding accepted
 Workshop, Living V2, approved V3 and strategic-world references. Existing
