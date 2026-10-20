@@ -104,6 +104,8 @@ pub const PlanetDescriptor = struct {
     history_head: [32]u8,
 };
 pub const Descriptor = struct {
+    accepted: u16 = 0,
+    rejected: u16 = 0,
     tick: Tick,
     revision: Revision,
     last_sequence: CommandSequence,
@@ -114,6 +116,8 @@ pub const Descriptor = struct {
     planets: [4]PlanetDescriptor,
 };
 pub const ViewToken = struct {
+    // Noncanonical process-local owner lifetime, independent of slot reuse.
+    owner_generation: u64 = 0,
     descriptor_slot: u8,
     descriptor_generation: DescriptorGeneration,
     lease_slot: u8,
@@ -225,6 +229,8 @@ pub const Stats = struct {
     global_history_used: u16 = 0,
     local_history_used: [4]u16 = @splat(0),
     obsolete_leases: u8 = 0,
+    live_leases: u8 = 0,
+    installed_planets: u8 = 0,
     accepted: u16 = 0,
     rejected: u16 = 0,
 };

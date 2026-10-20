@@ -8,4 +8,10 @@ Current: retained Rust workspace in Cargo.toml, src/ and crates/. Resume the Wor
 
 Preservation: existing Zig code, commits, untracked files, dirty work and past qualification records remain intact. Historical checkboxes and evidence describe work already done or formerly planned; unfinished Zig tasks are canceled. No deployment, data migration or service cutover is performed.
 
-Proposed: qualify the updated Rust nightly against the retained implementation. The current Cargo.toml requires Rust 1.100; stable 1.99.1 is below that floor. Projects using nightly features may need nightly; do not replace a nightly pin with stable without the full repository gate. Project pins and lockfiles remain unchanged in this documentation-only cancellation.
+Current compiler: Rust stable **1.99.1**, edition 2024. The retained root/core/atlas manifests and browser build scripts already select this compiler. Preserve the in-progress dependency and lockfile changes; further compatibility adjustments require a reproduced compiler failure.
+
+Qualification policy: Donald paused tests and CI gates for this upgrade. Compilation-only Cargo checks are permitted, including compiling test targets without executing them. Do not run cargo test, Clippy, formatting gates, check-workshop.sh, fuzz execution or CI. Runtime, linking, platform and feature-parity acceptance remain separate and unverified. CI still pins nightly-2026-10-08; CI changes are deferred.
+
+Recovery direction: port implemented Zig-only capabilities into versioned pure Rust authority interfaces, reusing retained Rust engine/UI/storage/tooling. Then improve the remaining full-game designs as Rust plans. Existing save identities and profiles remain unchanged; new gameplay uses separate versioned identities. No Zig continuation, Rust retirement, source deletion, commit, push or deployment is authorized.
+
+See docs/qualification/2026-10-19-rust-stable-compilation.md and docs/qualification/2026-10-19-rust-feature-parity.md for evidence and remaining work.

@@ -40,7 +40,7 @@ The shared native source is intended for macOS, Windows, and Linux. Current live
 
 ## Build and run in a browser
 
-The repository script is the supported web build path. It idempotently installs the pinned `wasm32-unknown-unknown` standard library and a project-local `wasm-bindgen-cli 0.2.127`, then writes ignored output under `dist/`.
+The repository script is the supported web build path. It idempotently installs the pinned `wasm32-unknown-unknown` standard library and a project-local `wasm-bindgen-cli 0.2.129`, then writes ignored output under `dist/`.
 
 ```bash
 ./tools/build-web.sh

@@ -1,5 +1,10 @@
 # NYON Zig: one-planet settlement and economy authority
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+> **Historical; Zig continuation canceled 2026-10-19.** Preserve this source contract and evidence. Active recovery targets Rust stable1.99.1; see the 2026-10-19 Rust designs/plans. Historical review labels do not approve new Rust behavior. Tests and CI gates remain paused.
+<!-- END 2026-10-19 rewrite decision -->
+
+
 - Author: Abbey; written review: Donald J. Filimon (approved); independent review: revision re-reviewed, all five findings addressed
 - Date: 2026-10-11
 - Status: **Approved specification — implementation plan approved 2026-10-11 02:47 EDT; scoped implementation complete and qualified; expanded game remains Partial**

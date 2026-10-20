@@ -7,7 +7,7 @@ Donald canceled the Zig rewrite and continuation plans on 2026-10-19. This decis
 
 Current: retained Rust workspace in Cargo.toml, src/ and crates/. Resume the Workshop Rust implementation using the native and platform gates documented in AGENTS.md.
 
-See REWRITE-DECISION-2026-10-19.md. The updated nightly is the upgrade candidate (Cargo.toml requires Rust 1.100, above stable 1.99.1); installed-toolchain updates do not qualify this project on a new compiler. Retain exact repository pins until their own gates pass on a candidate.
+See REWRITE-DECISION-2026-10-19.md. Rust stable 1.99.1 is the selected compiler. Compilation qualification is separate from runtime acceptance; tests and CI gates are paused by Donald for this upgrade.
 <!-- END 2026-10-19 rewrite decision -->
 
 Canonical repository guidance. Accepted Workshop behavior is in
@@ -20,7 +20,7 @@ reconstruction, identity restoration or superseded mega-platform work.
 
 ## Gates
 
-Use **nightly-2026-09-01**, edition 2024 (`rust-toolchain.toml`, `Cargo.toml`).
+Use **1.99.1**, edition 2024 (`rust-toolchain.toml`, `Cargo.toml`).
 The native CI gate in `.github/workflows/ci.yml` is:
 
 ```sh
@@ -61,7 +61,7 @@ cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
   default features and builds `--lib` into its own target directory, producing
   separate `dist/webgpu` and `dist/webgl` artifacts. Do not substitute a default
   feature wasm build. Scripts may install the wasm target and local
-  `wasm-bindgen-cli 0.2.127`; `dist/` and `target/tools/` remain ignored.
+  `wasm-bindgen-cli 0.2.129`; `dist/` and `target/tools/` remain ignored.
 - `check-workshop.sh` checks artifact shape, difference and input freshness,
   static backend contracts, optional Node loader syntax, and three Rust suites.
   It needs both built artifacts; tests/examples/benches and the separate fuzz

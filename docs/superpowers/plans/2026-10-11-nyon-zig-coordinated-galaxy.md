@@ -12,7 +12,7 @@
 
 **Tech Stack:** Zig exactly `0.18.0-dev.146+35accc06e`, Zig/std SHA-256, existing shell gate; no production dependency or Rust.
 
-**Spec:** [2026-10-11-nyon-zig-coordinated-galaxy-design.md](../specs/2026-10-11-nyon-zig-coordinated-galaxy-design.md), written rules approved by Donald on 2026-10-11 at 07:05 EDT. Donald authorized continuation and improvement on2026-10-11 at07:37EDT after this plan was presented for review; execute the preserved subagent-driven workflow. Execution method remains the previously selected subagent-driven development.
+**Spec:** [2026-10-11-nyon-zig-coordinated-galaxy-design.md](../specs/2026-10-11-nyon-zig-coordinated-galaxy-design.md), written rules approved by Donald on 2026-10-11 at 07:05 EDT. Donald authorized continuation on2026-10-11 at07:37EDT and explicitly approved this plan and implementation at07:54EDT; execute the preserved subagent-driven workflow. Execution method remains the previously selected subagent-driven development.
 
 ## Global Constraints
 

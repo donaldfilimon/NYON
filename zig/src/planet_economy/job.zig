@@ -11,7 +11,7 @@ const history = @import("history.zig");
 const invariants = @import("invariants.zig");
 
 pub const CreateProgress = union(enum) { pending, ready, canceled, failed: types.Failure, invalid_request: types.Failure, idle };
-const CreatePhase = enum { init_pool, init_directory, allocate_pages, terrain, roundtrip, neighbors, reciprocity, receipt, encode, meta_hash, meta_write, ready, discard, drained };
+const CreatePhase = enum { init_pool, init_directory, allocate_pages, terrain, roundtrip, neighbors, reciprocity, receipt, domain_hash, encode, meta_hash, meta_write, ready, discard, drained };
 pub const CreateCursor = struct {
     phase: CreatePhase = .init_pool,
     index: u32 = 0,
@@ -473,6 +473,11 @@ pub fn advanceCreateContext(builder: *Builder, budget: *types.WorkBudget, contex
                     .event = .{ .genesis = storage.config },
                 };
                 cursor.encoder = history.Encoder.initContext(&storage.genesis.?, &storage.reservation.history[0], context);
+                cursor.phase = if (context.civilization_count == null) .encode else .domain_hash;
+            },
+            .domain_hash => {
+                // Integrated H0 hashes one short block in its own paid step.
+                state.spend(storage, budget);
                 cursor.chain = history.Chain.initContext(context);
                 cursor.phase = .encode;
             },

@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PROJECT_ROOT
-readonly TOOLCHAIN="nightly-2026-10-08"
+readonly TOOLCHAIN="1.99.1"
 readonly TARGET="wasm32-unknown-unknown"
 readonly BACKEND_FEATURE="webgpu-backend"
-readonly WASM_BINDGEN_VERSION="0.2.127"
+readonly WASM_BINDGEN_VERSION="0.2.129"
 readonly TOOL_ROOT="${PROJECT_ROOT}/target/tools/wasm-bindgen-cli-${WASM_BINDGEN_VERSION}"
 readonly WASM_BINDGEN="${TOOL_ROOT}/bin/wasm-bindgen"
 readonly BUILD_ROOT="${PROJECT_ROOT}/target/workshop-web/webgpu"

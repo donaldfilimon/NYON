@@ -7,6 +7,7 @@ pub mod ids;
 pub mod living;
 pub mod model;
 pub mod pack;
+pub mod recovery;
 pub mod simulation;
 
 pub use archive::{

@@ -9,4 +9,22 @@ test {
 comptime {
     _ = @import("coordinated_galaxy/planet_tests.zig");
     _ = @import("coordinated_galaxy/state_tests.zig");
+    _ = @import("coordinated_galaxy/command_tests.zig");
+}
+
+comptime {
+    _ = @import("coordinated_galaxy/view_tests.zig");
+    _ = @import("coordinated_galaxy/history_tests.zig");
+}
+
+comptime {
+    _ = @import("coordinated_galaxy/job_tests.zig");
+}
+
+comptime {
+    _ = @import("coordinated_galaxy/fault_tests.zig");
+}
+
+comptime {
+    _ = @import("coordinated_galaxy/replay_tests.zig");
 }

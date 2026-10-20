@@ -38,3 +38,29 @@ pub const CellValue = types.CellValue;
 pub const CreateProgress = types.CreateProgress;
 pub const ReplayProgress = types.ReplayProgress;
 pub const StoryProgress = types.StoryProgress;
+
+// Copied public queries only; prepared planet/root mutation stays private.
+const views = @import("view.zig");
+pub const Galaxy = views.Galaxy;
+pub const acquireView = views.acquireView;
+pub const releaseView = views.releaseView;
+pub const summary = views.summary;
+pub const settlement = views.settlement;
+pub const cell = views.cell;
+pub const receipts = views.receipts;
+pub const planetReceipts = views.planetReceipts;
+pub const beginFaultShutdown = views.beginFaultShutdown;
+pub const destroyFaulted = views.destroyFaulted;
+const jobs = @import("job.zig");
+pub const Builder = jobs.Builder;
+pub const beginCreate = jobs.beginCreate;
+pub const pollCreate = jobs.pollCreate;
+pub const cancelCreate = jobs.cancelCreate;
+pub const takeReady = jobs.takeReady;
+pub const deinitBuilder = jobs.deinitBuilder;
+pub const beginTick = jobs.beginTick;
+pub const poll = jobs.poll;
+pub const cancel = jobs.cancel;
+pub const deinit = jobs.deinit;
+
+pub const replay = @import("replay.zig");

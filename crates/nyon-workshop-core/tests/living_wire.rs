@@ -690,8 +690,11 @@ fn v2_wrapper_hex_rejects_uppercase_short_long_and_non_hex_text() {
 /// Every source file the crate compiles, compiled in so the scan cannot resolve
 /// a stale path after the checkout moves. `crate_module_scan_covers_every_file`
 /// proves this list is complete.
-const CRATE_SOURCES: [(&str, &str); 28] = [
+const CRATE_SOURCES: [(&str, &str); 31] = [
     ("lib.rs", include_str!("../src/lib.rs")),
+    ("recovery/mod.rs", include_str!("../src/recovery/mod.rs")),
+    ("recovery/roles.rs", include_str!("../src/recovery/roles.rs")),
+    ("recovery/surface.rs", include_str!("../src/recovery/surface.rs")),
     ("archive.rs", include_str!("../src/archive.rs")),
     ("command.rs", include_str!("../src/command.rs")),
     ("history.rs", include_str!("../src/history.rs")),
@@ -1046,7 +1049,7 @@ fn module_scan_resolves_nested_default_and_explicit_contexts() {
 fn crate_module_scan_covers_every_file() {
     let declarations = scan_module_sources(&CRATE_SOURCES).unwrap();
     assert_eq!(
-        declarations, 27,
+        declarations, 30,
         "all top-level, Living and nested authority modules are covered"
     );
     // `lib.rs` legitimately spells the word once, in `#![forbid(unsafe_code)]`.

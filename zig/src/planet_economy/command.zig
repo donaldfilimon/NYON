@@ -254,10 +254,10 @@ const ParseCursor = struct {
     done: bool = false,
     max_bytes_in_step: u8 = 0,
 
-    fn advance(self: *ParseCursor, candidate: *state.Candidate, entry: *Entry, bytes: []const u8, budget: *types.WorkBudget) Failure!types.Step {
+    fn advance(self: *ParseCursor, storage: ?*state.Storage, entry: *Entry, bytes: []const u8, budget: *types.WorkBudget) Failure!types.Step {
         if (self.done) return .done;
         if (budget.remaining == 0) return .pending;
-        state.spend(candidate.storage, budget);
+        if (storage) |s| state.spend(s, budget) else budget.remaining -= 1;
         var reader = Read{ .bytes = bytes, .offset = self.offset };
         if (self.field < 5) {
             switch (self.field) {
@@ -430,6 +430,23 @@ const ParseCursor = struct {
             return .done;
         }
         return .pending;
+    }
+};
+
+// The coordinator uses the island grammar without running island gameplay.
+// This parser owns only one decoded entry and advances one bounded field/unit.
+pub const StructuralParser = struct {
+    entry: Entry = undefined,
+    cursor: ParseCursor = .{},
+
+    pub fn advance(self: *StructuralParser, bytes: []const u8, budget: *types.WorkBudget) Failure!types.Step {
+        if (bytes.len > 1024) return error.EnvelopeTooLarge;
+        return self.cursor.advance(null, &self.entry, bytes, budget);
+    }
+
+    pub fn sequence(self: *const StructuralParser) ids.CommandSequence {
+        std.debug.assert(self.cursor.done);
+        return self.entry.header.sequence;
     }
 };
 
@@ -683,7 +700,7 @@ pub const Cursor = struct {
                             .build => |p| p.facing,
                             else => unreachable,
                         };
-                        self.footprint = rules.footprint(topology, self.kind, self.anchor, facing) catch return error.InvariantViolation;
+                        self.footprint = rules.footprintContext(context, topology, self.kind, self.anchor, facing) catch return error.InvariantViolation;
                         self.scan_i = 0;
                         self.eval = .footprint_terrain;
                     },
@@ -1189,7 +1206,7 @@ pub const Cursor = struct {
                     const entry = scratchEntry(candidate, self.index);
                     const before = self.parser.offset;
                     const before_budget = budget.remaining;
-                    const result = try self.parser.advance(candidate, entry, envelope.bytes, budget);
+                    const result = try self.parser.advance(candidate.storage, entry, envelope.bytes, budget);
                     if (budget.remaining < before_budget) {
                         self.parse_units += 1;
                         self.parsed_bytes += @intCast(self.parser.offset - before);

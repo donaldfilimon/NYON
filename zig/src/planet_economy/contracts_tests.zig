@@ -147,3 +147,11 @@ test "pe/contracts/wire-witnesses" {
         try std.testing.expectEqualSlices(u8, &vector.chain, &digest);
     }
 }
+
+test "pe/contracts/shared algorithm defaults remain fixed island identity" {
+    const context: pe.rules.AlgorithmContext = .{};
+    try std.testing.expectEqual(pe.planet_id, context.planet);
+    try std.testing.expect(context.validOwner(pe.civilization_id));
+    for ([_]u32{ 0, 1, 2, 3, 4, 8 }) |owner| try std.testing.expect(!context.validOwner(@fromBackingInt(owner)));
+    try std.testing.expectEqual(@as(usize, 8_642_560), @sizeOf(pe.state.Reservation));
+}

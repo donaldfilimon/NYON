@@ -1,8 +1,13 @@
 # NYON Zig: coordinated multi-planet transactional authority
 
+<!-- BEGIN 2026-10-19 rewrite decision -->
+> **Historical; Zig continuation canceled 2026-10-19.** Preserve this source contract and evidence. Active recovery targets Rust stable1.99.1; see the 2026-10-19 Rust designs/plans. Historical review labels do not approve new Rust behavior. Tests and CI gates remain paused.
+<!-- END 2026-10-19 rewrite decision -->
+
+
 - Author: Abbey; reviewer: Donald J. Filimon
 - Date: 2026-10-11
-- Status: **Approved specification — Donald approved written rules 2026-10-11 at 07:05 EDT; detailed implementation plan and its review pending**
+- Status: **Approved specification — Donald approved written rules 2026-10-11 at 07:05 EDT; detailed plan approved 2026-10-11 at 07:54 EDT; implementation in progress**
 - Independent review: `docs/qualification/2026-10-11-zig-coordinated-galaxy-design-fix1-review.md`; reviewed rules revision SHA256 `7dce7fad01c04da0b1b7e3de005883169238d5711a254efc2985fda176f7a6a2` (this status note changes metadata only).
 - Rules identity: `nyon.coordinated-galaxy.v0`
 - Compiler: exactly `0.18.0-dev.146+35accc06e`

@@ -2,7 +2,7 @@
 name = "nyon-workshop-core"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.100"
+rust-version = "1.99.1"
 description = "Pure deterministic authority, history, and archive core for NYON Workshop"
 license = "MIT OR Apache-2.0"
 
